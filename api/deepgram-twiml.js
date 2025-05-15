@@ -2,7 +2,7 @@ export default function handler(req, res) {
   const response = `
     <Response>
       <Start>
-        <Stream url="${process.env.DEEPGRAM_HANDLER_URL}" />
+        <Stream url="wss://twilio-ws-server-production-81ba.up.railway.app" />
       </Start>
       <Say voice="alice">Connecting you now. Please hold.</Say>
       <Pause length="60" />
