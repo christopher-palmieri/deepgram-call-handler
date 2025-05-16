@@ -1,7 +1,7 @@
 import { WebSocketServer } from 'ws';
 import fetch from 'node-fetch';
 
-const deepgramWsUrl = `wss://api.deepgram.com/v1/listen?encoding=mulaw&sample_rate=8000&endpointing=800&utterance_end_ms=1000&smart_format=true&model=phonecall`;
+const deepgramWsUrl = `wss://api.deepgram.com/v1/listen?encoding=mulaw&sample_rate=8000&endpointing=1500&utterance_end_ms=1000&smart_format=true&model=phonecall`;
 
 let server;
 
