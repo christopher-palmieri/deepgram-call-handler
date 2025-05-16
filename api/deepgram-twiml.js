@@ -7,7 +7,6 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
-  // Parse x-www-form-urlencoded Twilio webhook body
   let body = '';
   for await (const chunk of req) {
     body += chunk;
@@ -17,48 +16,63 @@ export default async function handler(req, res) {
   const callId = parsed.CallSid || 'unknown';
   console.log('📞 Incoming call for call_id:', callId);
 
-  // Check or create call session
-  const { data: session, error: sessionErr } = await supabase
-    .from('call_sessions')
-    .select('*')
-    .eq('call_id', callId)
-    .single();
-
+  // === Step 1: Check or Create Call Session ===
   let streamAlreadyStarted = false;
 
-  if (!session) {
-    console.log('🆕 Creating new call session...');
-    const { error: insertErr } = await supabase.from('call_sessions').insert([
-      { call_id: callId, stream_started: true }
-    ]);
-    if (insertErr) console.error('❌ Error creating call session:', insertErr);
-  } else {
-    streamAlreadyStarted = session.stream_started;
-    if (!streamAlreadyStarted) {
-      console.log('🔁 Marking stream_started = true...');
-      const { error: updateErr } = await supabase
-        .from('call_sessions')
-        .update({ stream_started: true })
-        .eq('call_id', callId);
-      if (updateErr) console.error('❌ Error updating call session:', updateErr);
+  try {
+    const { data: session, error: sessionErr } = await supabase
+      .from('call_sessions')
+      .select('*')
+      .eq('call_id', callId)
+      .single();
+
+    if (!session) {
+      console.log('🆕 Creating new call session...');
+      const { error: insertErr } = await supabase.from('call_sessions').insert([
+        { call_id: callId, stream_started: true }
+      ]);
+      if (insertErr) console.error('❌ Error creating call session:', insertErr);
+    } else {
+      streamAlreadyStarted = session.stream_started;
+      if (!streamAlreadyStarted) {
+        console.log('🔁 Marking stream_started = true...');
+        const { error: updateErr } = await supabase
+          .from('call_sessions')
+          .update({ stream_started: true })
+          .eq('call_id', callId);
+        if (updateErr) console.error('❌ Error updating call session:', updateErr);
+      }
     }
+  } catch (err) {
+    console.error('❌ Supabase call_sessions error:', err);
   }
 
-  // Get most recent unexecuted IVR action
-  const { data, error } = await supabase
-    .from('ivr_events')
-    .select('id, action_type, action_value')
-    .eq('call_id', callId)
-    .eq('executed', false)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single();
+  // === Step 2: Get Next Actionable IVR Event ===
+  let ivrAction = null;
 
-  console.log('🎯 Next actionable IVR event:', data);
+  try {
+    const { data, error: ivrErr } = await supabase
+      .from('ivr_events')
+      .select('id, action_type, action_value')
+      .eq('call_id', callId)
+      .eq('executed', false)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
 
+    if (ivrErr) {
+      console.error('❌ Error fetching IVR event:', ivrErr);
+    } else {
+      ivrAction = data;
+      console.log('🎯 Next actionable IVR event:', data);
+    }
+  } catch (err) {
+    console.error('❌ Unexpected ivr_events error:', err);
+  }
+
+  // === Step 3: Construct TwiML ===
   let responseXml = `<Response>`;
 
-  // Conditionally start stream (only once per call)
   if (!streamAlreadyStarted) {
     responseXml += `
       <Start>
@@ -68,19 +82,18 @@ export default async function handler(req, res) {
       </Start>`;
   }
 
-  // Handle valid IVR action
-  if (data && data.action_type && data.action_value) {
+  if (ivrAction && ivrAction.action_type && ivrAction.action_value) {
     responseXml += `<Stop><Stream name="mediaStream" /></Stop>`;
 
-    if (data.action_type === 'dtmf') {
-      responseXml += `<Play digits="${data.action_value}" />`;
-    } else if (data.action_type === 'speech') {
-      responseXml += `<Say>${data.action_value}</Say>`;
+    if (ivrAction.action_type === 'dtmf') {
+      responseXml += `<Play digits="${ivrAction.action_value}" />`;
+    } else if (ivrAction.action_type === 'speech') {
+      responseXml += `<Say>${ivrAction.action_value}</Say>`;
     }
 
     responseXml += `<Pause length="1" />`;
 
-    // 🔁 Restart stream for additional IVR options
+    // Restart stream to continue listening
     responseXml += `
       <Start>
         <Stream url="wss://twilio-ws-server-production-81ba.up.railway.app">
@@ -91,14 +104,13 @@ export default async function handler(req, res) {
     const { error: execError } = await supabase
       .from('ivr_events')
       .update({ executed: true })
-      .eq('id', data.id);
+      .eq('id', ivrAction.id);
 
-    if (execError) console.error('❌ Error marking action as executed:', execError);
+    if (execError) console.error('❌ Error marking IVR event as executed:', execError);
   } else {
     responseXml += `<Pause length="3" />`;
   }
 
-  // Redirect to self to poll for next action
   responseXml += `<Redirect>/api/deepgram-twiml</Redirect></Response>`;
 
   console.log('🧾 Responding with TwiML:', responseXml);
@@ -107,7 +119,6 @@ export default async function handler(req, res) {
   res.status(200).send(responseXml);
 }
 
-// Required by Twilio: disable default body parser
 export const config = {
   api: {
     bodyParser: false
