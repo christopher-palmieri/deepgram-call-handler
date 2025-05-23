@@ -16,7 +16,41 @@ export default async function handler(req, res) {
   const callId = parsed.CallSid || 'unknown';
   console.log('📞 Incoming call for call_id:', callId);
 
-  // === Step 1: Check or Create Call Session ===
+  // === Step 1: Check for IVR classification ===
+  let classification = null;
+
+  try {
+    const { data, error } = await supabase
+      .from('call_sessions')
+      .select('ivr_detection_state')
+      .eq('call_id', callId)
+      .single();
+
+    if (error) {
+      console.error('❌ Error checking call session classification:', error);
+    } else {
+      classification = data.ivr_detection_state;
+      console.log('🔍 Classification:', classification);
+    }
+  } catch (err) {
+    console.error('❌ Supabase classification check error:', err);
+  }
+
+  if (classification === 'human' || classification === 'ivr_then_human') {
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+      <Response>
+        <Dial>
+          <Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip>
+        </Dial>
+      </Response>`;
+
+    console.log('🧾 Serving SIP Bridge TwiML:', twiml);
+    res.setHeader('Content-Type', 'text/xml');
+    res.status(200).send(twiml);
+    return;
+  }
+
+  // === Step 2: Check or Create Call Session ===
   let streamAlreadyStarted = false;
 
   try {
@@ -47,7 +81,7 @@ export default async function handler(req, res) {
     console.error('❌ Supabase call_sessions error:', err);
   }
 
-  // === Step 2: Get Next Actionable IVR Event ===
+  // === Step 3: Get Next Actionable IVR Event ===
   let ivrAction = null;
 
   try {
@@ -70,7 +104,7 @@ export default async function handler(req, res) {
     console.error('❌ Unexpected ivr_events error:', err);
   }
 
-  // === Step 3: Construct TwiML ===
+  // === Step 4: Construct TwiML ===
   let responseXml = `<Response>`;
 
   if (!streamAlreadyStarted) {
@@ -113,7 +147,7 @@ export default async function handler(req, res) {
 
   responseXml += `<Redirect>/api/deepgram-twiml</Redirect></Response>`;
 
-  console.log('🧾 Responding with TwiML:', responseXml);
+  console.log('🧾 Responding with fallback IVR TwiML:', responseXml);
 
   res.setHeader('Content-Type', 'text/xml');
   res.status(200).send(responseXml);
