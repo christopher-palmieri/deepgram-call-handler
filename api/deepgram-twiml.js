@@ -203,8 +203,8 @@ export default async function handler(req, res) {
         <Start>
           <Stream url="wss://twilio-ws-server-production-81ba.up.railway.app">
             <Parameter name="streamSid" value="${callId}" />
-          </Stream>
-        </Start>`;
+        </Stream>
+      </Start>`;
       
       responseXml += `<Pause length="3" />`;
       responseXml += `<Redirect>/api/deepgram-twiml</Redirect></Response>`;
