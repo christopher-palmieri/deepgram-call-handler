@@ -29,7 +29,7 @@ export default async function handler(req, res) {
     if (error) {
       console.error('❌ Error checking call session classification:', error);
     } else {
-      classification = data.ivr_detection_state;
+      classification = data?.ivr_detection_state;
       console.log('🔍 Classification:', classification);
     }
   } catch (err) {
@@ -85,26 +85,65 @@ export default async function handler(req, res) {
   let ivrAction = null;
 
   try {
+    console.log('🔎 Checking for IVR events...');
+    
     const { data, error: ivrErr } = await supabase
       .from('ivr_events')
-      .select('id, action_type, action_value')
+      .select('id, action_type, action_value, transcript')
       .eq('call_id', callId)
       .eq('executed', false)
+      .not('action_type', 'is', null)
+      .not('action_type', 'eq', 'wait')
+      .not('action_type', 'eq', 'unknown')
       .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+      .limit(1);
 
     if (ivrErr) {
       console.error('❌ Error fetching IVR event:', ivrErr);
+    } else if (data && data.length > 0) {
+      ivrAction = data[0];
+      console.log('🎯 Next actionable IVR event:', ivrAction);
     } else {
-      ivrAction = data;
-      console.log('🎯 Next actionable IVR event:', data);
+      console.log('⏳ No actionable IVR events found');
     }
   } catch (err) {
     console.error('❌ Unexpected ivr_events error:', err);
   }
 
-  // === Step 4: Construct TwiML ===
+  // === Step 4: Check if we should transfer to VAPI ===
+  let shouldTransferToVapi = false;
+  
+  if (ivrAction) {
+    // Check if this action indicates we've reached the front desk
+    const frontDeskIndicators = [
+      // DTMF actions that typically reach front desk
+      { type: 'dtmf', values: ['0', '1', '2'] }, // Common front desk options
+      
+      // Speech actions indicating front desk
+      { type: 'speech', keywords: ['front desk', 'receptionist', 'operator', 'representative', 'scheduling', 'appointment'] }
+    ];
+    
+    // Check DTMF
+    if (ivrAction.action_type === 'dtmf') {
+      shouldTransferToVapi = frontDeskIndicators
+        .filter(ind => ind.type === 'dtmf')
+        .some(ind => ind.values.includes(ivrAction.action_value));
+        
+      console.log(`🔢 DTMF ${ivrAction.action_value} - Transfer to VAPI: ${shouldTransferToVapi}`);
+    }
+    
+    // Check Speech
+    if (ivrAction.action_type === 'speech') {
+      const speechLower = ivrAction.action_value?.toLowerCase() || '';
+      shouldTransferToVapi = frontDeskIndicators
+        .filter(ind => ind.type === 'speech')
+        .some(ind => ind.keywords.some(keyword => speechLower.includes(keyword)));
+        
+      console.log(`🗣️ Speech "${ivrAction.action_value}" - Transfer to VAPI: ${shouldTransferToVapi}`);
+    }
+  }
+
+  // === Step 5: Construct TwiML ===
   let responseXml = `<Response>`;
 
   if (!streamAlreadyStarted) {
@@ -117,37 +156,76 @@ export default async function handler(req, res) {
   }
 
   if (ivrAction && ivrAction.action_type && ivrAction.action_value) {
+    console.log(`🎬 Executing action: ${ivrAction.action_type} - ${ivrAction.action_value}`);
+    
+    // Stop the stream temporarily
     responseXml += `<Stop><Stream name="mediaStream" /></Stop>`;
 
     if (ivrAction.action_type === 'dtmf') {
-      responseXml += `<Play digits="${ivrAction.action_value}" />`;
+      responseXml += `<Play digits="w${ivrAction.action_value}" />`;
     } else if (ivrAction.action_type === 'speech') {
       responseXml += `<Say>${ivrAction.action_value}</Say>`;
     }
 
-    responseXml += `<Pause length="1" />`;
-
-    // Restart stream to continue listening
-    responseXml += `
-      <Start>
-        <Stream url="wss://twilio-ws-server-production-81ba.up.railway.app">
-          <Parameter name="streamSid" value="${callId}" />
-        </Stream>
-      </Start>`;
-
+    // Mark as executed
     const { error: execError } = await supabase
       .from('ivr_events')
       .update({ executed: true })
       .eq('id', ivrAction.id);
 
     if (execError) console.error('❌ Error marking IVR event as executed:', execError);
+
+    // If we should transfer to VAPI, update the classification and redirect
+    if (shouldTransferToVapi) {
+      console.log('🚀 Front desk reached! Updating classification to ivr_then_human...');
+      
+      // Update the call session classification
+      const { error: updateError } = await supabase
+        .from('call_sessions')
+        .update({ 
+          ivr_detection_state: 'ivr_then_human',
+          ivr_classified_at: new Date().toISOString()
+        })
+        .eq('call_id', callId);
+        
+      if (updateError) {
+        console.error('❌ Error updating classification:', updateError);
+      } else {
+        console.log('✅ Classification updated to ivr_then_human');
+      }
+      
+      // Add a pause before transfer
+      responseXml += `<Pause length="2" />`;
+      
+      // Transfer to VAPI
+      responseXml += `
+        <Dial>
+          <Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip>
+        </Dial>
+      </Response>`;
+      
+    } else {
+      // Continue with IVR navigation
+      responseXml += `<Pause length="1" />`;
+      
+      // Restart stream to continue listening
+      responseXml += `
+        <Start>
+          <Stream url="wss://twilio-ws-server-production-81ba.up.railway.app">
+            <Parameter name="streamSid" value="${callId}" />
+          </Stream>
+        </Start>`;
+      
+      responseXml += `<Pause length="3" />`;
+      responseXml += `<Redirect>/api/deepgram-twiml</Redirect></Response>`;
+    }
   } else {
+    // No action to execute, continue listening
     responseXml += `<Pause length="3" />`;
+    responseXml += `<Redirect>/api/deepgram-twiml</Redirect></Response>`;
   }
 
-  responseXml += `<Redirect>/api/deepgram-twiml</Redirect></Response>`;
-
-  console.log('🧾 Responding with fallback IVR TwiML:', responseXml);
+  console.log('🧾 TwiML response:', responseXml);
 
   res.setHeader('Content-Type', 'text/xml');
   res.status(200).send(responseXml);
