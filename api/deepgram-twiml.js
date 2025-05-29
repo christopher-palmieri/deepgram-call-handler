@@ -30,21 +30,23 @@ export default async function handler(req, res) {
       console.error('❌ Error checking call session classification:', error);
     } else {
       classification = data?.ivr_detection_state;
-      console.log('🔍 Classification:', classification);
+      console.log('🔍 Current classification:', classification);
     }
   } catch (err) {
     console.error('❌ Supabase classification check error:', err);
   }
 
+  // Always check if classification has been updated to human or ivr_then_human
   if (classification === 'human' || classification === 'ivr_then_human') {
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
       <Response>
+        <Stop><Stream name="mediaStream" /></Stop>
         <Dial>
           <Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip>
         </Dial>
       </Response>`;
 
-    console.log('🧾 Serving SIP Bridge TwiML:', twiml);
+    console.log('🧾 Serving SIP Bridge TwiML for classification:', classification);
     res.setHeader('Content-Type', 'text/xml');
     res.status(200).send(twiml);
     return;
@@ -113,7 +115,8 @@ export default async function handler(req, res) {
   // === Step 4: Check if we should transfer to VAPI ===
   let shouldTransferToVapi = false;
   
-  if (ivrAction) {
+  // For ivr_only classification, transfer immediately after front desk actions
+  if (classification === 'ivr_only' && ivrAction) {
     // Check if this action indicates we've reached the front desk
     const frontDeskIndicators = [
       // DTMF actions that typically reach front desk
@@ -129,7 +132,7 @@ export default async function handler(req, res) {
         .filter(ind => ind.type === 'dtmf')
         .some(ind => ind.values.includes(ivrAction.action_value));
         
-      console.log(`🔢 DTMF ${ivrAction.action_value} - Transfer to VAPI: ${shouldTransferToVapi}`);
+      console.log(`🔢 [IVR_ONLY] DTMF ${ivrAction.action_value} - Transfer to VAPI: ${shouldTransferToVapi}`);
     }
     
     // Check Speech
@@ -139,7 +142,7 @@ export default async function handler(req, res) {
         .filter(ind => ind.type === 'speech')
         .some(ind => ind.keywords.some(keyword => speechLower.includes(keyword)));
         
-      console.log(`🗣️ Speech "${ivrAction.action_value}" - Transfer to VAPI: ${shouldTransferToVapi}`);
+      console.log(`🗣️ [IVR_ONLY] Speech "${ivrAction.action_value}" - Transfer to VAPI: ${shouldTransferToVapi}`);
     }
   }
 
@@ -175,27 +178,12 @@ export default async function handler(req, res) {
 
     if (execError) console.error('❌ Error marking IVR event as executed:', execError);
 
-    // If we should transfer to VAPI, update the classification and redirect
+    // If we should transfer to VAPI (for ivr_only after front desk action)
     if (shouldTransferToVapi) {
-      console.log('🚀 Front desk reached! Updating classification to ivr_then_human...');
+      console.log('🚀 [IVR_ONLY] Front desk action executed! Transferring to VAPI...');
       
-      // Update the call session classification
-      const { error: updateError } = await supabase
-        .from('call_sessions')
-        .update({ 
-          ivr_detection_state: 'ivr_then_human',
-          ivr_classified_at: new Date().toISOString()
-        })
-        .eq('call_id', callId);
-        
-      if (updateError) {
-        console.error('❌ Error updating classification:', updateError);
-      } else {
-        console.log('✅ Classification updated to ivr_then_human');
-      }
-      
-      // Add a pause before transfer
-      responseXml += `<Pause length="2" />`;
+      // Add a pause before transfer to let the DTMF/speech complete
+      responseXml += `<Pause length="3" />`;
       
       // Transfer to VAPI
       responseXml += `
@@ -203,6 +191,8 @@ export default async function handler(req, res) {
           <Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip>
         </Dial>
       </Response>`;
+      
+      console.log('🧾 [IVR_ONLY] Transferring to VAPI after action:', ivrAction.action_type, ivrAction.action_value);
       
     } else {
       // Continue with IVR navigation
