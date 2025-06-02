@@ -104,9 +104,32 @@ export default async function handler(req, res) {
     console.error('❌ Unexpected ivr_events error:', err);
   }
 
-  // === Step 4: Construct TwiML ===
-  let responseXml = `<Response>`;
+  // === Check if we should transfer after IVR action ===
+  let shouldTransferToVapi = false;
+  
+  if (classification === 'ivr_only' && ivrAction) {
+    // Define which actions lead to front desk
+    const frontDeskDTMF = ['0', '1', '2', '3']; // Added '3' for patient care
+    const frontDeskKeywords = ['front desk', 'receptionist', 'operator', 'representative', 'patient care'];
+    
+    if (ivrAction.action_type === 'dtmf' && frontDeskDTMF.includes(ivrAction.action_value)) {
+      shouldTransferToVapi = true;
+      console.log(`🔢 [IVR_ONLY] DTMF ${ivrAction.action_value} will transfer to VAPI`);
+    }
+    
+    if (ivrAction.action_type === 'speech') {
+      const speechLower = (ivrAction.action_value || '').toLowerCase();
+      if (frontDeskKeywords.some(keyword => speechLower.includes(keyword))) {
+        shouldTransferToVapi = true;
+        console.log(`🗣️ [IVR_ONLY] Speech "${ivrAction.action_value}" will transfer to VAPI`);
+      }
+    }
+  }
 
+  // === Step 4: Construct TwiML ===
+  let responseXml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
+
+  // Start the stream only if it hasn't been started yet
   if (!streamAlreadyStarted) {
     responseXml += `
       <Start>
@@ -117,37 +140,44 @@ export default async function handler(req, res) {
   }
 
   if (ivrAction && ivrAction.action_type && ivrAction.action_value) {
-    responseXml += `<Stop><Stream name="mediaStream" /></Stop>`;
-
+    // DON'T STOP THE STREAM - Keep it alive during DTMF/Speech
+    // This prevents the Deepgram connection from closing
+    
     if (ivrAction.action_type === 'dtmf') {
       responseXml += `<Play digits="${ivrAction.action_value}" />`;
     } else if (ivrAction.action_type === 'speech') {
       responseXml += `<Say>${ivrAction.action_value}</Say>`;
     }
 
-    responseXml += `<Pause length="1" />`;
-
-    // Restart stream to continue listening
-    responseXml += `
-      <Start>
-        <Stream url="wss://twilio-ws-server-production-81ba.up.railway.app">
-          <Parameter name="streamSid" value="${callId}" />
-        </Stream>
-      </Start>`;
-
+    // Mark as executed
     const { error: execError } = await supabase
       .from('ivr_events')
       .update({ executed: true })
       .eq('id', ivrAction.id);
 
     if (execError) console.error('❌ Error marking IVR event as executed:', execError);
+
+    // If this is a front desk action, transfer to VAPI
+    if (shouldTransferToVapi) {
+      console.log('🚀 [IVR_ONLY] Transferring to VAPI after front desk action');
+      responseXml += `<Pause length="2" />`; // Short pause for DTMF/speech to complete
+      
+      // Stop the stream before transferring to VAPI
+      responseXml += `<Stop><Stream name="mediaStream" /></Stop>`;
+      responseXml += `<Dial><Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip></Dial>`;
+      responseXml += `</Response>`;
+    } else {
+      // Continue listening without stopping the stream
+      responseXml += `<Pause length="3" />`;
+      responseXml += `<Redirect>/api/deepgram-twiml</Redirect></Response>`;
+    }
   } else {
+    // No action, just continue listening
     responseXml += `<Pause length="3" />`;
+    responseXml += `<Redirect>/api/deepgram-twiml</Redirect></Response>`;
   }
 
-  responseXml += `<Redirect>/api/deepgram-twiml</Redirect></Response>`;
-
-  console.log('🧾 Responding with fallback IVR TwiML:', responseXml);
+  console.log('🧾 Responding with TwiML:', responseXml);
 
   res.setHeader('Content-Type', 'text/xml');
   res.status(200).send(responseXml);
