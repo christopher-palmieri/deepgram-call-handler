@@ -129,11 +129,10 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/xml');
     res.status(200).send(responseXml);
     
-    // Trigger bot and VAPI to join conference
-    setTimeout(() => {
-      addBotToConference(callId);
-      addVAPIToConference(callId, true); // Start muted
-    }, 1000);
+    // Trigger bot and VAPI to join conference immediately
+    // Don't use setTimeout in serverless functions!
+    addBotToConference(callId);
+    addVAPIToConference(callId, true); // Start muted
     
     return;
   }
@@ -200,7 +199,7 @@ async function addBotToConference(callId) {
   try {
     const call = await twilioClient.calls.create({
       url: `${process.env.VERCEL_URL}/api/conference-bot?callId=${callId}`,
-      to: `client:${callId}-bot`,
+      to: process.env.TWILIO_PHONE_NUMBER, // Call your own number
       from: process.env.TWILIO_PHONE_NUMBER,
     });
     
