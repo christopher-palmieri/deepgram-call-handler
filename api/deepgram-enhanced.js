@@ -25,6 +25,7 @@ export default async function handler(req, res) {
   const callId = parsed.CallSid || 'unknown';
   const callerNumber = parsed.From || 'unknown';
   console.log('📞 Enhanced handler - call_id:', callId);
+  console.log('📞 Full parsed data:', parsed);
 
   // === Step 1: Check for IVR classification (keep existing logic) ===
   let classification = null;
@@ -52,16 +53,22 @@ export default async function handler(req, res) {
   if (!session) {
     console.log('🆕 Creating new call session...');
     try {
-      const { data: newSession } = await supabase
+      const { data: newSession, error: insertErr } = await supabase
         .from('call_sessions')
         .insert([{ 
           call_id: callId,
           caller_number: callerNumber,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          stream_started: true  // Mark stream as started
         }])
         .select()
         .single();
-      session = newSession;
+      
+      if (insertErr) {
+        console.error('❌ Error creating session:', insertErr);
+      } else {
+        session = newSession;
+      }
     } catch (err) {
       console.error('❌ Error creating session:', err);
     }
@@ -127,7 +134,7 @@ export default async function handler(req, res) {
   // === Step 5: Handle IVR Actions ===
   let ivrAction = null;
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('ivr_events')
       .select('id, action_type, action_value')
       .eq('call_id', callId)
@@ -136,12 +143,14 @@ export default async function handler(req, res) {
       .limit(1)
       .single();
     
-    if (data) {
+    if (!error && data) {
       ivrAction = data;
-      console.log('🎯 IVR action:', ivrAction);
+      console.log('🎯 IVR action found:', ivrAction);
+    } else if (error && error.code !== 'PGRST116') {
+      console.error('❌ Error fetching IVR event:', error);
     }
   } catch (err) {
-    // No pending actions
+    console.error('❌ Unexpected error:', err);
   }
 
   if (ivrAction) {
