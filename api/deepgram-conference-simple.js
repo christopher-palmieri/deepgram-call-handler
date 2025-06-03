@@ -20,6 +20,14 @@ export default async function handler(req, res) {
   console.log('📞 Conference handler - call_id:', callId);
   console.log('📞 Call status:', parsed.CallStatus);
 
+  // Don't process if we don't have a valid CallSid
+  if (callId === 'unknown' || !callId) {
+    console.error('❌ Missing CallSid');
+    res.setHeader('Content-Type', 'text/xml');
+    res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Error: Missing call information</Say><Hangup/></Response>');
+    return;
+  }
+
   // Always join the conference with streaming
   const responseXml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -31,8 +39,7 @@ export default async function handler(req, res) {
   <Dial>
     <Conference beep="false"
                 startConferenceOnEnter="true"
-                endConferenceOnExit="true"
-                waitUrl="${BACKGROUND_NOISE_URL}">
+                endConferenceOnExit="true">
       ${callId}-room
     </Conference>
   </Dial>
@@ -42,28 +49,28 @@ export default async function handler(req, res) {
   res.setHeader('Content-Type', 'text/xml');
   res.status(200).send(responseXml);
 
-  // Create session if it doesn't exist
-  try {
-    const { data: existing } = await supabase
-      .from('call_sessions')
-      .select('call_id')
-      .eq('call_id', callId)
-      .single();
-
-    if (!existing) {
-      console.log('🆕 Creating call session...');
-      await supabase
-        .from('call_sessions')
-        .insert([{
-          call_id: callId,
-          created_at: new Date().toISOString(),
-          stream_started: true,
-          conference_created: true
-        }]);
-    }
-  } catch (err) {
-    console.error('Session handling error:', err);
-  }
+  // Create session if it doesn't exist (non-blocking)
+  supabase
+    .from('call_sessions')
+    .select('call_id')
+    .eq('call_id', callId)
+    .single()
+    .then(({ data: existing, error }) => {
+      if (!existing && !error) {
+        console.log('🆕 Creating call session...');
+        return supabase
+          .from('call_sessions')
+          .insert([{
+            call_id: callId,
+            created_at: new Date().toISOString(),
+            stream_started: true,
+            conference_created: true
+          }]);
+      }
+    })
+    .catch(err => {
+      console.error('Session handling error:', err);
+    });
 }
 
 export const config = {
