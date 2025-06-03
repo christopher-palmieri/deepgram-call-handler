@@ -13,6 +13,11 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
+  // Check if barge-in is enabled
+  if (process.env.ENABLE_MANAGER_BARGE_IN !== 'true') {
+    return res.status(403).json({ error: 'Manager barge-in is disabled' });
+  }
+  
   const { callId, managerPhone } = req.body;
   
   if (!callId || !managerPhone) {
