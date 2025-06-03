@@ -4,18 +4,18 @@ export default async function handler(req, res) {
   console.log('📞 VAPI joining conference for:', callId, 'Muted:', muted);
 
   // Join conference (muted initially)
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+// In conference-vapi.js, try unmuted to see if VAPI even joins
+const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial>
     <Conference beep="false"
-                muted="${muted}"
+                muted="false"  // Changed to false for testing
                 startConferenceOnEnter="false"
                 endConferenceOnExit="false">
       ${callId}-room
     </Conference>
   </Dial>
 </Response>`;
-
   res.setHeader('Content-Type', 'text/xml');
   res.status(200).send(twiml);
 }
