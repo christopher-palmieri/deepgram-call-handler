@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 import querystring from 'querystring';
-import conferenceHandler from './deepgram-conference.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -8,17 +7,6 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
-  console.log('USE_CONFERENCE:', process.env.USE_CONFERENCE);
-  
-  // Route to conference handler if enabled
-  if (process.env.USE_CONFERENCE === 'true') {
-    console.log('🔀 Routing to conference handler...');
-    return conferenceHandler(req, res);
-  }
-  
-  // Continue with direct-stream approach
-  console.log('📡 Using direct stream approach...');
-  
   let body = '';
   for await (const chunk of req) {
     body += chunk;
@@ -132,10 +120,8 @@ export default async function handler(req, res) {
     responseXml += `<Stop><Stream name="mediaStream" /></Stop>`;
 
     if (ivrAction.action_type === 'dtmf') {
-      console.log(`🎹 Playing DTMF: ${ivrAction.action_value}`);
       responseXml += `<Play digits="${ivrAction.action_value}" />`;
     } else if (ivrAction.action_type === 'speech') {
-      console.log(`🗣️ Saying: ${ivrAction.action_value}`);
       responseXml += `<Say>${ivrAction.action_value}</Say>`;
     }
 
@@ -161,7 +147,7 @@ export default async function handler(req, res) {
 
   responseXml += `<Redirect>/api/deepgram-twiml</Redirect></Response>`;
 
-  console.log('🧾 Responding with TwiML:', responseXml);
+  console.log('🧾 Responding with fallback IVR TwiML:', responseXml);
 
   res.setHeader('Content-Type', 'text/xml');
   res.status(200).send(responseXml);
