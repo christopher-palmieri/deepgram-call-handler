@@ -118,13 +118,17 @@ export default async function handler(req, res) {
   if (!conferenceCreated) {
     console.log('🏢 Creating conference room...');
     
+    const vercelUrl = process.env.VERCEL_URL.startsWith('http') 
+      ? process.env.VERCEL_URL 
+      : `https://${process.env.VERCEL_URL}`;
+    
     const responseXml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial>
     <Conference beep="false"
                 startConferenceOnEnter="true"
                 endConferenceOnExit="false"
-                statusCallback="${process.env.VERCEL_URL}/api/conference-status"
+                statusCallback="${vercelUrl}/api/conference-status"
                 statusCallbackEvent="start end join leave mute unmute">
       ${callId}-room
     </Conference>
@@ -202,9 +206,13 @@ export default async function handler(req, res) {
 async function addBotToConference(callId) {
   console.log('🤖 Adding bot to conference...');
   
+  const vercelUrl = process.env.VERCEL_URL.startsWith('http') 
+    ? process.env.VERCEL_URL 
+    : `https://${process.env.VERCEL_URL}`;
+  
   try {
     const call = await twilioClient.calls.create({
-      url: `${process.env.VERCEL_URL}/api/conference-bot?callId=${callId}`,
+      url: `${vercelUrl}/api/conference-bot?callId=${callId}`,
       to: process.env.TWILIO_PHONE_NUMBER, // Call your own number
       from: process.env.TWILIO_PHONE_NUMBER,
     });
@@ -218,9 +226,13 @@ async function addBotToConference(callId) {
 async function addVAPIToConference(callId, startMuted = true) {
   console.log('📞 Adding VAPI to conference (muted)...');
   
+  const vercelUrl = process.env.VERCEL_URL.startsWith('http') 
+    ? process.env.VERCEL_URL 
+    : `https://${process.env.VERCEL_URL}`;
+  
   try {
     const call = await twilioClient.calls.create({
-      url: `${process.env.VERCEL_URL}/api/conference-vapi?callId=${callId}&muted=${startMuted}`,
+      url: `${vercelUrl}/api/conference-vapi?callId=${callId}&muted=${startMuted}`,
       to: `sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}`,
       from: process.env.TWILIO_PHONE_NUMBER,
     });
