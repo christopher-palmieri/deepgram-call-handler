@@ -6,6 +6,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// Office background noise MP3 URLs (you'll need to host these)
+// Use a subtle, loopable office ambience sound
+const BACKGROUND_NOISE_URL = process.env.BACKGROUND_NOISE_URL || 'https://your-cdn.com/office-ambient-loop.mp3';
+
 export default async function handler(req, res) {
   let body = '';
   for await (const chunk of req) {
@@ -52,6 +56,7 @@ export default async function handler(req, res) {
 
   // === Step 2: Check or Create Call Session ===
   let streamAlreadyStarted = false;
+  let backgroundNoiseStarted = false;
 
   try {
     const { data: session, error: sessionErr } = await supabase
@@ -63,16 +68,25 @@ export default async function handler(req, res) {
     if (!session) {
       console.log('🆕 Creating new call session...');
       const { error: insertErr } = await supabase.from('call_sessions').insert([
-        { call_id: callId, stream_started: true }
+        { 
+          call_id: callId, 
+          stream_started: true,
+          background_noise_started: true 
+        }
       ]);
       if (insertErr) console.error('❌ Error creating call session:', insertErr);
     } else {
       streamAlreadyStarted = session.stream_started;
+      backgroundNoiseStarted = session.background_noise_started || false;
+      
       if (!streamAlreadyStarted) {
         console.log('🔁 Marking stream_started = true...');
         const { error: updateErr } = await supabase
           .from('call_sessions')
-          .update({ stream_started: true })
+          .update({ 
+            stream_started: true,
+            background_noise_started: true 
+          })
           .eq('call_id', callId);
         if (updateErr) console.error('❌ Error updating call session:', updateErr);
       }
@@ -104,12 +118,11 @@ export default async function handler(req, res) {
     console.error('❌ Unexpected ivr_events error:', err);
   }
 
-  // === Check if we should transfer after IVR action ===
+  // === NEW: Check if we should transfer after IVR action ===
   let shouldTransferToVapi = false;
   
   if (classification === 'ivr_only' && ivrAction) {
-    // Define which actions lead to front desk
-    const frontDeskDTMF = ['0', '1', '2', '3']; // Added '3' for patient care
+    const frontDeskDTMF = ['0', '1', '2', '3'];
     const frontDeskKeywords = ['front desk', 'receptionist', 'operator', 'representative', 'patient care'];
     
     if (ivrAction.action_type === 'dtmf' && frontDeskDTMF.includes(ivrAction.action_value)) {
@@ -129,6 +142,13 @@ export default async function handler(req, res) {
   // === Step 4: Construct TwiML ===
   let responseXml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
 
+  // Start background noise IMMEDIATELY on first call
+  if (!backgroundNoiseStarted) {
+    console.log('🔊 Starting background office noise...');
+    responseXml += `
+      <Play loop="0">${BACKGROUND_NOISE_URL}</Play>`;
+  }
+
   // Start the stream only if it hasn't been started yet
   if (!streamAlreadyStarted) {
     responseXml += `
@@ -140,8 +160,8 @@ export default async function handler(req, res) {
   }
 
   if (ivrAction && ivrAction.action_type && ivrAction.action_value) {
-    // DON'T STOP THE STREAM - Keep it alive during DTMF/Speech
-    // This prevents the Deepgram connection from closing
+    // Stop the background noise before playing DTMF
+    responseXml += `<Stop><Play /></Stop>`;
     
     if (ivrAction.action_type === 'dtmf') {
       responseXml += `<Play digits="${ivrAction.action_value}" />`;
@@ -157,28 +177,24 @@ export default async function handler(req, res) {
 
     if (execError) console.error('❌ Error marking IVR event as executed:', execError);
 
-    // If this is a front desk action, transfer to VAPI
     if (shouldTransferToVapi) {
       console.log('🚀 [IVR_ONLY] Transferring to VAPI after front desk action');
-      responseXml += `<Pause length="2" />`; // Short pause for DTMF/speech to complete
-      
-      // Stop the stream before transferring to VAPI
-      responseXml += `<Stop><Stream name="mediaStream" /></Stop>`;
+      responseXml += `<Pause length="2" />`;
       responseXml += `<Dial><Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip></Dial>`;
       responseXml += `</Response>`;
     } else {
-      // Continue listening without stopping the stream
+      // Resume background noise and continue
+      responseXml += `<Play loop="0">${BACKGROUND_NOISE_URL}</Play>`;
       responseXml += `<Pause length="3" />`;
       responseXml += `<Redirect>/api/deepgram-twiml</Redirect></Response>`;
     }
   } else {
-    // No action, just continue listening
+    // No action, just continue with background noise
     responseXml += `<Pause length="3" />`;
     responseXml += `<Redirect>/api/deepgram-twiml</Redirect></Response>`;
   }
 
-  console.log('🧾 Responding with TwiML:', responseXml);
-
+  console.log('🧾 Responding with TwiML (with background noise)');
   res.setHeader('Content-Type', 'text/xml');
   res.status(200).send(responseXml);
 }
