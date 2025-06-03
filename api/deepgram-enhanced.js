@@ -44,6 +44,13 @@ export default async function handler(req, res) {
       session = data;
       classification = data.ivr_detection_state;
       console.log('🔍 Classification:', classification);
+      console.log('📋 Session found:', {
+        call_id: data.call_id,
+        conference_created: data.conference_created,
+        stream_started: data.stream_started
+      });
+    } else {
+      console.log('📋 No session found for call:', callId);
     }
   } catch (err) {
     console.error('❌ Supabase check error:', err);
