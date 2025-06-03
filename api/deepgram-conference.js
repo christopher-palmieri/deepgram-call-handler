@@ -8,6 +8,12 @@ const supabase = createClient(
 );
 
 // Add validation for Twilio credentials
+console.log('=== Environment Check ===');
+console.log('TWILIO_ACCOUNT_SID:', process.env.TWILIO_ACCOUNT_SID ? 'Set' : 'NOT SET');
+console.log('TWILIO_AUTH_TOKEN:', process.env.TWILIO_AUTH_TOKEN ? 'Set' : 'NOT SET');
+console.log('TWILIO_PHONE_NUMBER:', process.env.TWILIO_PHONE_NUMBER || 'NOT SET');
+console.log('VERCEL_URL:', process.env.VERCEL_URL || 'NOT SET');
+
 if (!process.env.TWILIO_ACCOUNT_SID) {
   console.error('ERROR: TWILIO_ACCOUNT_SID is not set');
 }
