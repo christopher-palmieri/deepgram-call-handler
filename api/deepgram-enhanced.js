@@ -12,8 +12,8 @@ const twilioClient = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-// Office ambiance audio URL
-const OFFICE_AMBIANCE_URL = 'http://twimlets.com/holdmusic?Bucket=com.twilio.music.ambient';
+// Office ambiance audio URL from environment
+const BACKGROUND_NOISE_URL = process.env.BACKGROUND_NOISE_URL || 'http://twimlets.com/holdmusic?Bucket=com.twilio.music.ambient';
 
 export default async function handler(req, res) {
   let body = '';
@@ -100,7 +100,7 @@ export default async function handler(req, res) {
     <Conference beep="false"
                 startConferenceOnEnter="true"
                 endConferenceOnExit="false"
-                waitUrl="${OFFICE_AMBIANCE_URL}"
+                waitUrl="${BACKGROUND_NOISE_URL}"
                 waitMethod="GET">
       ${callId}-room
     </Conference>
