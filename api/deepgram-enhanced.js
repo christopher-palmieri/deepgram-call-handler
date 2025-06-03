@@ -57,9 +57,9 @@ export default async function handler(req, res) {
         .from('call_sessions')
         .insert([{ 
           call_id: callId,
-          caller_number: callerNumber,
           created_at: new Date().toISOString(),
-          stream_started: true  // Mark stream as started
+          stream_started: true,
+          conference_created: true
         }])
         .select()
         .single();
