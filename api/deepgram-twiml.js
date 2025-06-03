@@ -19,6 +19,8 @@ export default async function handler(req, res) {
   const parsed = querystring.parse(body);
   const callId = parsed.CallSid || 'unknown';
   console.log('📞 Incoming call for call_id:', callId);
+  console.log('🎵 BACKGROUND NOISE URL:', BACKGROUND_NOISE_URL);
+  console.log('✅ Using updated code with background noise - v2');
 
   // === Step 1: Check for IVR classification ===
   let classification = null;
@@ -187,7 +189,7 @@ export default async function handler(req, res) {
     responseXml += `<Redirect>/api/deepgram-twiml</Redirect></Response>`;
   }
 
-  console.log('🧾 Responding with TwiML (with background noise)');
+  console.log('🧾 Responding with TwiML:', responseXml);
   res.setHeader('Content-Type', 'text/xml');
   res.status(200).send(responseXml);
 }
