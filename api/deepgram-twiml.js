@@ -28,11 +28,9 @@ export default async function handler(req, res) {
       .from('call_sessions')
       .select('ivr_detection_state')
       .eq('call_id', callId)
-      .single();
+      .maybeSingle(); // Changed from .single() to .maybeSingle()
 
-    if (error) {
-      console.error('❌ Error checking call session classification:', error);
-    } else {
+    if (data) {
       classification = data.ivr_detection_state;
       console.log('🔍 Classification:', classification);
     }
@@ -106,11 +104,9 @@ export default async function handler(req, res) {
       .eq('executed', false)
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle(); // Changed from .single() to .maybeSingle()
 
-    if (ivrErr) {
-      console.error('❌ Error fetching IVR event:', ivrErr);
-    } else {
+    if (data) {
       ivrAction = data;
       console.log('🎯 Next actionable IVR event:', data);
     }
@@ -142,13 +138,6 @@ export default async function handler(req, res) {
   // === Step 4: Construct TwiML ===
   let responseXml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
 
-  // Start background noise IMMEDIATELY on first call
-  if (!backgroundNoiseStarted) {
-    console.log('🔊 Starting background office noise...');
-    responseXml += `
-      <Play loop="0">${BACKGROUND_NOISE_URL}</Play>`;
-  }
-
   // Start the stream only if it hasn't been started yet
   if (!streamAlreadyStarted) {
     responseXml += `
@@ -158,6 +147,10 @@ export default async function handler(req, res) {
         </Stream>
       </Start>`;
   }
+
+  // Always play background noise (it will continue looping throughout the call)
+  console.log('🔊 Playing background office noise...');
+  responseXml += `<Play loop="0">${BACKGROUND_NOISE_URL}</Play>`;
 
   if (ivrAction && ivrAction.action_type && ivrAction.action_value) {
     // Stop the background noise before playing DTMF
