@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import querystring from 'querystring';
+import conferenceHandler from './deepgram-conference.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -7,6 +8,17 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
+  console.log('USE_CONFERENCE:', process.env.USE_CONFERENCE);
+  
+  // Route to conference handler if enabled
+  if (process.env.USE_CONFERENCE === 'true') {
+    console.log('🔀 Routing to conference handler...');
+    return conferenceHandler(req, res);
+  }
+  
+  // Continue with direct-stream approach
+  console.log('📡 Using direct stream approach...');
+  
   let body = '';
   for await (const chunk of req) {
     body += chunk;
@@ -16,7 +28,41 @@ export default async function handler(req, res) {
   const callId = parsed.CallSid || 'unknown';
   console.log('📞 Incoming call for call_id:', callId);
 
-  // === Step 1: Check or Create Call Session ===
+  // === Step 1: Check for IVR classification ===
+  let classification = null;
+
+  try {
+    const { data, error } = await supabase
+      .from('call_sessions')
+      .select('ivr_detection_state')
+      .eq('call_id', callId)
+      .single();
+
+    if (error) {
+      console.error('❌ Error checking call session classification:', error);
+    } else {
+      classification = data.ivr_detection_state;
+      console.log('🔍 Classification:', classification);
+    }
+  } catch (err) {
+    console.error('❌ Supabase classification check error:', err);
+  }
+
+  if (classification === 'human' || classification === 'ivr_then_human') {
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+      <Response>
+        <Dial>
+          <Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip>
+        </Dial>
+      </Response>`;
+
+    console.log('🧾 Serving SIP Bridge TwiML:', twiml);
+    res.setHeader('Content-Type', 'text/xml');
+    res.status(200).send(twiml);
+    return;
+  }
+
+  // === Step 2: Check or Create Call Session ===
   let streamAlreadyStarted = false;
 
   try {
@@ -47,7 +93,7 @@ export default async function handler(req, res) {
     console.error('❌ Supabase call_sessions error:', err);
   }
 
-  // === Step 2: Get Next Actionable IVR Event ===
+  // === Step 3: Get Next Actionable IVR Event ===
   let ivrAction = null;
 
   try {
@@ -70,7 +116,7 @@ export default async function handler(req, res) {
     console.error('❌ Unexpected ivr_events error:', err);
   }
 
-  // === Step 3: Construct TwiML ===
+  // === Step 4: Construct TwiML ===
   let responseXml = `<Response>`;
 
   if (!streamAlreadyStarted) {
@@ -86,8 +132,10 @@ export default async function handler(req, res) {
     responseXml += `<Stop><Stream name="mediaStream" /></Stop>`;
 
     if (ivrAction.action_type === 'dtmf') {
+      console.log(`🎹 Playing DTMF: ${ivrAction.action_value}`);
       responseXml += `<Play digits="${ivrAction.action_value}" />`;
     } else if (ivrAction.action_type === 'speech') {
+      console.log(`🗣️ Saying: ${ivrAction.action_value}`);
       responseXml += `<Say>${ivrAction.action_value}</Say>`;
     }
 
