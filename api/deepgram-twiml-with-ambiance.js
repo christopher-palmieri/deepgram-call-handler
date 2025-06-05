@@ -249,7 +249,6 @@ app.listen(PORT + 1, () => {
 
 // === STEP 3: Package.json for ambiance service ===
 // twilio-ws-services/services/ambiance-service/package.json
-{
   "name": "ambiance-service",
   "version": "1.0.0",
   "type": "module",
