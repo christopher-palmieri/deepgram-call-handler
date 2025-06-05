@@ -60,7 +60,7 @@ export default async function handler(req, res) {
     console.log('🚀 Initializing streams...');
     
     // TODO: Update this URL after deploying ambiance service to Railway
-    const AMBIANCE_URL = 'wss://ambiance-controller-production.up.railway.app';
+    const AMBIANCE_URL = 'wss://twilio-ws-server-ambiance.up.railway.app';
     
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
