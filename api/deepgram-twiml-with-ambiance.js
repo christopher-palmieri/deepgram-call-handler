@@ -26,6 +26,8 @@ export default async function handler(req, res) {
 
   // === Step 1: Get or Create Session ===
   let session = null;
+  let isNewCall = false;
+  
   try {
     const { data, error } = await supabase
       .from('call_sessions')
@@ -35,13 +37,40 @@ export default async function handler(req, res) {
     
     if (!error && data) {
       session = data;
+      
+      // ALWAYS check if this is truly the first request of a NEW call
+      // by looking at whether we've received the first webhook from Twilio
+      const isFirstWebhook = !parsed.CallStatus || parsed.CallStatus === 'ringing' || parsed.CallStatus === 'in-progress';
+      const hasNoStreamStartTime = !session.first_stream_request_at;
+      
+      if (isFirstWebhook && hasNoStreamStartTime) {
+        console.log('🔄 First webhook for existing session - resetting streams');
+        // This is the first actual request for this call
+        await supabase
+          .from('call_sessions')
+          .update({ 
+            streams_initialized: false,
+            stream_started: false,
+            first_stream_request_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('call_id', callId);
+        
+        session.streams_initialized = false;
+      }
+      
       console.log('📋 Found existing session:', {
         streams_initialized: session.streams_initialized,
-        ivr_detection_state: session.ivr_detection_state
+        ivr_detection_state: session.ivr_detection_state,
+        first_request: hasNoStreamStartTime
       });
+    } else {
+      isNewCall = true;
+      console.log('🆕 New call detected');
     }
   } catch (err) {
     console.log('📋 No existing session found');
+    isNewCall = true;
   }
 
   // === Step 2: Check for Human Classification ===
@@ -59,15 +88,15 @@ export default async function handler(req, res) {
     return;
   }
 
-  // === Step 3: Initialize Streams (First Time Only) ===
-  if (!session || !session.streams_initialized) {
+  // === Step 3: Initialize Streams (First Time or New Call) ===
+  if (isNewCall || !session || !session.streams_initialized) {
     console.log('🚀 First request - initializing streams...');
     
-    const AMBIANCE_URL = 'wss://twilio-ws-server-ambiance.up.railway.app';
+    const AMBIANCE_URL = process.env.AMBIANCE_URL || 'wss://twilio-ws-server-ambiance.up.railway.app';
     
-    // Create or update session FIRST
+    // Create or update session
     try {
-      if (!session) {
+      if (isNewCall || !session) {
         console.log('📝 Creating new call session');
         const { error: insertErr } = await supabase
           .from('call_sessions')
@@ -89,7 +118,8 @@ export default async function handler(req, res) {
           .from('call_sessions')
           .update({ 
             streams_initialized: true,
-            stream_started: true
+            stream_started: true,
+            updated_at: new Date().toISOString()
           })
           .eq('call_id', callId);
         
@@ -103,22 +133,21 @@ export default async function handler(req, res) {
       console.error('❌ Session operation error:', err);
     }
 
-    // Send TwiML to start streams
+    // Send TwiML to start BOTH streams
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Start>
     <Stream name="deepgram-stream" 
             url="wss://twilio-ws-server-production-81ba.up.railway.app">
       <Parameter name="streamSid" value="${callId}" />
-      <Parameter name="audioTrack" value="inbound_track" />
     </Stream>
   </Start>
   
   <Start>
     <Stream name="ambiance-stream" 
             url="${AMBIANCE_URL}">
+      <Parameter name="streamSid" value="${callId}" />
       <Parameter name="callId" value="${callId}" />
-      <Parameter name="audioTrack" value="outbound_track" />
     </Stream>
   </Start>
   
@@ -126,6 +155,7 @@ export default async function handler(req, res) {
   <Redirect>/api/deepgram-twiml-with-ambiance</Redirect>
 </Response>`;
 
+    console.log('📤 Sending stream initialization TwiML');
     res.setHeader('Content-Type', 'text/xml');
     res.status(200).send(twiml);
     return;
@@ -157,7 +187,7 @@ export default async function handler(req, res) {
   if (ivrAction && ivrAction.action_type === 'dtmf') {
     console.log(`🎹 Executing DTMF: ${ivrAction.action_value}`);
     
-    const AMBIANCE_URL = 'wss://twilio-ws-server-ambiance.up.railway.app';
+    const AMBIANCE_URL = process.env.AMBIANCE_URL || 'wss://twilio-ws-server-ambiance.up.railway.app';
     
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -170,8 +200,8 @@ export default async function handler(req, res) {
   <Start>
     <Stream name="ambiance-stream" 
             url="${AMBIANCE_URL}">
+      <Parameter name="streamSid" value="${callId}" />
       <Parameter name="callId" value="${callId}" />
-      <Parameter name="audioTrack" value="outbound_track" />
     </Stream>
   </Start>
   
@@ -179,7 +209,7 @@ export default async function handler(req, res) {
   <Redirect>/api/deepgram-twiml-with-ambiance</Redirect>
 </Response>`;
 
-    // Mark as executed
+    // Mark as executed IMMEDIATELY to prevent double execution
     try {
       await supabase
         .from('ivr_events')
