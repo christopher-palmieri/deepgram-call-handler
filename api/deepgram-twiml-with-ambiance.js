@@ -133,19 +133,21 @@ export default async function handler(req, res) {
       console.error('❌ Session operation error:', err);
     }
 
-    // Send TwiML to start BOTH streams
+    // Send TwiML to start BOTH streams with correct track specification
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Start>
     <Stream name="deepgram-stream" 
-            url="wss://twilio-ws-server-production-81ba.up.railway.app">
+            url="wss://twilio-ws-server-production-81ba.up.railway.app"
+            track="inbound_track">
       <Parameter name="streamSid" value="${callId}" />
     </Stream>
   </Start>
   
   <Start>
     <Stream name="ambiance-stream" 
-            url="${AMBIANCE_URL}">
+            url="${AMBIANCE_URL}"
+            track="outbound_track">
       <Parameter name="streamSid" value="${callId}" />
       <Parameter name="callId" value="${callId}" />
     </Stream>
@@ -199,7 +201,8 @@ export default async function handler(req, res) {
   
   <Start>
     <Stream name="ambiance-stream" 
-            url="${AMBIANCE_URL}">
+            url="${AMBIANCE_URL}"
+            track="outbound_track">
       <Parameter name="streamSid" value="${callId}" />
       <Parameter name="callId" value="${callId}" />
     </Stream>
