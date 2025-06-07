@@ -145,7 +145,8 @@ export default async function handler(req, res) {
     responseXml += `<Pause length="3" />`;
   }
 
-  responseXml += `<Redirect>/api/twilio/deepgram-twiml</Redirect></Response>`;
+  responseXml += `<Redirect>/api/twilio/deepgram-twiml</Redirect>`;
+  responseXml += `</Response>`;
 
   console.log('🧾 Responding with fallback IVR TwiML:', responseXml);
 
