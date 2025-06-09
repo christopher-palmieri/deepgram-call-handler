@@ -10,6 +10,23 @@ const supabase = createClient(
 async function parseBody(req) {
   const contentType = req.headers['content-type'] || '';
   
+  // TeXML sends webhooks as form-urlencoded
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    let body = '';
+    for await (const chunk of req) {
+      body += chunk;
+    }
+    
+    // Parse URL-encoded body
+    const params = new URLSearchParams(body);
+    const parsed = {};
+    for (const [key, value] of params) {
+      parsed[key] = value;
+    }
+    return parsed;
+  }
+  
+  // Fallback to JSON
   if (contentType.includes('application/json')) {
     return req.body;
   }
@@ -23,8 +40,13 @@ async function parseBody(req) {
         try {
           resolve(JSON.parse(data));
         } catch (e) {
-          console.error('Failed to parse body:', e);
-          resolve({});
+          // Try URL-encoded parsing
+          const params = new URLSearchParams(data);
+          const parsed = {};
+          for (const [key, value] of params) {
+            parsed[key] = value;
+          }
+          resolve(parsed);
         }
       });
     });
@@ -63,16 +85,8 @@ export default async function handler(req, res) {
   return handleTeXMLCall(callId, from, to, res);
 }
 
-async function handleCallInitiated(body, res) {
-  console.log('📞 Call initiated');
-  
-  // For call.initiated, we typically just acknowledge
-  // The actual answer will come in call.answered event
-  res.status(200).json({ status: 'ok' });
-}
-
-async function handleCallAnswered(callId, body, res) {
-  console.log('📞 Call answered, starting IVR detection for:', callId);
+async function handleTeXMLCall(callId, from, to, res) {
+  console.log('📞 Handling TeXML call:', callId);
 
   // Create or get call session
   let session = await getOrCreateSession(callId);
@@ -83,14 +97,14 @@ async function handleCallAnswered(callId, body, res) {
     return transferToVAPI(res);
   }
 
-  // Start WebSocket stream to Deepgram service
-  if (!session?.stream_started) {
-    console.log('🎙️ Starting Deepgram stream');
-    return startDeepgramStream(callId, res);
+  // Check if this is a redirect (stream already started)
+  if (session?.stream_started) {
+    // This is a continuation of the call flow
+    return handleIVRFlow(callId, res);
   }
 
-  // Continue with IVR flow
-  return handleIVRFlow(callId, res);
+  // First time - start with Deepgram stream for IVR detection
+  return startDeepgramStream(callId, res);
 }
 
 async function getOrCreateSession(callId) {
@@ -102,7 +116,7 @@ async function getOrCreateSession(callId) {
       .eq('call_id', callId)
       .single();
 
-    if (existingSession) {
+    if (existingSession && !fetchError) {
       return existingSession;
     }
 
@@ -132,6 +146,8 @@ async function getOrCreateSession(callId) {
 }
 
 async function startDeepgramStream(callId, res) {
+  console.log('🎙️ Starting Deepgram stream for call:', callId);
+  
   // Mark stream as started
   await supabase
     .from('call_sessions')
@@ -140,8 +156,7 @@ async function startDeepgramStream(callId, res) {
 
   const DEEPGRAM_URL = process.env.DEEPGRAM_WS_URL || 'wss://twilio-ws-server-production-81ba.up.railway.app';
 
-  // TeXML to start WebSocket stream
-  // Note: Telnyx uses fork_stream instead of Start_Stream
+  // TeXML response to start WebSocket stream
   const texml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Fork_stream name="deepgram_stream" 
@@ -150,10 +165,10 @@ async function startDeepgramStream(callId, res) {
     <Stream_param name="streamSid" value="${callId}" />
   </Fork_stream>
   <Pause length="3" />
-  <Redirect method="POST">${getWebhookUrl()}/api/telnyx/deepgram-texml</Redirect>
+  <Redirect>${getWebhookUrl()}/api/telnyx/deepgram-texml</Redirect>
 </Response>`;
 
-  console.log('📤 Sending TeXML response');
+  console.log('📤 Sending TeXML response:', texml);
   res.setHeader('Content-Type', 'application/xml');
   res.status(200).send(texml);
 }
@@ -183,7 +198,7 @@ async function handleIVRFlow(callId, res) {
     .limit(1)
     .single();
 
-  if (ivrAction) {
+  if (ivrAction && !ivrAction.error) {
     return executeIVRAction(callId, ivrAction, res);
   }
 
@@ -191,7 +206,7 @@ async function handleIVRFlow(callId, res) {
   const texml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Pause length="2" />
-  <Redirect method="POST">${getWebhookUrl()}/api/telnyx/deepgram-texml</Redirect>
+  <Redirect>${getWebhookUrl()}/api/telnyx/deepgram-texml</Redirect>
 </Response>`;
 
   res.setHeader('Content-Type', 'application/xml');
@@ -211,7 +226,7 @@ async function executeIVRAction(callId, action, res) {
   <Pause length="1" />`;
   } else if (action.action_type === 'speech') {
     texml += `
-  <Speak voice="en-US-Standard-C">${action.action_value}</Speak>
+  <Say voice="en-US-Standard-C">${action.action_value}</Say>
   <Pause length="1" />`;
   }
 
@@ -227,7 +242,7 @@ async function executeIVRAction(callId, action, res) {
   // Continue flow
   texml += `
   <Pause length="2" />
-  <Redirect method="POST">${getWebhookUrl()}/api/telnyx/deepgram-texml</Redirect>
+  <Redirect>${getWebhookUrl()}/api/telnyx/deepgram-texml</Redirect>
 </Response>`;
 
   res.setHeader('Content-Type', 'application/xml');
@@ -251,36 +266,14 @@ function transferToVAPI(res) {
   res.status(200).send(texml);
 }
 
-async function handleCallEnd(callId, res) {
-  console.log('📴 Call ended:', callId);
-  
-  // Update session
-  await supabase
-    .from('call_sessions')
-    .update({
-      call_ended_at: new Date().toISOString(),
-      stream_started: false
-    })
-    .eq('call_id', callId);
-
-  res.status(200).json({ status: 'ok' });
-}
-
 function getWebhookUrl() {
-  // Use explicit webhook URL if set
+  // Use environment variable or construct from Vercel URL
   if (process.env.WEBHOOK_BASE_URL) {
     return process.env.WEBHOOK_BASE_URL;
   }
   
-  // For production deployments
-  if (process.env.VERCEL_ENV === 'production' && process.env.VERCEL_PROJECT_PRODUCTION_URL) {
-    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
-  }
-  
-  // For preview deployments
   const vercelUrl = process.env.VERCEL_URL;
   if (vercelUrl) {
-    // Handle both with and without protocol
     return vercelUrl.startsWith('http') ? vercelUrl : `https://${vercelUrl}`;
   }
   
@@ -290,8 +283,6 @@ function getWebhookUrl() {
 
 export const config = {
   api: {
-    bodyParser: {
-      sizeLimit: '1mb',
-    },
+    bodyParser: false  // Important: disable body parser to handle form-urlencoded manually
   },
 };
