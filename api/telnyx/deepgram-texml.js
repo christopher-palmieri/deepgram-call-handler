@@ -164,6 +164,8 @@ async function startDeepgramStream(callId, res) {
                to="${TELNYX_WS_URL}"
                track="both_tracks">
     <Stream_param name="streamSid" value="${callId}" />
+    <Stream_param name="callSid" value="${callId}" />
+    <Stream_param name="accountSid" value="${process.env.TELNYX_ACCOUNT_ID || '36da347f-f62c-4e16-b3f6-212cec03e8b2'}" />
   </Fork_stream>
   <Pause length="3" />
   <Redirect>${getWebhookUrl()}/api/telnyx/deepgram-texml</Redirect>
