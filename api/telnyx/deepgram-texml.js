@@ -295,17 +295,24 @@ async function handleCallEnd(callId, res) {
 }
 
 function getWebhookUrl() {
-  // Use environment variable or construct from Vercel URL
+  // Use explicit webhook URL if set
   if (process.env.WEBHOOK_BASE_URL) {
     return process.env.WEBHOOK_BASE_URL;
   }
   
+  // For production deployments
+  if (process.env.VERCEL_ENV === 'production' && process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  }
+  
+  // For preview deployments
   const vercelUrl = process.env.VERCEL_URL;
   if (vercelUrl) {
+    // Handle both with and without protocol
     return vercelUrl.startsWith('http') ? vercelUrl : `https://${vercelUrl}`;
   }
   
-  // Fallback - use your actual deployment URL
+  // Fallback - use your actual production URL
   return 'https://v0-new-project-qykgboija9j.vercel.app';
 }
 
