@@ -157,16 +157,14 @@ async function startDeepgramStream(callId, res) {
   // Use the new Telnyx-specific WebSocket server
   const TELNYX_WS_URL = process.env.TELNYX_WS_URL || process.env.DEEPGRAM_WS_URL || 'wss://your-telnyx-ws-server.up.railway.app';
 
-  // TeXML response to start WebSocket stream
+  // TeXML response using the correct <Stream> syntax for Telnyx
   const texml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Fork_stream name="deepgram_stream" 
-               to="${TELNYX_WS_URL}"
-               track="both_tracks">
-    <Stream_param name="streamSid" value="${callId}" />
-    <Stream_param name="callSid" value="${callId}" />
-    <Stream_param name="accountSid" value="${process.env.TELNYX_ACCOUNT_ID || '36da347f-f62c-4e16-b3f6-212cec03e8b2'}" />
-  </Fork_stream>
+  <Stream url="${TELNYX_WS_URL}" 
+          track="both_tracks">
+    <Parameter name="streamSid" value="${callId}" />
+    <Parameter name="callSid" value="${callId}" />
+  </Stream>
   <Pause length="3" />
   <Redirect>${getWebhookUrl()}/api/telnyx/deepgram-texml</Redirect>
 </Response>`;
