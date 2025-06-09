@@ -50,45 +50,17 @@ export default async function handler(req, res) {
   const body = await parseBody(req);
   console.log('📦 Parsed body:', JSON.stringify(body, null, 2));
   
-  // Extract call details from Telnyx webhook
-  const callId = body.data?.call_control_id || 
-                 body.data?.call_session_id || 
-                 body.call_control_id || 
-                 body.call_session_id || 
-                 'unknown';
-                 
-  const eventType = body.data?.event_type || 
-                    body.event_type || 
-                    body.event ||
-                    'unknown';
+  // Extract call details from TeXML webhook
+  // TeXML uses different field names than regular Telnyx webhooks
+  const callId = body.CallSid || body.CallSidLegacy || 'unknown';
+  const accountSid = body.AccountSid;
+  const from = body.From;
+  const to = body.To;
   
-  console.log(`📞 Telnyx webhook - Event: ${eventType}, Call: ${callId}`);
+  console.log(`📞 TeXML webhook - Call: ${callId}, From: ${from}, To: ${to}`);
   
-  // Handle different Telnyx events
-  switch (eventType) {
-    case 'call.initiated':
-      return handleCallInitiated(body, res);
-      
-    case 'call.answered':
-      return handleCallAnswered(callId, body, res);
-    
-    case 'call.hangup':
-    case 'call.machine.detection.ended':
-      return handleCallEnd(callId, res);
-    
-    case 'webhook.test':
-      return res.status(200).json({ status: 'ok', message: 'Webhook test received' });
-    
-    default:
-      // For continuation of IVR flow or unknown events
-      if (callId !== 'unknown') {
-        return handleIVRFlow(callId, res);
-      }
-      
-      // Return OK for unknown events
-      console.log('⚠️ Unknown event type:', eventType);
-      return res.status(200).json({ status: 'ok' });
-  }
+  // For TeXML, we respond with XML instructions immediately
+  return handleTeXMLCall(callId, from, to, res);
 }
 
 async function handleCallInitiated(body, res) {
