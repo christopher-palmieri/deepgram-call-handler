@@ -154,13 +154,14 @@ async function startDeepgramStream(callId, res) {
     .update({ stream_started: true })
     .eq('call_id', callId);
 
-  const DEEPGRAM_URL = process.env.DEEPGRAM_WS_URL || 'wss://twilio-ws-server-production-81ba.up.railway.app';
+  // Use the new Telnyx-specific WebSocket server
+  const TELNYX_WS_URL = process.env.TELNYX_WS_URL || process.env.DEEPGRAM_WS_URL || 'wss://your-telnyx-ws-server.up.railway.app';
 
   // TeXML response to start WebSocket stream
   const texml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Fork_stream name="deepgram_stream" 
-               to="${DEEPGRAM_URL}"
+               to="${TELNYX_WS_URL}"
                track="both_tracks">
     <Stream_param name="streamSid" value="${callId}" />
   </Fork_stream>
@@ -169,6 +170,7 @@ async function startDeepgramStream(callId, res) {
 </Response>`;
 
   console.log('📤 Sending TeXML response:', texml);
+  console.log('🔗 WebSocket URL:', TELNYX_WS_URL);
   res.setHeader('Content-Type', 'application/xml');
   res.status(200).send(texml);
 }
