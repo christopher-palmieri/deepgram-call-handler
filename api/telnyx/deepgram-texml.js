@@ -6,35 +6,101 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// Helper to parse body based on content type
+async function parseBody(req) {
+  const contentType = req.headers['content-type'] || '';
+  
+  if (contentType.includes('application/json')) {
+    return req.body;
+  }
+  
+  // If body parsing failed, try to read raw body
+  if (!req.body && req.method === 'POST') {
+    return new Promise((resolve) => {
+      let data = '';
+      req.on('data', chunk => data += chunk);
+      req.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          console.error('Failed to parse body:', e);
+          resolve({});
+        }
+      });
+    });
+  }
+  
+  return req.body || {};
+}
+
 export default async function handler(req, res) {
-  // Telnyx sends JSON in the body
-  const body = req.body;
+  console.log('🔍 Incoming request method:', req.method);
+  console.log('🔍 Headers:', req.headers);
+  
+  // Handle GET requests (for testing)
+  if (req.method === 'GET') {
+    return res.status(200).json({ 
+      status: 'healthy',
+      endpoint: 'Telnyx TeXML Handler',
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  // Parse body
+  const body = await parseBody(req);
+  console.log('📦 Parsed body:', JSON.stringify(body, null, 2));
   
   // Extract call details from Telnyx webhook
-  const callId = body.call_control_id || body.call_session_id || 'unknown';
-  const eventType = body.event_type || body.event;
+  const callId = body.data?.call_control_id || 
+                 body.data?.call_session_id || 
+                 body.call_control_id || 
+                 body.call_session_id || 
+                 'unknown';
+                 
+  const eventType = body.data?.event_type || 
+                    body.event_type || 
+                    body.event ||
+                    'unknown';
   
   console.log(`📞 Telnyx webhook - Event: ${eventType}, Call: ${callId}`);
-  console.log('📦 Full webhook body:', JSON.stringify(body, null, 2));
   
   // Handle different Telnyx events
   switch (eventType) {
     case 'call.initiated':
+      return handleCallInitiated(body, res);
+      
     case 'call.answered':
-      return handleIncomingCall(callId, res);
+      return handleCallAnswered(callId, body, res);
     
     case 'call.hangup':
     case 'call.machine.detection.ended':
       return handleCallEnd(callId, res);
     
+    case 'webhook.test':
+      return res.status(200).json({ status: 'ok', message: 'Webhook test received' });
+    
     default:
-      // For continuation of IVR flow
-      return handleIVRFlow(callId, res);
+      // For continuation of IVR flow or unknown events
+      if (callId !== 'unknown') {
+        return handleIVRFlow(callId, res);
+      }
+      
+      // Return OK for unknown events
+      console.log('⚠️ Unknown event type:', eventType);
+      return res.status(200).json({ status: 'ok' });
   }
 }
 
-async function handleIncomingCall(callId, res) {
-  console.log('📞 Handling incoming call for call_id:', callId);
+async function handleCallInitiated(body, res) {
+  console.log('📞 Call initiated');
+  
+  // For call.initiated, we typically just acknowledge
+  // The actual answer will come in call.answered event
+  res.status(200).json({ status: 'ok' });
+}
+
+async function handleCallAnswered(callId, body, res) {
+  console.log('📞 Call answered, starting IVR detection for:', callId);
 
   // Create or get call session
   let session = await getOrCreateSession(callId);
@@ -103,18 +169,19 @@ async function startDeepgramStream(callId, res) {
   const DEEPGRAM_URL = process.env.DEEPGRAM_WS_URL || 'wss://twilio-ws-server-production-81ba.up.railway.app';
 
   // TeXML to start WebSocket stream
+  // Note: Telnyx uses fork_stream instead of Start_Stream
   const texml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Start_Stream name="deepgram_stream" 
-               url="${DEEPGRAM_URL}"
-               track="both"
-               bidirectional="true">
-    <Parameter name="streamSid" value="${callId}" />
-  </Start_Stream>
+  <Fork_stream name="deepgram_stream" 
+               to="${DEEPGRAM_URL}"
+               track="both_tracks">
+    <Stream_param name="streamSid" value="${callId}" />
+  </Fork_stream>
   <Pause length="3" />
   <Redirect method="POST">${getWebhookUrl()}/api/telnyx/deepgram-texml</Redirect>
 </Response>`;
 
+  console.log('📤 Sending TeXML response');
   res.setHeader('Content-Type', 'application/xml');
   res.status(200).send(texml);
 }
@@ -165,26 +232,14 @@ async function executeIVRAction(callId, action, res) {
   let texml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>`;
 
-  // Stop stream temporarily for DTMF
+  // For DTMF actions
   if (action.action_type === 'dtmf') {
     texml += `
-  <Stop_Stream name="deepgram_stream" />
-  <Pause length="0.5" />
-  <Play_dtmf>${action.action_value}</Play_dtmf>
+  <Play_dtmf digits="${action.action_value}" />
   <Pause length="1" />`;
-    
-    // Restart stream
-    const DEEPGRAM_URL = process.env.DEEPGRAM_WS_URL || 'wss://twilio-ws-server-production-81ba.up.railway.app';
-    texml += `
-  <Start_Stream name="deepgram_stream" 
-               url="${DEEPGRAM_URL}"
-               track="both"
-               bidirectional="true">
-    <Parameter name="streamSid" value="${callId}" />
-  </Start_Stream>`;
   } else if (action.action_type === 'speech') {
     texml += `
-  <Speak voice="en-US-Wavenet-C">${action.action_value}</Speak>
+  <Speak voice="en-US-Standard-C">${action.action_value}</Speak>
   <Pause length="1" />`;
   }
 
@@ -208,16 +263,18 @@ async function executeIVRAction(callId, action, res) {
 }
 
 function transferToVAPI(res) {
-  const vapiAddress = process.env.VAPI_SIP_ADDRESS || process.env.VAPI_PHONE_NUMBER;
+  const vapiSipAddress = process.env.VAPI_SIP_ADDRESS;
+  const vapiPhoneNumber = process.env.VAPI_PHONE_NUMBER;
+  
+  // Use SIP if available, otherwise use phone number
+  const transferTo = vapiSipAddress ? `sip:${vapiSipAddress}` : vapiPhoneNumber;
   
   const texml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Transfer to="${vapiAddress}" 
-           transfer_caller_id="enabled"
-           webhook_url="${getWebhookUrl()}/api/telnyx/transfer-status"
-           webhook_url_method="POST" />
+  <Transfer to="${transferTo}" />
 </Response>`;
 
+  console.log('📤 Transferring to VAPI:', transferTo);
   res.setHeader('Content-Type', 'application/xml');
   res.status(200).send(texml);
 }
@@ -248,12 +305,14 @@ function getWebhookUrl() {
     return vercelUrl.startsWith('http') ? vercelUrl : `https://${vercelUrl}`;
   }
   
-  // Fallback
-  return 'https://your-domain.vercel.app';
+  // Fallback - use your actual deployment URL
+  return 'https://v0-new-project-qykgboija9j.vercel.app';
 }
 
 export const config = {
   api: {
-    bodyParser: true  // Telnyx sends JSON
-  }
+    bodyParser: {
+      sizeLimit: '1mb',
+    },
+  },
 };
