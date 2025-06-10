@@ -163,14 +163,12 @@ async function startDeepgramStream(callId, res) {
   
   console.log('🔗 Using WebSocket URL:', TELNYX_WS_URL);
 
-  // TeXML response using the correct <Stream> syntax for Telnyx
+  // TeXML response - simplified version
+  // Some Telnyx implementations might not support all parameters
   const texml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Stream url="${TELNYX_WS_URL}" 
-          track="both_tracks">
-    <Parameter name="streamSid" value="${callId}" />
-    <Parameter name="callSid" value="${callId}" />
-    <Parameter name="CallSid" value="${callId}" />
+  <Stream url="${TELNYX_WS_URL}">
+    <Parameter name="call_id" value="${callId}" />
   </Stream>
   <Pause length="3" />
   <Redirect>${getWebhookUrl()}/api/telnyx/deepgram-texml</Redirect>
