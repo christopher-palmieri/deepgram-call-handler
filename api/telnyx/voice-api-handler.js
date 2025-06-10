@@ -85,44 +85,27 @@ async function handleCallAnswered(event, res) {
   
   console.log('📞 Call answered, starting streams...');
   
-  // Get Railway WebSocket URLs
-  const DEEPGRAM_WS_URL = process.env.DEEPGRAM_WS_URL || 'wss://telnyx-service.railway.internal:3002';
-  const AMBIANCE_WS_URL = process.env.AMBIANCE_WS_URL || 'wss://ambiance-service.railway.internal:8081';
+  // Get Telnyx WebSocket URL
+  const TELNYX_WS_URL = process.env.TELNYX_WS_URL || 'wss://telnyx-server-production.up.railway.app';
   
   try {
-    // Start Deepgram stream for IVR detection
-    const deepgramStream = await telnyxAPI(`/calls/${callId}/actions/streaming_start`, 'POST', {
-      stream_url: DEEPGRAM_WS_URL,
-      stream_track: 'inbound_track',
+    // Start WebSocket stream for IVR detection
+    const streamResponse = await telnyxAPI(`/calls/${callId}/actions/streaming_start`, 'POST', {
+      stream_url: TELNYX_WS_URL,
+      stream_track: 'both', // Get both inbound and outbound audio
       enable_dialogflow: false
     });
     
-    console.log('✅ Deepgram stream started:', deepgramStream.data.stream_id);
+    console.log('✅ WebSocket stream started:', streamResponse.data.stream_id);
     
     // Update session with stream info
     await supabase
       .from('call_sessions')
       .update({ 
-        deepgram_stream_id: deepgramStream.data.stream_id,
+        stream_id: streamResponse.data.stream_id,
         stream_started: true 
       })
       .eq('call_id', callLegId);
-    
-    // Optionally start ambiance stream
-    if (process.env.ENABLE_AMBIANCE === 'true') {
-      const ambianceStream = await telnyxAPI(`/calls/${callId}/actions/streaming_start`, 'POST', {
-        stream_url: AMBIANCE_WS_URL,
-        stream_track: 'outbound_track',
-        enable_dialogflow: false
-      });
-      
-      console.log('✅ Ambiance stream started:', ambianceStream.data.stream_id);
-      
-      await supabase
-        .from('call_sessions')
-        .update({ ambiance_stream_id: ambianceStream.data.stream_id })
-        .eq('call_id', callLegId);
-    }
     
   } catch (err) {
     console.error('❌ Error starting streams:', err);
@@ -157,7 +140,7 @@ async function checkClassification(callControlId, callLegId) {
       .limit(1)
       .single();
     
-    if (ivrAction) {
+    if (ivrAction && !ivrAction.error) {
       await executeIVRAction(callControlId, callLegId, ivrAction);
     }
     
@@ -171,35 +154,11 @@ async function executeIVRAction(callControlId, callLegId, action) {
   
   try {
     if (action.action_type === 'dtmf') {
-      // Stop ambiance if playing
-      const { data: session } = await supabase
-        .from('call_sessions')
-        .select('ambiance_stream_id')
-        .eq('call_id', callLegId)
-        .single();
-      
-      if (session?.ambiance_stream_id) {
-        await telnyxAPI(`/calls/${callControlId}/actions/streaming_stop`, 'POST', {
-          stream_id: session.ambiance_stream_id
-        });
-      }
-      
       // Send DTMF
       await telnyxAPI(`/calls/${callControlId}/actions/send_dtmf`, 'POST', {
         digits: action.action_value,
         duration_millis: 250
       });
-      
-      // Restart ambiance after delay
-      if (session?.ambiance_stream_id) {
-        setTimeout(async () => {
-          const AMBIANCE_WS_URL = process.env.AMBIANCE_WS_URL || 'wss://ambiance-service.railway.internal:8081';
-          await telnyxAPI(`/calls/${callControlId}/actions/streaming_start`, 'POST', {
-            stream_url: AMBIANCE_WS_URL,
-            stream_track: 'outbound_track'
-          });
-        }, 1000);
-      }
       
     } else if (action.action_type === 'speech') {
       // Speak text
