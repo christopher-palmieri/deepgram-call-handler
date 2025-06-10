@@ -143,16 +143,19 @@ async function checkClassification(callControlId, callLegId) {
   
   const { data: session } = await supabase
     .from('call_sessions')
-    .select('ivr_detection_state')
+    .select('ivr_detection_state, call_control_id')
     .eq('call_id', callLegId)
     .single();
   
+  // Use the stored call_control_id if available
+  const controlId = session?.call_control_id || callControlId;
+  
   if (session?.ivr_detection_state === 'human' || session?.ivr_detection_state === 'ivr_then_human') {
     console.log('👤 Human detected - transferring to VAPI');
-    await transferToVAPI(callControlId);
+    await transferToVAPI(controlId);
   } else {
     // Check for IVR actions
-    const { data: ivrAction } = await supabase
+    const { data: ivrAction, error } = await supabase
       .from('ivr_events')
       .select('*')
       .eq('call_id', callLegId)
@@ -161,25 +164,30 @@ async function checkClassification(callControlId, callLegId) {
       .limit(1)
       .single();
     
-    if (ivrAction && !ivrAction.error) {
-      await executeIVRAction(callControlId, callLegId, ivrAction);
+    if (ivrAction && !error) {
+      console.log('🎯 Found pending IVR action:', ivrAction);
+      await executeIVRAction(controlId, callLegId, ivrAction);
     }
     
     // Continue checking
-    setTimeout(() => checkClassification(callControlId, callLegId), 2000);
+    setTimeout(() => checkClassification(controlId, callLegId), 2000);
   }
 }
 
 async function executeIVRAction(callControlId, callLegId, action) {
   console.log('🎯 Executing IVR action:', action);
+  console.log('📞 Using Call Control ID:', callControlId);
   
   try {
     if (action.action_type === 'dtmf') {
       // Send DTMF
-      await telnyxAPI(`/calls/${callControlId}/actions/send_dtmf`, 'POST', {
+      const dtmfResponse = await telnyxAPI(`/calls/${callControlId}/actions/send_dtmf`, 'POST', {
         digits: action.action_value,
-        duration_millis: 250
+        duration_millis: 250 // Standard DTMF tone duration
       });
+      
+      console.log('✅ DTMF sent:', action.action_value);
+      console.log('📞 DTMF Response:', dtmfResponse);
       
     } else if (action.action_type === 'speech') {
       // Speak text
@@ -188,6 +196,8 @@ async function executeIVRAction(callControlId, callLegId, action) {
         voice: 'female',
         language: 'en-US'
       });
+      
+      console.log('✅ Speech sent:', action.action_value);
     }
     
     // Mark as executed
@@ -199,8 +209,11 @@ async function executeIVRAction(callControlId, callLegId, action) {
       })
       .eq('id', action.id);
     
+    console.log('✅ IVR action marked as executed');
+    
   } catch (err) {
     console.error('❌ Error executing action:', err);
+    console.error('❌ Error details:', JSON.stringify(err.response?.data || err, null, 2));
   }
 }
 
