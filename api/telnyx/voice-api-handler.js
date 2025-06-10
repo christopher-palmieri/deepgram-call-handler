@@ -71,19 +71,25 @@ export default async function handler(req, res) {
 async function handleCallInitiated(event, res) {
   const callControlId = event.payload?.call_control_id;
   const callLegId = event.payload?.call_leg_id;
+  const direction = event.payload?.direction;
   
   console.log('📞 Call initiated - Control ID:', callControlId);
   console.log('📞 Call initiated - Leg ID:', callLegId);
+  console.log('📞 Call direction:', direction);
   
   // Create session in Supabase
   await getOrCreateSession(callLegId);
   
-  // Answer the call
-  try {
-    await telnyxAPI(`/calls/${callControlId}/actions/answer`, 'POST');
-    console.log('✅ Call answered');
-  } catch (err) {
-    console.error('❌ Error answering call:', err);
+  // Only answer INBOUND calls
+  if (direction === 'incoming') {
+    try {
+      await telnyxAPI(`/calls/${callControlId}/actions/answer`, 'POST');
+      console.log('✅ Inbound call answered');
+    } catch (err) {
+      console.error('❌ Error answering call:', err);
+    }
+  } else {
+    console.log('📤 Outbound call - no need to answer');
   }
   
   return res.status(200).json({ received: true });
@@ -103,8 +109,8 @@ async function handleCallAnswered(event, res) {
   try {
     // Start WebSocket stream for IVR detection
     const streamResponse = await telnyxAPI(`/calls/${callControlId}/actions/streaming_start`, 'POST', {
-      stream_url: TELNYX_WS_URL,
-      stream_track: 'both_tracks', // Match the example format
+      stream_url: `${TELNYX_WS_URL}?call_id=${callLegId}&call_control_id=${callControlId}`,
+      stream_track: 'both_tracks',
       enable_dialogflow: false
     });
     
