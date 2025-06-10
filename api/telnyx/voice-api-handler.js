@@ -127,52 +127,71 @@ async function handleCallAnswered(event, res) {
       })
       .eq('call_id', callLegId);
     
+    // Start checking for IVR actions immediately and repeatedly
+    // Using a different approach that doesn't rely on setTimeout
+    startIVRActionPoller(callControlId, callLegId);
+    
   } catch (err) {
     console.error('❌ Error starting stream:', err);
     console.error('❌ Error details:', JSON.stringify(err.response?.data || err, null, 2));
   }
   
-  // Schedule classification check
-  setTimeout(() => checkClassification(callControlId, callLegId), 3000);
-  
   return res.status(200).json({ received: true });
 }
 
-async function checkClassification(callControlId, callLegId) {
-  console.log('🔍 Checking classification for:', callLegId);
+// Start a polling mechanism for IVR actions
+async function startIVRActionPoller(callControlId, callLegId) {
+  // Poll every 2 seconds for up to 2 minutes
+  const maxPolls = 60;
+  let pollCount = 0;
   
-  const { data: session } = await supabase
-    .from('call_sessions')
-    .select('ivr_detection_state, call_control_id')
-    .eq('call_id', callLegId)
-    .single();
-  
-  // Use the stored call_control_id if available
-  const controlId = session?.call_control_id || callControlId;
-  
-  if (session?.ivr_detection_state === 'human' || session?.ivr_detection_state === 'ivr_then_human') {
-    console.log('👤 Human detected - transferring to VAPI');
-    await transferToVAPI(controlId);
-  } else {
-    // Check for IVR actions
-    const { data: ivrAction, error } = await supabase
-      .from('ivr_events')
-      .select('*')
-      .eq('call_id', callLegId)
-      .eq('executed', false)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+  const pollInterval = setInterval(async () => {
+    pollCount++;
     
-    if (ivrAction && !error) {
-      console.log('🎯 Found pending IVR action:', ivrAction);
-      await executeIVRAction(controlId, callLegId, ivrAction);
+    try {
+      // Check if call is still active
+      const { data: session } = await supabase
+        .from('call_sessions')
+        .select('ivr_detection_state, call_status')
+        .eq('call_id', callLegId)
+        .single();
+      
+      // Stop polling if call ended or human detected
+      if (session?.call_status === 'completed' || 
+          session?.ivr_detection_state === 'human' || 
+          session?.ivr_detection_state === 'ivr_then_human' ||
+          pollCount >= maxPolls) {
+        clearInterval(pollInterval);
+        
+        if (session?.ivr_detection_state === 'human' || session?.ivr_detection_state === 'ivr_then_human') {
+          console.log('👤 Human detected - transferring to VAPI');
+          await transferToVAPI(callControlId);
+        }
+        return;
+      }
+      
+      // Check for pending IVR actions
+      const { data: ivrAction, error } = await supabase
+        .from('ivr_events')
+        .select('*')
+        .eq('call_id', callLegId)
+        .eq('executed', false)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (ivrAction && !error) {
+        console.log('🎯 Found pending IVR action:', ivrAction);
+        await executeIVRAction(callControlId, callLegId, ivrAction);
+      }
+      
+    } catch (err) {
+      console.error('❌ Polling error:', err);
     }
-    
-    // Continue checking
-    setTimeout(() => checkClassification(controlId, callLegId), 2000);
-  }
+  }, 2000);
 }
+
+// Remove the old checkClassification function as we're using the poller now
 
 async function executeIVRAction(callControlId, callLegId, action) {
   console.log('🎯 Executing IVR action:', action);
