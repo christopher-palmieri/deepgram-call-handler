@@ -141,12 +141,18 @@ async function handleCallAnswered(event, res) {
 
 // Start a polling mechanism for IVR actions
 async function startIVRActionPoller(callControlId, callLegId) {
+  console.log('🔄 Starting IVR action poller for call:', callLegId);
+  
+  // Create a unique poller ID for logging
+  const pollerId = crypto.randomUUID().slice(0, 8);
+  
   // Poll every 2 seconds for up to 2 minutes
   const maxPolls = 60;
   let pollCount = 0;
   
   const pollInterval = setInterval(async () => {
     pollCount++;
+    console.log(`🔍 [${pollerId}] Poll #${pollCount} for call ${callLegId}`);
     
     try {
       // Check if call is still active
@@ -156,11 +162,21 @@ async function startIVRActionPoller(callControlId, callLegId) {
         .eq('call_id', callLegId)
         .single();
       
+      console.log(`📊 [${pollerId}] Session state:`, session?.ivr_detection_state, session?.call_status);
+      
       // Stop polling if call ended or human detected
       if (session?.call_status === 'completed' || 
           session?.ivr_detection_state === 'human' || 
           session?.ivr_detection_state === 'ivr_then_human' ||
           pollCount >= maxPolls) {
+        
+        console.log(`⏹️ [${pollerId}] Stopping poller - reason: ${
+          session?.call_status === 'completed' ? 'call completed' :
+          session?.ivr_detection_state === 'human' ? 'human detected' :
+          session?.ivr_detection_state === 'ivr_then_human' ? 'ivr then human' :
+          'max polls reached'
+        }`);
+        
         clearInterval(pollInterval);
         
         if (session?.ivr_detection_state === 'human' || session?.ivr_detection_state === 'ivr_then_human') {
@@ -181,14 +197,18 @@ async function startIVRActionPoller(callControlId, callLegId) {
         .single();
       
       if (ivrAction && !error) {
-        console.log('🎯 Found pending IVR action:', ivrAction);
+        console.log(`🎯 [${pollerId}] Found pending IVR action:`, ivrAction);
         await executeIVRAction(callControlId, callLegId, ivrAction);
+      } else if (!error) {
+        console.log(`⏳ [${pollerId}] No pending actions`);
       }
       
     } catch (err) {
-      console.error('❌ Polling error:', err);
+      console.error(`❌ [${pollerId}] Polling error:`, err.message);
     }
   }, 2000);
+  
+  console.log(`✅ [${pollerId}] Poller started successfully`);
 }
 
 // Remove the old checkClassification function as we're using the poller now
@@ -199,21 +219,47 @@ async function executeIVRAction(callControlId, callLegId, action) {
   
   try {
     if (action.action_type === 'dtmf') {
-      // Send DTMF
-      const dtmfResponse = await telnyxAPI(`/calls/${callControlId}/actions/send_dtmf`, 'POST', {
+      // Generate a unique command ID
+      const commandId = crypto.randomUUID();
+      
+      // Create client state
+      const clientState = Buffer.from(JSON.stringify({
+        action_id: action.id,
+        call_id: callLegId,
+        timestamp: new Date().toISOString()
+      })).toString('base64');
+      
+      // Send DTMF with all required fields
+      const dtmfPayload = {
         digits: action.action_value,
-        duration_millis: 250 // Standard DTMF tone duration
-      });
+        duration_millis: 500, // Standard DTMF tone duration
+        client_state: clientState,
+        command_id: commandId
+      };
+      
+      console.log('📤 Sending DTMF payload:', dtmfPayload);
+      
+      const dtmfResponse = await telnyxAPI(`/calls/${callControlId}/actions/send_dtmf`, 'POST', dtmfPayload);
       
       console.log('✅ DTMF sent:', action.action_value);
-      console.log('📞 DTMF Response:', dtmfResponse);
+      console.log('📞 DTMF Response:', JSON.stringify(dtmfResponse, null, 2));
       
     } else if (action.action_type === 'speech') {
+      // Generate command ID and client state for speech too
+      const commandId = crypto.randomUUID();
+      const clientState = Buffer.from(JSON.stringify({
+        action_id: action.id,
+        call_id: callLegId,
+        timestamp: new Date().toISOString()
+      })).toString('base64');
+      
       // Speak text
       await telnyxAPI(`/calls/${callControlId}/actions/speak`, 'POST', {
         payload: action.action_value,
         voice: 'female',
-        language: 'en-US'
+        language: 'en-US',
+        client_state: clientState,
+        command_id: commandId
       });
       
       console.log('✅ Speech sent:', action.action_value);
@@ -233,6 +279,16 @@ async function executeIVRAction(callControlId, callLegId, action) {
   } catch (err) {
     console.error('❌ Error executing action:', err);
     console.error('❌ Error details:', JSON.stringify(err.response?.data || err, null, 2));
+    
+    // If error, mark as failed
+    await supabase
+      .from('ivr_events')
+      .update({ 
+        executed: true,
+        executed_at: new Date().toISOString(),
+        error: err.message
+      })
+      .eq('id', action.id);
   }
 }
 
