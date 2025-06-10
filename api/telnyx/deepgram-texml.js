@@ -154,9 +154,12 @@ async function startDeepgramStream(callId, res) {
     .update({ stream_started: true })
     .eq('call_id', callId);
 
-  // IMPORTANT: Use the correct Telnyx WebSocket URL
-  // This should point to your Railway service running server_telnyx.js
-  const TELNYX_WS_URL = process.env.TELNYX_WS_URL || 'wss://your-telnyx-ws-server.up.railway.app';
+  // IMPORTANT: Use Railway's internal networking
+  // For internal Railway communication, use: ws://telnyx-service:PORT
+  // Replace 'telnyx-service' with your actual Railway service name
+  const TELNYX_WS_URL = process.env.TELNYX_WS_URL || 
+                        process.env.TELNYX_INTERNAL_URL || 
+                        'ws://telnyx-service:8080';
   
   console.log('🔗 Using WebSocket URL:', TELNYX_WS_URL);
 
