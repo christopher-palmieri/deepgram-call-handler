@@ -74,7 +74,7 @@ export default async function handler(req, res) {
   
   // Extract call details from TeXML webhook
   // TeXML uses different field names than regular Telnyx webhooks
-  const callId = body.CallSid || body.CallSidLegacy || 'unknown';
+  const callId = body.CallSid || body.CallSidLegacy || body.call_sid || 'unknown';
   const accountSid = body.AccountSid;
   const from = body.From;
   const to = body.To;
@@ -154,8 +154,11 @@ async function startDeepgramStream(callId, res) {
     .update({ stream_started: true })
     .eq('call_id', callId);
 
-  // Use the new Telnyx-specific WebSocket server
-  const TELNYX_WS_URL = process.env.TELNYX_WS_URL || process.env.DEEPGRAM_WS_URL || 'wss://your-telnyx-ws-server.up.railway.app';
+  // IMPORTANT: Use the correct Telnyx WebSocket URL
+  // This should point to your Railway service running server_telnyx.js
+  const TELNYX_WS_URL = process.env.TELNYX_WS_URL || 'wss://your-telnyx-ws-server.up.railway.app';
+  
+  console.log('🔗 Using WebSocket URL:', TELNYX_WS_URL);
 
   // TeXML response using the correct <Stream> syntax for Telnyx
   const texml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -164,13 +167,13 @@ async function startDeepgramStream(callId, res) {
           track="both_tracks">
     <Parameter name="streamSid" value="${callId}" />
     <Parameter name="callSid" value="${callId}" />
+    <Parameter name="CallSid" value="${callId}" />
   </Stream>
   <Pause length="3" />
   <Redirect>${getWebhookUrl()}/api/telnyx/deepgram-texml</Redirect>
 </Response>`;
 
   console.log('📤 Sending TeXML response:', texml);
-  console.log('🔗 WebSocket URL:', TELNYX_WS_URL);
   res.setHeader('Content-Type', 'application/xml');
   res.status(200).send(texml);
 }
