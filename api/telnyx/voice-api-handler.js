@@ -186,21 +186,24 @@ async function startIVRActionPoller(callControlId, callLegId) {
         return;
       }
       
-      // Check for pending IVR actions
-      const { data: ivrAction, error } = await supabase
+      // Check for pending IVR actions FOR THIS SPECIFIC CALL
+      const { data: ivrActions, error } = await supabase
         .from('ivr_events')
         .select('*')
-        .eq('call_id', callLegId)
+        .eq('call_id', callLegId)  // Make sure it's for THIS call
         .eq('executed', false)
+        .not('action_value', 'is', null)  // Skip actions with null values
         .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+        .limit(1);
       
-      if (ivrAction && !error) {
-        console.log(`🎯 [${pollerId}] Found pending IVR action:`, ivrAction);
+      // Use array access instead of .single() to avoid errors when no results
+      const ivrAction = ivrActions && ivrActions.length > 0 ? ivrActions[0] : null;
+      
+      if (ivrAction) {
+        console.log(`🎯 [${pollerId}] Found pending IVR action for THIS call:`, ivrAction);
         await executeIVRAction(callControlId, callLegId, ivrAction);
-      } else if (!error) {
-        console.log(`⏳ [${pollerId}] No pending actions`);
+      } else if (!error && pollCount % 5 === 0) {  // Log every 10 seconds
+        console.log(`⏳ [${pollerId}] No pending actions for call ${callLegId}`);
       }
       
     } catch (err) {
@@ -216,6 +219,23 @@ async function startIVRActionPoller(callControlId, callLegId) {
 async function executeIVRAction(callControlId, callLegId, action) {
   console.log('🎯 Executing IVR action:', action);
   console.log('📞 Using Call Control ID:', callControlId);
+  
+  // Validate action has required data
+  if (!action.action_value) {
+    console.error('❌ Skipping action with null/empty value');
+    
+    // Mark as failed
+    await supabase
+      .from('ivr_events')
+      .update({ 
+        executed: true,
+        executed_at: new Date().toISOString(),
+        error: 'action_value was null or empty'
+      })
+      .eq('id', action.id);
+    
+    return;
+  }
   
   try {
     if (action.action_type === 'dtmf') {
