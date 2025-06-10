@@ -32,22 +32,31 @@ async function telnyxAPI(endpoint, method = 'POST', body = {}) {
 }
 
 export default async function handler(req, res) {
-  console.log('🔍 Incoming webhook:', req.method, req.body?.event_type);
+  console.log('🔍 Incoming webhook:', req.method);
+  console.log('🔍 Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('🔍 Body:', JSON.stringify(req.body, null, 2));
   
   // Handle webhook events
   if (req.method === 'POST') {
-    const event = req.body;
+    const event = req.body?.data;  // Telnyx wraps events in a 'data' object
     
-    // Verify webhook signature if needed
-    // const signature = req.headers['telnyx-signature'];
+    if (!event) {
+      console.error('❌ No event data found in request body');
+      return res.status(200).json({ received: true });
+    }
+    
+    console.log('📞 Event type:', event.event_type);
+    console.log('📞 Event payload:', JSON.stringify(event.payload, null, 2));
     
     switch (event.event_type) {
       case 'call.initiated':
         return handleCallInitiated(event, res);
       case 'call.answered':
         return handleCallAnswered(event, res);
-      case 'media.started':
-        return handleMediaStarted(event, res);
+      case 'streaming.started':
+        return handleStreamingStarted(event, res);
+      case 'streaming.stopped':
+        return handleStreamingStopped(event, res);
       case 'call.hangup':
         return handleCallHangup(event, res);
       default:
@@ -60,17 +69,18 @@ export default async function handler(req, res) {
 }
 
 async function handleCallInitiated(event, res) {
-  const callId = event.data.payload.call_control_id;
-  const callLegId = event.data.payload.call_leg_id;
+  const callControlId = event.payload?.call_control_id;
+  const callLegId = event.payload?.call_leg_id;
   
-  console.log('📞 Call initiated:', callId);
+  console.log('📞 Call initiated - Control ID:', callControlId);
+  console.log('📞 Call initiated - Leg ID:', callLegId);
   
   // Create session in Supabase
   await getOrCreateSession(callLegId);
   
   // Answer the call
   try {
-    await telnyxAPI(`/calls/${callId}/actions/answer`);
+    await telnyxAPI(`/calls/${callControlId}/actions/answer`, 'POST');
     console.log('✅ Call answered');
   } catch (err) {
     console.error('❌ Error answering call:', err);
@@ -80,39 +90,44 @@ async function handleCallInitiated(event, res) {
 }
 
 async function handleCallAnswered(event, res) {
-  const callId = event.data.payload.call_control_id;
-  const callLegId = event.data.payload.call_leg_id;
+  const callControlId = event.payload?.call_control_id;
+  const callLegId = event.payload?.call_leg_id;
   
-  console.log('📞 Call answered, starting streams...');
+  console.log('📞 Call answered - Control ID:', callControlId);
+  console.log('📞 Call answered - Leg ID:', callLegId);
+  console.log('📞 Starting WebSocket stream...');
   
-  // Get Telnyx WebSocket URL
+  // Get Railway WebSocket URL from environment
   const TELNYX_WS_URL = process.env.TELNYX_WS_URL || 'wss://telnyx-server-production.up.railway.app';
   
   try {
     // Start WebSocket stream for IVR detection
-    const streamResponse = await telnyxAPI(`/calls/${callId}/actions/streaming_start`, 'POST', {
+    const streamResponse = await telnyxAPI(`/calls/${callControlId}/actions/streaming_start`, 'POST', {
       stream_url: TELNYX_WS_URL,
-      stream_track: 'both', // Get both inbound and outbound audio
+      stream_track: 'both_tracks', // Match the example format
       enable_dialogflow: false
     });
     
-    console.log('✅ WebSocket stream started:', streamResponse.data.stream_id);
+    console.log('✅ WebSocket stream started:', streamResponse.data?.stream_id);
+    console.log('📡 Stream URL:', TELNYX_WS_URL);
     
     // Update session with stream info
     await supabase
       .from('call_sessions')
       .update({ 
-        stream_id: streamResponse.data.stream_id,
-        stream_started: true 
+        stream_id: streamResponse.data?.stream_id,
+        stream_started: true,
+        call_control_id: callControlId 
       })
       .eq('call_id', callLegId);
     
   } catch (err) {
-    console.error('❌ Error starting streams:', err);
+    console.error('❌ Error starting stream:', err);
+    console.error('❌ Error details:', JSON.stringify(err.response?.data || err, null, 2));
   }
   
   // Schedule classification check
-  setTimeout(() => checkClassification(callId, callLegId), 3000);
+  setTimeout(() => checkClassification(callControlId, callLegId), 3000);
   
   return res.status(200).json({ received: true });
 }
@@ -201,13 +216,21 @@ async function transferToVAPI(callControlId) {
   }
 }
 
-async function handleMediaStarted(event, res) {
+async function handleStreamingStarted(event, res) {
   console.log('🎙️ Media streaming started');
+  console.log('📡 Stream ID:', event.payload?.stream_id);
+  console.log('📡 Media connection ID:', event.payload?.media_connection_id);
+  return res.status(200).json({ received: true });
+}
+
+async function handleStreamingStopped(event, res) {
+  console.log('🛑 Media streaming stopped');
+  console.log('📡 Stream ID:', event.payload?.stream_id);
   return res.status(200).json({ received: true });
 }
 
 async function handleCallHangup(event, res) {
-  const callLegId = event.data.payload.call_leg_id;
+  const callLegId = event.payload?.call_leg_id;
   console.log('📞 Call ended:', callLegId);
   
   // Update session
