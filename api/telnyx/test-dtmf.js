@@ -8,14 +8,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
-  const { call_control_id, digits } = await req.json();
+  // Grab from req.body instead of req.json()
+  const { call_control_id, digits } = req.body;
   if (!call_control_id || !digits) {
     return res
       .status(400)
       .json({ error: "Missing call_control_id or digits" });
   }
 
-  const resp = await fetch(
+  const dtmfResp = await fetch(
     `https://api.telnyx.com/v2/calls/${call_control_id}/actions/send_dtmf`,
     {
       method: "POST",
@@ -26,9 +27,10 @@ export default async function handler(req, res) {
       body: JSON.stringify({ digits, duration_millis: 500 }),
     }
   );
-  const json = await resp.json();
-  if (!resp.ok) {
-    return res.status(resp.status).json({ error: json });
+  const dtmfJson = await dtmfResp.json();
+
+  if (!dtmfResp.ok) {
+    return res.status(dtmfResp.status).json({ error: dtmfJson });
   }
-  return res.status(200).json({ success: true, result: json });
+  return res.status(200).json({ success: true, result: dtmfJson });
 }
