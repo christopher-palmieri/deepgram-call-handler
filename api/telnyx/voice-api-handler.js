@@ -166,7 +166,6 @@ async function handleCallAnswered(event, res) {
     await supabase
       .from('call_sessions')
       .update({ 
-        stream_initialized: true,
         stream_started: true
       })
       .eq('call_id', callLegId);
@@ -347,7 +346,7 @@ async function getOrCreateSession(callId, callControlId) {
       .insert([{
         call_id: callId,
         created_at: new Date().toISOString(),
-        stream_initialized: false,
+        stream_started: false,
         ivr_detection_state: null,
         call_status: 'active'
       }])
