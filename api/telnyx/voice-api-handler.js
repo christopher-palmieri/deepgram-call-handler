@@ -1,4 +1,5 @@
-// api/telnyx/voice-api-handler.js - Updated with immediate DTMF execution
+// api/telnyx/voice-api-handler.js
+
 import { createClient } from '@supabase/supabase-js';
 import fetch from 'node-fetch';
 
@@ -7,43 +8,67 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Telnyx API configuration
 const TELNYX_API_KEY = process.env.TELNYX_API_KEY;
 const TELNYX_API_URL = 'https://api.telnyx.com/v2';
 
-// Helper to make Telnyx API calls
+// Helper: call Telnyx and return status + parsed JSON
 async function telnyxAPI(endpoint, method = 'POST', body = {}) {
-  const response = await fetch(`${TELNYX_API_URL}${endpoint}`, {
+  const resp = await fetch(`${TELNYX_API_URL}${endpoint}`, {
     method,
     headers: {
       'Authorization': `Bearer ${TELNYX_API_KEY}`,
-      'Content-Type': 'application/json',
+      'Content-Type':  'application/json',
+      'Accept':        'application/json',
     },
     body: method !== 'GET' ? JSON.stringify(body) : undefined,
   });
-  
-  const data = await response.json();
-  if (!response.ok) {
-    console.error('Telnyx API Error:', data);
-    throw new Error(data.errors?.[0]?.detail || 'Telnyx API Error');
+
+  let data;
+  try { data = await resp.json(); }
+  catch (_){ data = null; }
+
+  if (!resp.ok) {
+    console.error('❌ Telnyx API Error', resp.status, data);
+    throw new Error(data?.errors?.[0]?.detail || `HTTP ${resp.status}`);
   }
-  
-  return data;
+
+  return { status: resp.status, data };
 }
 
 export default async function handler(req, res) {
-  console.log('🔍 Incoming webhook:', req.method);
-  
+  // — DEBUG DTMF via GET?  
+  if (req.method === 'GET') {
+    const { debug_call_control_id, digits } = req.query;
+    if (debug_call_control_id) {
+      const dt = digits || '1';
+      console.log('🔧 Debug DTMF ➡️', debug_call_control_id, dt);
+      try {
+        const { status, data } = await telnyxAPI(
+          `/calls/${debug_call_control_id}/actions/send_dtmf`,
+          'POST',
+          { digits: dt, duration_millis: 500 }
+        );
+        console.log(`🔧 Debug DTMF response ${status}:`, data);
+        return res.status(200).json({ status, data });
+      } catch (err) {
+        console.error('🔧 Debug DTMF error:', err);
+        return res.status(500).json({ error: err.message });
+      }
+    }
+    return res.status(405).json({ error: 'Method Not Allowed' });
+  }
+
+  // — WEBHOOK HANDLING  
   if (req.method === 'POST') {
+    console.log('🔍 Incoming webhook:', req.method);
+
     const event = req.body?.data;
-    
     if (!event) {
-      console.error('❌ No event data found in request body');
+      console.error('❌ No event data found');
       return res.status(200).json({ received: true });
     }
-    
+
     console.log('📞 Event type:', event.event_type);
-    
     switch (event.event_type) {
       case 'call.initiated':
         return handleCallInitiated(event, res);
@@ -60,290 +85,208 @@ export default async function handler(req, res) {
         return res.status(200).json({ received: true });
     }
   }
-  
+
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
 async function handleCallInitiated(event, res) {
-  const callControlId = event.payload?.call_control_id;
-  const callLegId = event.payload?.call_leg_id;
-  const direction = event.payload?.direction;
-  
-  console.log('📞 Call initiated - Control ID:', callControlId);
-  console.log('📞 Call initiated - Leg ID:', callLegId);
-  console.log('📞 Call direction:', direction);
-  
-  // Create session in Supabase
-  await getOrCreateSession(callLegId);
-  
-  // Only answer INBOUND calls
-  if (direction === 'incoming') {
+  const ctl = event.payload.call_control_id;
+  const leg = event.payload.call_leg_id;
+  const dir = event.payload.direction;
+  console.log('📞 Call initiated - Control ID:', ctl, 'Leg ID:', leg, 'Dir:', dir);
+  await getOrCreateSession(leg);
+
+  if (dir === 'incoming') {
     try {
-      await telnyxAPI(`/calls/${callControlId}/actions/answer`, 'POST');
+      await telnyxAPI(`/calls/${ctl}/actions/answer`);
       console.log('✅ Inbound call answered');
     } catch (err) {
       console.error('❌ Error answering call:', err);
     }
-  } else {
-    console.log('📤 Outbound call - no need to answer');
   }
-  
   return res.status(200).json({ received: true });
 }
 
 async function handleCallAnswered(event, res) {
-  const callControlId = event.payload?.call_control_id;
-  const callLegId = event.payload?.call_leg_id;
-  
-  console.log('📞 Call answered - Control ID:', callControlId);
-  console.log('📞 Call answered - Leg ID:', callLegId);
-  console.log('📞 Starting WebSocket stream...');
-  
-  // Get Railway WebSocket URL from environment
-  const TELNYX_WS_URL = process.env.TELNYX_WS_URL || 'wss://telnyx-server-production.up.railway.app';
-  
+  const ctl = event.payload.call_control_id;
+  const leg = event.payload.call_leg_id;
+  console.log('📞 Call answered - Control ID:', ctl, 'Leg ID:', leg, 'Starting WebSocket…');
+
+  const WS = process.env.TELNYX_WS_URL;
   try {
-    // Start WebSocket stream for IVR detection
-    const streamResponse = await telnyxAPI(`/calls/${callControlId}/actions/streaming_start`, 'POST', {
-      stream_url: `${TELNYX_WS_URL}?call_id=${callLegId}&call_control_id=${callControlId}`,
-      stream_track: 'both_tracks',
-      enable_dialogflow: false
-    });
-    
-    console.log('✅ WebSocket stream started:', streamResponse.data?.stream_id);
-    
-    // Update session with stream info
+    const { data: sr } = await telnyxAPI(
+      `/calls/${ctl}/actions/streaming_start`,
+      'POST',
+      {
+        stream_url: `${WS}?call_id=${leg}&call_control_id=${ctl}`,
+        stream_track: 'both_tracks',
+        enable_dialogflow: false
+      }
+    );
+    console.log('✅ Stream started:', sr.stream_id);
+
     await supabase
       .from('call_sessions')
-      .update({ 
-        stream_started: true
-      })
-      .eq('call_id', callLegId);
-    
-    // Start polling for IVR actions
-    startIVRActionPoller(callControlId, callLegId);
-    
+      .update({ stream_started: true })
+      .eq('call_id', leg);
+
+    startIVRActionPoller(ctl, leg);
   } catch (err) {
     console.error('❌ Error starting stream:', err);
   }
-  
   return res.status(200).json({ received: true });
 }
 
-// Polling mechanism for IVR actions
-async function startIVRActionPoller(callControlId, callLegId) {
-  console.log('🔄 Starting IVR action poller for call:', callLegId);
-  
-  const pollerId = crypto.randomUUID().slice(0, 8);
-  let pollCount = 0;
-  const maxPolls = 60;
-  
-  const pollInterval = setInterval(async () => {
-    pollCount++;
-    
+async function startIVRActionPoller(ctl, leg) {
+  console.log('🔄 Poller start for call:', leg);
+  const id = crypto.randomUUID().slice(0, 8);
+  let count = 0, max = 60;
+
+  const timer = setInterval(async () => {
+    count++;
     try {
-      // Check if call is still active
-      const { data: session, error: sessionError } = await supabase
+      const { data: session } = await supabase
         .from('call_sessions')
-        .select('ivr_detection_state, call_status')
-        .eq('call_id', callLegId)
+        .select('ivr_detection_state,call_status')
+        .eq('call_id', leg)
         .maybeSingle();
-      
-      if (sessionError) {
-        console.error(`❌ [${pollerId}] Error fetching session:`, sessionError);
-        if (pollCount > 5) {
-          console.log(`⏹️ [${pollerId}] Stopping - no session found after ${pollCount} attempts`);
-          clearInterval(pollInterval);
-          return;
-        }
-      }
-      
-      // Stop polling if call ended or human detected
-      if (session?.call_status === 'completed' || 
-          session?.ivr_detection_state === 'human' || 
-          session?.ivr_detection_state === 'ivr_then_human' ||
-          pollCount >= maxPolls) {
-        
-        console.log(`⏹️ [${pollerId}] Stopping poller - reason: ${
-          session?.call_status === 'completed' ? 'call completed' :
-          session?.ivr_detection_state === 'human' ? 'human detected' :
-          session?.ivr_detection_state === 'ivr_then_human' ? 'ivr then human' :
-          'max polls reached'
-        }`);
-        
-        clearInterval(pollInterval);
-        
-        if (session?.ivr_detection_state === 'human' || session?.ivr_detection_state === 'ivr_then_human') {
-          console.log('👤 Human detected - transferring to VAPI');
-          await transferToVAPI(callControlId);
+
+      if (!session || session.call_status === 'completed' ||
+          ['human','ivr_then_human'].includes(session.ivr_detection_state) ||
+          count >= max) {
+        console.log(`⏹️ [${id}] Stopping poller (reason: ${
+          session?.call_status==='completed'?'ended':
+          session?.ivr_detection_state==='human'?'human':
+          session?.ivr_detection_state==='ivr_then_human'?'ivr_then_human':
+          'timeout'})`);
+        clearInterval(timer);
+        if (['human','ivr_then_human'].includes(session?.ivr_detection_state)) {
+          console.log('👤 Human detected — hand off to VAPI');
+          await transferToVAPI(ctl);
         }
         return;
       }
-      
-      // Check for pending IVR actions
-      const { data: ivrActions, error } = await supabase
+
+      const { data: actions } = await supabase
         .from('ivr_events')
         .select('*')
-        .eq('call_id', callLegId)
+        .eq('call_id', leg)
         .eq('executed', false)
         .not('action_value', 'is', null)
         .order('created_at', { ascending: false })
         .limit(1);
-      
-      const ivrAction = ivrActions && ivrActions.length > 0 ? ivrActions[0] : null;
-      
-      if (ivrAction) {
-        console.log(`🎯 [${pollerId}] Found pending IVR action:`, ivrAction);
-        await executeIVRAction(callControlId, callLegId, ivrAction);
+
+      const action = actions && actions[0];
+      if (action) {
+        console.log(`🎯 [${id}] Pending action:`, action);
+        await executeIVRAction(ctl, leg, action);
       }
-      
     } catch (err) {
-      console.error(`❌ [${pollerId}] Polling error:`, err.message);
+      console.error(`❌ [${id}] Poll error:`, err.message);
     }
   }, 2000);
-  
-  console.log(`✅ [${pollerId}] Poller started successfully`);
+
+  console.log(`✅ [${id}] Poller running`);
 }
 
 async function executeIVRAction(callControlId, callLegId, action) {
-  console.log('🎯 Executing IVR action:', action);
-  console.log('📞 Using Call Control ID:', callControlId);
-  
-  if (!action.action_value) {
-    console.error('❌ Skipping action with null/empty value');
-    return;
-  }
-  
+  console.log('🎯 Executing IVR action:', action.id, action.action_type, action.action_value);
+
+  const common = {
+    client_state: Buffer.from(JSON.stringify({
+      action_id: action.id,
+      call_id:   callLegId,
+      timestamp: new Date().toISOString()
+    })).toString('base64'),
+    command_id: crypto.randomUUID()
+  };
+
   try {
     if (action.action_type === 'dtmf') {
-      const commandId = crypto.randomUUID();
-      const clientState = Buffer.from(JSON.stringify({
-        action_id: action.id,
-        call_id: callLegId,
-        timestamp: new Date().toISOString()
-      })).toString('base64');
-      
-      const dtmfPayload = {
-        digits: action.action_value,
-        duration_millis: 500,
-        client_state: clientState,
-        command_id: commandId
+      const payload = {
+        digits:           action.action_value,
+        duration_millis:  500,
+        ...common
       };
-      
-      console.log('📤 Sending DTMF:', dtmfPayload.digits);
-      
-      const dtmfResponse = await telnyxAPI(`/calls/${callControlId}/actions/send_dtmf`, 'POST', dtmfPayload);
-      
-      console.log('✅ DTMF sent successfully');
-      
+      console.log('📤 Sending DTMF:', payload);
+      const { status, data } = await telnyxAPI(
+        `/calls/${callControlId}/actions/send_dtmf`,
+        'POST',
+        payload
+      );
+      console.log(`✅ DTMF response ${status}:`, data);
+
     } else if (action.action_type === 'speech') {
-      const commandId = crypto.randomUUID();
-      const clientState = Buffer.from(JSON.stringify({
-        action_id: action.id,
-        call_id: callLegId,
-        timestamp: new Date().toISOString()
-      })).toString('base64');
-      
-      await telnyxAPI(`/calls/${callControlId}/actions/speak`, 'POST', {
+      const payload = {
         payload: action.action_value,
-        voice: 'female',
-        language: 'en-US',
-        client_state: clientState,
-        command_id: commandId
-      });
-      
-      console.log('✅ Speech sent:', action.action_value);
+        voice:   'female',
+        language:'en-US',
+        ...common
+      };
+      const { status, data } = await telnyxAPI(
+        `/calls/${callControlId}/actions/speak`,
+        'POST',
+        payload
+      );
+      console.log(`✅ Speech response ${status}:`, data);
     }
-    
-    // Mark as executed
+
     await supabase
       .from('ivr_events')
-      .update({ 
-        executed: true,
-        executed_at: new Date().toISOString()
-      })
+      .update({ executed: true, executed_at: new Date().toISOString() })
       .eq('id', action.id);
-    
+
   } catch (err) {
-    console.error('❌ Error executing action:', err);
-    
-    // Mark as failed
+    console.error('❌ executeIVRAction error:', err);
     await supabase
       .from('ivr_events')
-      .update({ 
-        executed: true,
-        executed_at: new Date().toISOString(),
-        error: err.message
-      })
+      .update({ executed: true, executed_at: new Date().toISOString(), error: err.message })
       .eq('id', action.id);
   }
 }
 
 async function handleStreamingStarted(event, res) {
-  console.log('🎙️ Media streaming started');
-  console.log('📡 Stream ID:', event.payload?.stream_id);
+  console.log('🎙️ streaming.started:', event.payload.stream_id);
   return res.status(200).json({ received: true });
 }
 
 async function handleStreamingStopped(event, res) {
-  console.log('🛑 Media streaming stopped');
-  console.log('📡 Stream ID:', event.payload?.stream_id);
+  console.log('🛑 streaming.stopped:', event.payload.stream_id);
   return res.status(200).json({ received: true });
 }
 
 async function handleCallHangup(event, res) {
-  const callLegId = event.payload?.call_leg_id;
-  console.log('📞 Call ended:', callLegId);
-  
-  // Update session
+  const leg = event.payload.call_leg_id;
+  console.log('📞 call.hangup:', leg);
   await supabase
     .from('call_sessions')
-    .update({ 
-      call_ended_at: new Date().toISOString(),
-      call_status: 'completed'
-    })
-    .eq('call_id', callLegId);
-  
+    .update({ call_ended_at: new Date().toISOString(), call_status: 'completed' })
+    .eq('call_id', leg);
   return res.status(200).json({ received: true });
 }
 
-async function getOrCreateSession(callId, callControlId) {
+async function getOrCreateSession(callId) {
   try {
-    console.log('🔍 Getting/creating session for:', callId);
-    
-    const { data: existing, error: fetchError } = await supabase
+    const { data: existing } = await supabase
       .from('call_sessions')
       .select('*')
       .eq('call_id', callId)
-      .maybeSingle(); // Use maybeSingle to avoid errors
-    
-    if (existing && !fetchError) {
-      console.log('✅ Found existing session');
-      return existing;
-    }
-    
-    console.log('📝 Creating new session');
-    const { data: newSession, error: insertError } = await supabase
+      .maybeSingle();
+    if (existing) return existing;
+
+    const { data: newSession } = await supabase
       .from('call_sessions')
       .insert([{
-        call_id: callId,
-        created_at: new Date().toISOString(),
+        call_id:        callId,
+        created_at:     new Date().toISOString(),
         stream_started: false,
-        ivr_detection_state: null,
-        call_status: 'active'
+        call_status:    'active'
       }])
-      .select()
       .single();
-    
-    if (insertError) {
-      console.error('❌ Error creating session:', insertError);
-      return null;
-    }
-    
-    console.log('✅ Session created successfully');
     return newSession;
+
   } catch (err) {
-    console.error('❌ Session error:', err);
+    console.error('❌ getOrCreateSession error:', err);
     return null;
   }
 }
