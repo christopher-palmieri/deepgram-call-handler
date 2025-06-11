@@ -156,13 +156,23 @@ async function startIVRActionPoller(callControlId, callLegId) {
     
     try {
       // Check if call is still active
-      const { data: session } = await supabase
+      const { data: session, error: sessionError } = await supabase
         .from('call_sessions')
         .select('ivr_detection_state, call_status')
         .eq('call_id', callLegId)
         .single();
       
-      console.log(`📊 [${pollerId}] Session state:`, session?.ivr_detection_state, session?.call_status);
+      if (sessionError) {
+        console.error(`❌ [${pollerId}] Error fetching session:`, sessionError);
+        // Don't stop polling yet - the session might be created late
+        if (pollCount > 5) {  // Give it 10 seconds
+          console.log(`⏹️ [${pollerId}] Stopping - no session found after ${pollCount} attempts`);
+          clearInterval(pollInterval);
+          return;
+        }
+      }
+      
+      console.log(`📊 [${pollerId}] Session state:`, session?.ivr_detection_state || 'null', session?.call_status || 'null');
       
       // Stop polling if call ended or human detected
       if (session?.call_status === 'completed' || 
@@ -361,15 +371,21 @@ async function handleCallHangup(event, res) {
 
 async function getOrCreateSession(callId) {
   try {
-    const { data: existing } = await supabase
+    console.log('🔍 Getting/creating session for:', callId);
+    
+    const { data: existing, error: fetchError } = await supabase
       .from('call_sessions')
       .select('*')
       .eq('call_id', callId)
       .single();
     
-    if (existing) return existing;
+    if (existing && !fetchError) {
+      console.log('✅ Found existing session');
+      return existing;
+    }
     
-    const { data: newSession } = await supabase
+    console.log('📝 Creating new session');
+    const { data: newSession, error: insertError } = await supabase
       .from('call_sessions')
       .insert([{
         call_id: callId,
@@ -380,6 +396,12 @@ async function getOrCreateSession(callId) {
       .select()
       .single();
     
+    if (insertError) {
+      console.error('❌ Error creating session:', insertError);
+      return null;
+    }
+    
+    console.log('✅ Session created successfully');
     return newSession;
   } catch (err) {
     console.error('❌ Session error:', err);
