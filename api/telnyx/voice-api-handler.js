@@ -166,9 +166,8 @@ async function handleCallAnswered(event, res) {
     await supabase
       .from('call_sessions')
       .update({ 
-        stream_id: streamResponse.data?.stream_id,
-        stream_started: true,
-        call_control_id: callControlId 
+        stream_initialized: true,
+        stream_started: true
       })
       .eq('call_id', callLegId);
     
@@ -347,10 +346,10 @@ async function getOrCreateSession(callId, callControlId) {
       .from('call_sessions')
       .insert([{
         call_id: callId,
-        call_control_id: callControlId,
         created_at: new Date().toISOString(),
-        stream_started: false,
-        ivr_detection_state: null
+        stream_initialized: false,
+        ivr_detection_state: null,
+        call_status: 'active'
       }])
       .select()
       .single();
