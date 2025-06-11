@@ -11,9 +11,6 @@ const supabase = createClient(
 const TELNYX_API_KEY = process.env.TELNYX_API_KEY;
 const TELNYX_API_URL = 'https://api.telnyx.com/v2';
 
-// Store active call control IDs
-const activeCallControls = new Map();
-
 // Helper to make Telnyx API calls
 async function telnyxAPI(endpoint, method = 'POST', body = {}) {
   const response = await fetch(`${TELNYX_API_URL}${endpoint}`, {
@@ -33,47 +30,6 @@ async function telnyxAPI(endpoint, method = 'POST', body = {}) {
   
   return data;
 }
-
-// Real-time subscription to IVR events
-let ivrSubscription = null;
-
-function setupRealtimeSubscription() {
-  if (ivrSubscription) return;
-  
-  console.log('🔄 Setting up real-time IVR event subscription');
-  
-  ivrSubscription = supabase
-    .channel('ivr-events')
-    .on('postgres_changes', 
-      { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'ivr_events',
-        filter: 'executed=eq.false'
-      }, 
-      async (payload) => {
-        console.log('🎯 Real-time IVR event received:', payload.new);
-        const event = payload.new;
-        
-        // Check if we have the call control ID for this call
-        const callControlId = activeCallControls.get(event.call_id);
-        if (!callControlId) {
-          console.log('⚠️ No active call control for:', event.call_id);
-          return;
-        }
-        
-        // Execute immediately
-        if (event.action_type && event.action_value) {
-          console.log('⚡ Executing IVR action immediately');
-          await executeIVRAction(callControlId, event.call_id, event);
-        }
-      }
-    )
-    .subscribe();
-}
-
-// Initialize subscription on startup
-setupRealtimeSubscription();
 
 export default async function handler(req, res) {
   console.log('🔍 Incoming webhook:', req.method);
@@ -117,11 +73,8 @@ async function handleCallInitiated(event, res) {
   console.log('📞 Call initiated - Leg ID:', callLegId);
   console.log('📞 Call direction:', direction);
   
-  // Store the mapping
-  activeCallControls.set(callLegId, callControlId);
-  
   // Create session in Supabase
-  await getOrCreateSession(callLegId, callControlId);
+  await getOrCreateSession(callLegId);
   
   // Only answer INBOUND calls
   if (direction === 'incoming') {
@@ -146,9 +99,6 @@ async function handleCallAnswered(event, res) {
   console.log('📞 Call answered - Leg ID:', callLegId);
   console.log('📞 Starting WebSocket stream...');
   
-  // Ensure mapping is stored
-  activeCallControls.set(callLegId, callControlId);
-  
   // Get Railway WebSocket URL from environment
   const TELNYX_WS_URL = process.env.TELNYX_WS_URL || 'wss://telnyx-server-production.up.railway.app';
   
@@ -170,8 +120,8 @@ async function handleCallAnswered(event, res) {
       })
       .eq('call_id', callLegId);
     
-    // Also start checking periodically as backup
-    startIVRActionChecker(callControlId, callLegId);
+    // Start polling for IVR actions
+    startIVRActionPoller(callControlId, callLegId);
     
   } catch (err) {
     console.error('❌ Error starting stream:', err);
@@ -180,18 +130,57 @@ async function handleCallAnswered(event, res) {
   return res.status(200).json({ received: true });
 }
 
-// Simplified checker that runs less frequently as backup
-async function startIVRActionChecker(callControlId, callLegId) {
-  console.log('🔄 Starting backup IVR checker for call:', callLegId);
+// Polling mechanism for IVR actions
+async function startIVRActionPoller(callControlId, callLegId) {
+  console.log('🔄 Starting IVR action poller for call:', callLegId);
   
-  let checkCount = 0;
-  const maxChecks = 30; // 1 minute total
+  const pollerId = crypto.randomUUID().slice(0, 8);
+  let pollCount = 0;
+  const maxPolls = 60;
   
-  const checkInterval = setInterval(async () => {
-    checkCount++;
+  const pollInterval = setInterval(async () => {
+    pollCount++;
     
     try {
-      // Check for pending actions
+      // Check if call is still active
+      const { data: session, error: sessionError } = await supabase
+        .from('call_sessions')
+        .select('ivr_detection_state, call_status')
+        .eq('call_id', callLegId)
+        .maybeSingle();
+      
+      if (sessionError) {
+        console.error(`❌ [${pollerId}] Error fetching session:`, sessionError);
+        if (pollCount > 5) {
+          console.log(`⏹️ [${pollerId}] Stopping - no session found after ${pollCount} attempts`);
+          clearInterval(pollInterval);
+          return;
+        }
+      }
+      
+      // Stop polling if call ended or human detected
+      if (session?.call_status === 'completed' || 
+          session?.ivr_detection_state === 'human' || 
+          session?.ivr_detection_state === 'ivr_then_human' ||
+          pollCount >= maxPolls) {
+        
+        console.log(`⏹️ [${pollerId}] Stopping poller - reason: ${
+          session?.call_status === 'completed' ? 'call completed' :
+          session?.ivr_detection_state === 'human' ? 'human detected' :
+          session?.ivr_detection_state === 'ivr_then_human' ? 'ivr then human' :
+          'max polls reached'
+        }`);
+        
+        clearInterval(pollInterval);
+        
+        if (session?.ivr_detection_state === 'human' || session?.ivr_detection_state === 'ivr_then_human') {
+          console.log('👤 Human detected - transferring to VAPI');
+          await transferToVAPI(callControlId);
+        }
+        return;
+      }
+      
+      // Check for pending IVR actions
       const { data: ivrActions, error } = await supabase
         .from('ivr_events')
         .select('*')
@@ -204,20 +193,16 @@ async function startIVRActionChecker(callControlId, callLegId) {
       const ivrAction = ivrActions && ivrActions.length > 0 ? ivrActions[0] : null;
       
       if (ivrAction) {
-        console.log(`🎯 Backup checker found pending action:`, ivrAction);
+        console.log(`🎯 [${pollerId}] Found pending IVR action:`, ivrAction);
         await executeIVRAction(callControlId, callLegId, ivrAction);
       }
       
-      // Stop if max checks reached
-      if (checkCount >= maxChecks) {
-        console.log(`⏹️ Stopping backup checker for ${callLegId}`);
-        clearInterval(checkInterval);
-      }
-      
     } catch (err) {
-      console.error(`❌ Backup checker error:`, err.message);
+      console.error(`❌ [${pollerId}] Polling error:`, err.message);
     }
-  }, 2000); // Check every 2 seconds
+  }, 2000);
+  
+  console.log(`✅ [${pollerId}] Poller started successfully`);
 }
 
 async function executeIVRAction(callControlId, callLegId, action) {
@@ -309,9 +294,6 @@ async function handleStreamingStopped(event, res) {
 async function handleCallHangup(event, res) {
   const callLegId = event.payload?.call_leg_id;
   console.log('📞 Call ended:', callLegId);
-  
-  // Clean up mapping
-  activeCallControls.delete(callLegId);
   
   // Update session
   await supabase
