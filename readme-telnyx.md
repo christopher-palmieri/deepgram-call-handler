@@ -45,6 +45,43 @@ This system is a Telnyx-based implementation of the IVR classification and navig
 - **WebSocket**: Bidirectional audio streaming
 - **Node.js**: Server runtime
 
+## Database Schema ##
+call_sessions
+CREATE TABLE call_sessions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  call_id text UNIQUE NOT NULL,
+  stream_started boolean DEFAULT false,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  ivr_detection_state text,
+  ivr_classified_at timestamptz,
+  ivr_detection_latency_ms int4,
+  ivr_confidence_score numeric,
+  conference_created boolean DEFAULT false,
+  vapi_participant_sid text,
+  vapi_joined_at timestamptz,
+  stream_initialized boolean DEFAULT false,
+  call_status varchar(50) DEFAULT 'active'
+);
+ivr_events
+CREATE TABLE ivr_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  call_id text NOT NULL,
+  transcript text,
+  ai_reply text,
+  action_type text,
+  action_value text,
+  created_at timestamp DEFAULT now(),
+  executed boolean DEFAULT false,
+  stt_source text,
+  executed_at timestamptz,
+  error text
+);
+
+-- Index for faster queries
+CREATE INDEX idx_ivr_events_call_id ON ivr_events(call_id);
+CREATE INDEX idx_ivr_events_executed ON ivr_events(executed);
+
 ## Configuration
 
 ### Environment Variables
