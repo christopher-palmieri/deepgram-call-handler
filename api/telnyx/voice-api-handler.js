@@ -90,22 +90,48 @@ export default async function handler(req, res) {
 }
 
 async function handleCallInitiated(event, res) {
-  const ctl = event.payload.call_control_id;
-  const leg = event.payload.call_leg_id;
-  const dir = event.payload.direction;
-  console.log('📞 Call initiated - Control ID:', ctl, 'Leg ID:', leg, 'Dir:', dir);
-  await getOrCreateSession(leg);
+  const callControlId = event.payload.call_control_id;
+  const callLegId     = event.payload.call_leg_id;
+  const direction     = event.payload.direction;
 
-  if (dir === 'incoming') {
+  console.log(
+    '📞 Call initiated - Control ID:',
+    callControlId,
+    'Leg ID:',
+    callLegId,
+    'Dir:',
+    direction
+  );
+
+  // 1) Create or fetch your Supabase session
+  await getOrCreateSession(callLegId);
+
+  // 2) Persist the Telnyx control ID on that session row
+  try {
+    await supabase
+      .from('call_sessions')
+      .update({ call_control_id: callControlId })
+      .eq('call_id', callLegId);
+    console.log('✅ Saved call_control_id to session');
+  } catch (err) {
+    console.error('❌ Could not save call_control_id:', err);
+  }
+
+  // 3) If this is an inbound call, answer it
+  if (direction === 'incoming') {
     try {
-      await telnyxAPI(`/calls/${ctl}/actions/answer`);
+      await telnyxAPI(`/calls/${callControlId}/actions/answer`);
       console.log('✅ Inbound call answered');
     } catch (err) {
       console.error('❌ Error answering call:', err);
     }
+  } else {
+    console.log('📤 Outbound call — nothing to answer');
   }
+
   return res.status(200).json({ received: true });
 }
+
 
 async function handleCallAnswered(event, res) {
   const ctl = event.payload.call_control_id;
