@@ -145,7 +145,7 @@ async function handleCallAnswered(event, res) {
       'POST',
       {
         stream_url: `${WS}?call_id=${leg}&call_control_id=${ctl}`,
-        stream_track: 'both_tracks',
+        stream_track: 'inbound_track',
         enable_dialogflow: false
       }
     );
