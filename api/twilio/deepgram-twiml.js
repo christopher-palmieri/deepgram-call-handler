@@ -105,7 +105,7 @@ export default async function handler(req, res) {
   }
 
   // === Step 4: Construct TwiML ===
-  let responseXml = `<Response>`;
+  let responseXml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
 
   if (!streamAlreadyStarted) {
     responseXml += `
@@ -127,10 +127,7 @@ export default async function handler(req, res) {
 
     responseXml += `<Pause length="1" />`;
 
-    responseXml += `
-        <Dial>
-          <Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip>
-        </Dial>`;
+    responseXml += `\n  <Dial>\n    <Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip>\n  </Dial>`
 
     const { error: execError } = await supabase
       .from('ivr_events')
@@ -142,7 +139,7 @@ export default async function handler(req, res) {
     responseXml += `<Pause length="3" />`;
   }
 
-  responseXml += `</Response>`;
+  responseXml += `\n</Response>`;
 
   console.log('🧾 Responding with fallback IVR TwiML:', responseXml);
 
