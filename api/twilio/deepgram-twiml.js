@@ -127,13 +127,10 @@ export default async function handler(req, res) {
 
     responseXml += `<Pause length="1" />`;
 
-    // Restart stream to continue listening
     responseXml += `
-      <Start>
-        <Stream url="wss://twilio-ws-server-production-81ba.up.railway.app">
-          <Parameter name="streamSid" value="${callId}" />
-        </Stream>
-      </Start>`;
+        <Dial>
+          <Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip>
+        </Dial>`;
 
     const { error: execError } = await supabase
       .from('ivr_events')
@@ -145,7 +142,7 @@ export default async function handler(req, res) {
     responseXml += `<Pause length="3" />`;
   }
 
-  responseXml += `<Redirect>/api/twilio/deepgram-twiml</Redirect></Response>`;
+  responseXml += `</Response>`;
 
   console.log('🧾 Responding with fallback IVR TwiML:', responseXml);
 
