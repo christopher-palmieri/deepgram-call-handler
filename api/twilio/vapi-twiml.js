@@ -15,12 +15,9 @@ export default async function handler(req, res) {
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Start>
-    <Stream url="wss://twilio-ws-server-production-81ba.up.railway.app">
-      <Parameter name="streamSid" value="${callSid || ''}" />
-    </Stream>
+    <Stream url="wss://twilio-ws-server-production-81ba.up.railway.app?streamSid=${callSid || ''}" track="both" encoding="linear16" sampleRate="8000" channels="1"/>
   </Start>
-  <!-- Keep the call open for audio streaming -->
-  <Pause length="3600" />
+  <Pause length="3600"/>
 </Response>`;
 
   console.log('🧾 Serving streaming-only TwiML:', twiml);
