@@ -117,37 +117,55 @@ export default async function handler(req, res) {
   }
 
   if (ivrAction && ivrAction.action_type && ivrAction.action_value) {
+    // Stop the stream before executing IVR action
     responseXml += `<Stop><Stream name="mediaStream" /></Stop>`;
 
+    // Execute the IVR action
     if (ivrAction.action_type === 'dtmf') {
       responseXml += `<Play digits="${ivrAction.action_value}" />`;
     } else if (ivrAction.action_type === 'speech') {
       responseXml += `<Say>${ivrAction.action_value}</Say>`;
     }
 
-    responseXml += `<Pause length="1" />`;
+    // Add a pause to let the IVR process the command
+    responseXml += `<Pause length="2" />`;
 
-    // Restart stream to continue listening
+    // After IVR command, handoff to VAPI
     responseXml += `
-      <Start>
-        <Stream url="wss://twilio-ws-server-production-81ba.up.railway.app">
-          <Parameter name="streamSid" value="${callId}" />
-        </Stream>
-      </Start>`;
+      <Dial>
+        <Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip>
+      </Dial>`;
 
+    // Mark the IVR event as executed
     const { error: execError } = await supabase
       .from('ivr_events')
       .update({ executed: true })
       .eq('id', ivrAction.id);
 
     if (execError) console.error('❌ Error marking IVR event as executed:', execError);
+
+    // Update the call session to indicate we're now in VAPI mode
+    try {
+      const { error: updateErr } = await supabase
+        .from('call_sessions')
+        .update({ ivr_detection_state: 'ivr_then_human' })
+        .eq('call_id', callId);
+      
+      if (updateErr) console.error('❌ Error updating IVR state:', updateErr);
+      else console.log('✅ Updated IVR state to ivr_then_human');
+    } catch (err) {
+      console.error('❌ Error updating call session state:', err);
+    }
+
   } else {
+    // No IVR action to execute, continue listening
     responseXml += `<Pause length="3" />`;
+    responseXml += `<Redirect>/api/twilio/deepgram-twiml</Redirect>`;
   }
 
-  responseXml += `<Redirect>/api/twilio/deepgram-twiml</Redirect></Response>`;
+  responseXml += `</Response>`;
 
-  console.log('🧾 Responding with fallback IVR TwiML:', responseXml);
+  console.log('🧾 Responding with TwiML:', responseXml);
 
   res.setHeader('Content-Type', 'text/xml');
   res.status(200).send(responseXml);
