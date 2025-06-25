@@ -105,47 +105,37 @@ export default async function handler(req, res) {
   }
 
   // === Step 4: Construct TwiML ===
-  let responseXml = `<Response>`;
-
+  let responseXml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
+  
+  // only start the media stream once
   if (!streamAlreadyStarted) {
-    responseXml += `
-      <Start>
-        <Stream url="wss://twilio-ws-server-production-81ba.up.railway.app">
-          <Parameter name="streamSid" value="${callId}" />
-        </Stream>
-      </Start>`;
+    responseXml += `<Start><Stream url="wss://twilio-ws-server-production-81ba.up.railway.app"><Parameter name="streamSid" value="${callId}"/></Stream></Start>`;
   }
-
+  
   if (ivrAction && ivrAction.action_type && ivrAction.action_value) {
-    responseXml += `<Stop><Stream name="mediaStream" /></Stop>`;
-
+    // stop listening, play prompt, pause, then hand off to VAPI SIP
+    responseXml += `<Stop><Stream name="mediaStream"/></Stop>`;
+  
     if (ivrAction.action_type === 'dtmf') {
-      responseXml += `<Play digits="${ivrAction.action_value}" />`;
-    } else if (ivrAction.action_type === 'speech') {
+      responseXml += `<Play digits="${ivrAction.action_value}"/>`;
+    } else {
       responseXml += `<Say>${ivrAction.action_value}</Say>`;
     }
-
-    responseXml += `<Pause length="1" />`;
-
-    // Restart stream to continue listening
-    responseXml += `
-      <Start>
-        <Stream url="wss://twilio-ws-server-production-81ba.up.railway.app">
-          <Parameter name="streamSid" value="${callId}" />
-        </Stream>
-      </Start>`;
-
-    const { error: execError } = await supabase
+  
+    responseXml += `<Pause length="1"/>`;
+    responseXml += `<Dial><Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip></Dial>`;
+  
+    // mark the IVR event executed
+    await supabase
       .from('ivr_events')
       .update({ executed: true })
       .eq('id', ivrAction.id);
-
-    if (execError) console.error('❌ Error marking IVR event as executed:', execError);
   } else {
-    responseXml += `<Pause length="3" />`;
+    // no IVR action pending, just pause
+    responseXml += `<Pause length="3"/>`;
   }
-
-  responseXml += `<Redirect>/api/twilio/deepgram-twiml</Redirect></Response>`;
+  
+  responseXml += `</Response>`;
 
   console.log('🧾 Responding with fallback IVR TwiML:', responseXml);
 
