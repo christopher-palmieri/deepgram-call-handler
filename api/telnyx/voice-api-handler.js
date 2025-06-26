@@ -188,7 +188,7 @@ async function startIVRActionPoller(ctl, leg) {
         clearInterval(timer);
         if (['human','ivr_then_human'].includes(session?.ivr_detection_state)) {
           console.log('👤 Human detected — hand off to VAPI');
-          await transferToVAPI(ctl);
+          await transferToVAPI(ctl, leg);
         }
         return;
       }
@@ -314,6 +314,37 @@ async function getOrCreateSession(callId) {
   } catch (err) {
     console.error('❌ getOrCreateSession error:', err);
     return null;
+  }
+}
+
+async function transferToVAPI(callControlId, callLegId) {
+  const baseSip = process.env.VAPI_SIP_ADDRESS;
+
+  if (!baseSip) {
+    console.error('❌ VAPI_SIP_ADDRESS is not defined.');
+    return;
+  }
+
+  // Add any query parameters you want to pass to Vapi
+  const sipAddress = `${baseSip}?X-Call-ID=${callLegId}&source=ivr`;
+
+  try {
+    console.log(`🔁 Transferring call ${callControlId} to ${sipAddress}`);
+    const { status, data } = await telnyxAPI(
+      `/calls/${callControlId}/actions/transfer_call`,
+      'POST',
+      {
+        to: sipAddress,
+        sip: {
+          headers: {
+            'X-Routed-By': 'IVR-Poller'
+          }
+        }
+      }
+    );
+    console.log(`✅ Transfer initiated (${status}):`, data);
+  } catch (err) {
+    console.error('❌ Error transferring to VAPI SIP:', err);
   }
 }
 
