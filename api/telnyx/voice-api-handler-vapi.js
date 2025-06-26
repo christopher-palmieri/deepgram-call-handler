@@ -156,81 +156,193 @@ async function handleCallAnswered(event, res) {
       .update({ stream_started: true })
       .eq('call_id', leg);
 
-    startIVRActionPoller(ctl, leg);
+    // Start monitoring for IVR detection changes
+    startIVRMonitor(ctl, leg);
   } catch (err) {
     console.error('❌ Error starting stream:', err);
   }
   return res.status(200).json({ received: true });
 }
 
+// New monitor function that watches for human detection
+async function startIVRMonitor(ctl, leg) {
+  console.log('👁️ Starting IVR detection monitor for call:', leg);
+  const monitorId = crypto.randomUUID().slice(0, 8);
+  let checkCount = 0;
+  const maxChecks = 120; // 2 minutes at 1-second intervals
+  let transferred = false;
+
+  const monitor = setInterval(async () => {
+    checkCount++;
+    
+    try {
+      // Check call session state
+      const { data: session } = await supabase
+        .from('call_sessions')
+        .select('ivr_detection_state, call_status, transfer_initiated')
+        .eq('call_id', leg)
+        .maybeSingle();
+
+      // Stop conditions
+      if (!session || 
+          session.call_status === 'completed' || 
+          session.transfer_initiated ||
+          transferred ||
+          checkCount >= maxChecks) {
+        
+        console.log(`⏹️ [${monitorId}] Stopping IVR monitor (reason: ${
+          !session ? 'no_session' :
+          session.call_status === 'completed' ? 'call_ended' :
+          session.transfer_initiated || transferred ? 'already_transferred' :
+          'timeout'
+        })`);
+        
+        clearInterval(monitor);
+        
+        // Also stop the action poller if it's running
+        if (global.actionPollers && global.actionPollers[leg]) {
+          clearInterval(global.actionPollers[leg]);
+          delete global.actionPollers[leg];
+          console.log(`⏹️ Stopped action poller for ${leg}`);
+        }
+        
+        return;
+      }
+
+      // Check if human detected
+      if (['human', 'ivr_then_human'].includes(session.ivr_detection_state)) {
+        console.log(`👤 [${monitorId}] Human detected (${session.ivr_detection_state}) - initiating transfer`);
+        
+        // Mark as transferring to prevent duplicate transfers
+        transferred = true;
+        await supabase
+          .from('call_sessions')
+          .update({ transfer_initiated: true })
+          .eq('call_id', leg);
+        
+        // Stop the action poller immediately
+        if (global.actionPollers && global.actionPollers[leg]) {
+          clearInterval(global.actionPollers[leg]);
+          delete global.actionPollers[leg];
+          console.log(`⏹️ Stopped action poller due to human detection`);
+        }
+        
+        // Transfer to VAPI
+        await transferToVAPI(ctl, leg);
+        
+        // Stop this monitor
+        clearInterval(monitor);
+        return;
+      }
+
+      // If IVR detected and no action poller running, start one
+      if (session.ivr_detection_state === 'ivr_only' && 
+          (!global.actionPollers || !global.actionPollers[leg])) {
+        console.log(`🤖 [${monitorId}] IVR detected, starting action poller`);
+        startIVRActionPoller(ctl, leg);
+      }
+
+    } catch (err) {
+      console.error(`❌ [${monitorId}] Monitor error:`, err.message);
+    }
+  }, 1000); // Check every second
+
+  console.log(`✅ [${monitorId}] IVR monitor running`);
+}
+
+// Initialize global storage for action pollers
+if (!global.actionPollers) {
+  global.actionPollers = {};
+}
+
 async function startIVRActionPoller(ctl, leg) {
-  console.log('🔄 Poller start for call:', leg);
-  const id = crypto.randomUUID().slice(0, 8);
+  // Prevent duplicate pollers
+  if (global.actionPollers[leg]) {
+    console.log('⚠️ Action poller already running for', leg);
+    return;
+  }
+
+  console.log('🔄 Starting IVR action poller for call:', leg);
+  const pollerId = crypto.randomUUID().slice(0, 8);
   let count = 0, max = 60;
 
   const timer = setInterval(async () => {
     count++;
     try {
+      // Re-check session state before each action
       const { data: session } = await supabase
         .from('call_sessions')
-        .select('ivr_detection_state,call_status')
+        .select('ivr_detection_state, call_status, transfer_initiated')
         .eq('call_id', leg)
         .maybeSingle();
 
-      if (!session || session.call_status === 'completed' ||
-          ['human','ivr_then_human'].includes(session.ivr_detection_state) ||
+      // Stop if human detected, call ended, or already transferred
+      if (!session || 
+          session.call_status === 'completed' ||
+          session.transfer_initiated ||
+          ['human', 'ivr_then_human'].includes(session.ivr_detection_state) ||
           count >= max) {
-        console.log(`⏹️ [${id}] Stopping poller (reason: ${
-          session?.call_status==='completed'?'ended':
-          session?.ivr_detection_state==='human'?'human':
-          session?.ivr_detection_state==='ivr_then_human'?'ivr_then_human':
-          'timeout'})`);
+        
+        console.log(`⏹️ [${pollerId}] Stopping action poller (reason: ${
+          !session ? 'no_session' :
+          session?.call_status === 'completed' ? 'call_ended' :
+          session?.transfer_initiated ? 'already_transferred' :
+          ['human', 'ivr_then_human'].includes(session?.ivr_detection_state) ? 'human_detected' :
+          'timeout'
+        })`);
+        
         clearInterval(timer);
-        if (['human','ivr_then_human'].includes(session?.ivr_detection_state)) {
-          console.log('👤 Human detected — hand off to VAPI');
-          await transferToVAPI(ctl, leg);
-        }
+        delete global.actionPollers[leg];
         return;
       }
 
-      const { data: actions } = await supabase
-        .from('ivr_events')
-        .select('*')
-        .eq('call_id', leg)
-        .eq('executed', false)
-        .not('action_value', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1);
+      // Only process actions if still in IVR mode
+      if (session.ivr_detection_state === 'ivr_only') {
+        const { data: actions } = await supabase
+          .from('ivr_events')
+          .select('*')
+          .eq('call_id', leg)
+          .eq('executed', false)
+          .not('action_value', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1);
 
-      const action = actions && actions[0];
-      if (action) {
-        console.log(`🎯 [${id}] Pending action:`, action);
-        await executeIVRAction(ctl, leg, action);
+        const action = actions && actions[0];
+        if (action) {
+          console.log(`🎯 [${pollerId}] Executing action:`, action.action_type, action.action_value);
+          await executeIVRAction(ctl, leg, action);
+        }
       }
     } catch (err) {
-      console.error(`❌ [${id}] Poll error:`, err.message);
+      console.error(`❌ [${pollerId}] Poll error:`, err.message);
     }
   }, 2000);
 
-  console.log(`✅ [${id}] Poller running`);
+  // Store the timer reference
+  global.actionPollers[leg] = timer;
+  console.log(`✅ [${pollerId}] Action poller running`);
 }
 
 async function executeIVRAction(callControlId, callLegId, action) {
   console.log('🎯 Executing IVR action:', action.id, action.action_type, action.action_value);
 
-  // Double-check current call state before executing
+  // Final check before execution
   try {
     const { data: session } = await supabase
       .from('call_sessions')
-      .select('ivr_detection_state')
+      .select('ivr_detection_state, transfer_initiated')
       .eq('call_id', callLegId)
       .maybeSingle();
 
-    if (session && ['human', 'ivr_then_human'].includes(session.ivr_detection_state)) {
-      console.log('⏭️  Skipping IVR action because state is', session.ivr_detection_state);
+    if (session && (session.transfer_initiated || ['human', 'ivr_then_human'].includes(session.ivr_detection_state))) {
+      console.log('⏭️ Skipping IVR action - human detected or transfer initiated');
       await supabase
         .from('ivr_events')
-        .update({ executed: true, executed_at: new Date().toISOString(), error: 'skipped_due_to_human' })
+        .update({ 
+          executed: true, 
+          executed_at: new Date().toISOString(), 
+          error: 'skipped_due_to_human_or_transfer' 
+        })
         .eq('id', action.id);
       return;
     }
@@ -303,21 +415,39 @@ async function transferToVAPI(callControlId, callLegId) {
 
   try {
     console.log(`🔁 Transferring call ${callControlId} to ${sipAddress}`);
+    
+    // Mark transfer as completed before making the API call
+    await supabase
+      .from('call_sessions')
+      .update({ 
+        transfer_completed: true,
+        transfer_completed_at: new Date().toISOString()
+      })
+      .eq('call_id', callLegId);
+    
     const { status, data } = await telnyxAPI(
-      `/calls/${callControlId}/actions/transfer_call`,
+      `/calls/${callControlId}/actions/transfer`,
       'POST',
       {
         to: sipAddress,
-        sip: {
-          headers: {
-            'X-Routed-By': 'IVR-Poller'
-          }
+        sip_headers: {
+          'X-Routed-By': 'IVR-Monitor',
+          'X-Detection-State': 'human'
         }
       }
     );
-    console.log(`✅ Transfer initiated (${status}):`, data);
+    console.log(`✅ Transfer completed (${status}):`, data);
   } catch (err) {
     console.error('❌ Error transferring to VAPI SIP:', err);
+    
+    // Update session with error
+    await supabase
+      .from('call_sessions')
+      .update({ 
+        transfer_error: err.message,
+        transfer_error_at: new Date().toISOString()
+      })
+      .eq('call_id', callLegId);
   }
 }
 
@@ -328,16 +458,37 @@ async function handleStreamingStarted(event, res) {
 
 async function handleStreamingStopped(event, res) {
   console.log('🛑 streaming.stopped:', event.payload.stream_id);
+  
+  // Clean up any running pollers
+  const callLegId = event.payload.call_leg_id;
+  if (callLegId && global.actionPollers && global.actionPollers[callLegId]) {
+    clearInterval(global.actionPollers[callLegId]);
+    delete global.actionPollers[callLegId];
+    console.log('🧹 Cleaned up action poller on stream stop');
+  }
+  
   return res.status(200).json({ received: true });
 }
 
 async function handleCallHangup(event, res) {
   const leg = event.payload.call_leg_id;
   console.log('📞 call.hangup:', leg);
+  
+  // Clean up any running pollers
+  if (global.actionPollers && global.actionPollers[leg]) {
+    clearInterval(global.actionPollers[leg]);
+    delete global.actionPollers[leg];
+    console.log('🧹 Cleaned up action poller on hangup');
+  }
+  
   await supabase
     .from('call_sessions')
-    .update({ call_ended_at: new Date().toISOString(), call_status: 'completed' })
+    .update({ 
+      call_ended_at: new Date().toISOString(), 
+      call_status: 'completed' 
+    })
     .eq('call_id', leg);
+    
   return res.status(200).json({ received: true });
 }
 
@@ -357,7 +508,9 @@ async function getOrCreateSession(callId) {
           call_id:        callId,
           created_at:     new Date().toISOString(),
           stream_started: false,
-          call_status:    'active'
+          call_status:    'active',
+          transfer_initiated: false,
+          transfer_completed: false
         }
       ])
       .single();
