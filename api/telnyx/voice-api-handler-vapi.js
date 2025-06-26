@@ -218,6 +218,26 @@ async function startIVRActionPoller(ctl, leg) {
 async function executeIVRAction(callControlId, callLegId, action) {
   console.log('🎯 Executing IVR action:', action.id, action.action_type, action.action_value);
 
+  // Double-check current call state before executing
+  try {
+    const { data: session } = await supabase
+      .from('call_sessions')
+      .select('ivr_detection_state')
+      .eq('call_id', callLegId)
+      .maybeSingle();
+
+    if (session && ['human', 'ivr_then_human'].includes(session.ivr_detection_state)) {
+      console.log('⏭️  Skipping IVR action because state is', session.ivr_detection_state);
+      await supabase
+        .from('ivr_events')
+        .update({ executed: true, executed_at: new Date().toISOString(), error: 'skipped_due_to_human' })
+        .eq('id', action.id);
+      return;
+    }
+  } catch (err) {
+    console.error('❌ Error checking call state:', err);
+  }
+
   const common = {
     client_state: Buffer.from(JSON.stringify({
       action_id: action.id,
