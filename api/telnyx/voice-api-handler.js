@@ -2,7 +2,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import fetch from 'node-fetch';
-import crypto from 'crypto';  // needed for randomUUID
+import crypto from 'crypto';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -173,7 +173,6 @@ async function startIVRActionPoller(ctl, leg) {
   console.log('🔄 Poller start for call:', leg);
   const id = crypto.randomUUID().slice(0, 8);
 
-  // Prevent poller if already transferred
   const { data: initial } = await supabase
     .from('call_sessions')
     .select('call_status')
@@ -192,13 +191,11 @@ async function startIVRActionPoller(ctl, leg) {
         .eq('call_id', leg)
         .maybeSingle();
 
-      // Stop on end or post-transfer
       if (!session || session.call_status === 'completed' || session.call_status === 'transferred') {
         clearInterval(timer);
         return;
       }
 
-      // Immediate SIP handoff on human detection
       if (['human','ivr_then_human'].includes(session.ivr_detection_state)) {
         console.log(`[${id}] Human detected — transferring to VAPI`);
         clearInterval(timer);
@@ -206,7 +203,6 @@ async function startIVRActionPoller(ctl, leg) {
         return;
       }
 
-      // Otherwise execute queued IVR actions
       const { data: actions } = await supabase
         .from('ivr_events')
         .select('*')
@@ -222,12 +218,23 @@ async function startIVRActionPoller(ctl, leg) {
     } catch (err) {
       console.error(`[${id}] Poll error:`, err);
     }
-  }, 500); // tightened to 500ms
+  }, 500);
 
   console.log(`✅ Poller running for ${leg} every 500ms`);
 }
 
 async function executeIVRAction(callControlId, callLegId, action) {
+  // Guard: skip if call is no longer active
+  const { data: session } = await supabase
+    .from('call_sessions')
+    .select('call_status')
+    .eq('call_id', callLegId)
+    .maybeSingle();
+  if (!session || session.call_status !== 'active') {
+    console.log(`🚫 Skipping action ${action.id} because call_status=${session?.call_status}`);
+    return;
+  }
+
   console.log('🎯 Executing IVR action:', action.id, action.action_type, action.action_value);
 
   const common = {
@@ -251,75 +258,4 @@ async function executeIVRAction(callControlId, callLegId, action) {
       .update({ executed: true, executed_at: new Date().toISOString() })
       .eq('id', action.id);
   } catch (err) {
-    console.error('❌ executeIVRAction error:', err);
-    await supabase
-      .from('ivr_events')
-      .update({ executed: true, executed_at: new Date().toISOString(), error: err.message })
-      .eq('id', action.id);
-  }
-}
-
-async function transferToVAPI(callControlId, callLegId) {
-  const baseSip = process.env.VAPI_SIP_ADDRESS;
-  if (!baseSip) {
-    console.error('❌ VAPI_SIP_ADDRESS is not defined.');
-    return;
-  }
-
-  const sipAddress = `${baseSip}?X-Call-ID=${callLegId}&source=ivr`;
-  try {
-    console.log(`🔁 Transferring call ${callControlId} to ${sipAddress}`);
-    await telnyxAPI(
-      `/calls/${callControlId}/actions/transfer_call`, 'POST',
-      { to: sipAddress, sip: { headers: { 'X-Routed-By': 'IVR-Poller' } } }
-    );
-
-    // Mark session as transferred
-    await supabase
-      .from('call_sessions')
-      .update({ call_status: 'transferred' })
-      .eq('call_id', callLegId);
-    console.log(`✅ Session ${callLegId} marked as transferred`);
-  } catch (err) {
-    console.error('❌ Error transferring to VAPI SIP:', err);
-  }
-}
-
-async function handleStreamingStarted(event, res) {
-  console.log('🎙️ streaming.started:', event.payload.stream_id);
-  return res.status(200).json({ received: true });
-}
-
-async function handleStreamingStopped(event, res) {
-  console.log('🛑 streaming.stopped:', event.payload.stream_id);
-  return res.status(200).json({ received: true });
-}
-
-async function handleCallHangup(event, res) {
-  const leg = event.payload.call_leg_id;
-  console.log('📞 call.hangup:', leg);
-  await supabase
-    .from('call_sessions')
-    .update({ call_ended_at: new Date().toISOString(), call_status: 'completed' })
-    .eq('call_id', leg);
-  return res.status(200).json({ received: true });
-}
-
-export const config = {
-  api: { bodyParser: true }
-};
-
-// -----------------------------------------
-// ⚠️ Fallback TTS Insertion Guard (example)
-// Ensure your IVR classifier or event  
-// insertion logic only enqueues the default "speak to someone" prompt
-// when no human has been detected:
-// 
-// if (session.ivr_detection_state !== 'human' && session.ivr_detection_state !== 'ivr_then_human') {
-//   await supabase.from('ivr_events').insert({
-//     call_id: leg,
-//     action_type: 'speech',
-//     action_value: 'To speak with someone, please ...',
-//     executed: false,
-//   });
-// }
+    console.error('❌ executeIV
