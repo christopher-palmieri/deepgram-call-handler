@@ -2,6 +2,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import fetch from 'node-fetch';
+import crypto from 'crypto';  // needed for randomUUID
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -36,7 +37,6 @@ async function telnyxAPI(endpoint, method = 'POST', body = {}) {
 }
 
 export default async function handler(req, res) {
-  // — DEBUG DTMF via GET?  
   if (req.method === 'GET') {
     const { debug_call_control_id, digits } = req.query;
     if (debug_call_control_id) {
@@ -58,7 +58,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // — WEBHOOK HANDLING  
   if (req.method === 'POST') {
     console.log('🔍 Incoming webhook:', req.method);
 
@@ -89,24 +88,36 @@ export default async function handler(req, res) {
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
+// Create or fetch Supabase session row
+async function getOrCreateSession(callId) {
+  try {
+    const { data: existing } = await supabase
+      .from('call_sessions')
+      .select('*')
+      .eq('call_id', callId)
+      .maybeSingle();
+    if (existing) return existing;
+
+    const { data: newSession } = await supabase
+      .from('call_sessions')
+      .insert([{ call_id: callId, created_at: new Date().toISOString(), stream_started: false, call_status: 'active' }])
+      .single();
+    return newSession;
+  } catch (err) {
+    console.error('❌ getOrCreateSession error:', err);
+    return null;
+  }
+}
+
 async function handleCallInitiated(event, res) {
   const callControlId = event.payload.call_control_id;
   const callLegId     = event.payload.call_leg_id;
   const direction     = event.payload.direction;
 
-  console.log(
-    '📞 Call initiated - Control ID:',
-    callControlId,
-    'Leg ID:',
-    callLegId,
-    'Dir:',
-    direction
-  );
+  console.log('📞 Call initiated - Control ID:', callControlId, 'Leg ID:', callLegId, 'Dir:', direction);
 
-  // 1) Create or fetch your Supabase session
   await getOrCreateSession(callLegId);
 
-  // 2) Persist the Telnyx control ID on that session row
   try {
     await supabase
       .from('call_sessions')
@@ -117,7 +128,6 @@ async function handleCallInitiated(event, res) {
     console.error('❌ Could not save call_control_id:', err);
   }
 
-  // 3) If this is an inbound call, answer it
   if (direction === 'incoming') {
     try {
       await telnyxAPI(`/calls/${callControlId}/actions/answer`);
@@ -132,7 +142,6 @@ async function handleCallInitiated(event, res) {
   return res.status(200).json({ received: true });
 }
 
-
 async function handleCallAnswered(event, res) {
   const ctl = event.payload.call_control_id;
   const leg = event.payload.call_leg_id;
@@ -141,12 +150,9 @@ async function handleCallAnswered(event, res) {
   const WS = process.env.TELNYX_WS_URL;
   try {
     const { data: sr } = await telnyxAPI(
-      `/calls/${ctl}/actions/streaming_start`,
-      'POST',
-      {
+      `/calls/${ctl}/actions/streaming_start`, 'POST', {
         stream_url: `${WS}?call_id=${leg}&call_control_id=${ctl}`,
-        stream_track: 'inbound_track',
-        enable_dialogflow: false
+        stream_track: 'inbound_track', enable_dialogflow: false
       }
     );
     console.log('✅ Stream started:', sr.stream_id);
@@ -166,10 +172,19 @@ async function handleCallAnswered(event, res) {
 async function startIVRActionPoller(ctl, leg) {
   console.log('🔄 Poller start for call:', leg);
   const id = crypto.randomUUID().slice(0, 8);
-  let count = 0, max = 60;
+
+  // Prevent poller if already transferred
+  const { data: initial } = await supabase
+    .from('call_sessions')
+    .select('call_status')
+    .eq('call_id', leg)
+    .single();
+  if (initial?.call_status === 'transferred') {
+    console.log(`👀 Poller not started for ${leg}, already transferred`);
+    return;
+  }
 
   const timer = setInterval(async () => {
-    count++;
     try {
       const { data: session } = await supabase
         .from('call_sessions')
@@ -177,22 +192,21 @@ async function startIVRActionPoller(ctl, leg) {
         .eq('call_id', leg)
         .maybeSingle();
 
-      if (!session || session.call_status === 'completed' ||
-          ['human','ivr_then_human'].includes(session.ivr_detection_state) ||
-          count >= max) {
-        console.log(`⏹️ [${id}] Stopping poller (reason: ${
-          session?.call_status==='completed'?'ended':
-          session?.ivr_detection_state==='human'?'human':
-          session?.ivr_detection_state==='ivr_then_human'?'ivr_then_human':
-          'timeout'})`);
+      // Stop on end or post-transfer
+      if (!session || session.call_status === 'completed' || session.call_status === 'transferred') {
         clearInterval(timer);
-        if (['human','ivr_then_human'].includes(session?.ivr_detection_state)) {
-          console.log('👤 Human detected — hand off to VAPI');
-          await transferToVAPI(ctl, leg);
-        }
         return;
       }
 
+      // Immediate SIP handoff on human detection
+      if (['human','ivr_then_human'].includes(session.ivr_detection_state)) {
+        console.log(`[${id}] Human detected — transferring to VAPI`);
+        clearInterval(timer);
+        await transferToVAPI(ctl, leg);
+        return;
+      }
+
+      // Otherwise execute queued IVR actions
       const { data: actions } = await supabase
         .from('ivr_events')
         .select('*')
@@ -202,72 +216,72 @@ async function startIVRActionPoller(ctl, leg) {
         .order('created_at', { ascending: false })
         .limit(1);
 
-      const action = actions && actions[0];
-      if (action) {
-        console.log(`🎯 [${id}] Pending action:`, action);
-        await executeIVRAction(ctl, leg, action);
+      if (actions.length) {
+        await executeIVRAction(ctl, leg, actions[0]);
       }
     } catch (err) {
-      console.error(`❌ [${id}] Poll error:`, err.message);
+      console.error(`[${id}] Poll error:`, err);
     }
-  }, 2000);
+  }, 500); // tightened to 500ms
 
-  console.log(`✅ [${id}] Poller running`);
+  console.log(`✅ Poller running for ${leg} every 500ms`);
 }
 
 async function executeIVRAction(callControlId, callLegId, action) {
   console.log('🎯 Executing IVR action:', action.id, action.action_type, action.action_value);
 
   const common = {
-    client_state: Buffer.from(JSON.stringify({
-      action_id: action.id,
-      call_id:   callLegId,
-      timestamp: new Date().toISOString()
-    })).toString('base64'),
+    client_state: Buffer.from(JSON.stringify({ action_id: action.id, call_id: callLegId, timestamp: new Date().toISOString() })).toString('base64'),
     command_id: crypto.randomUUID()
   };
 
   try {
     if (action.action_type === 'dtmf') {
-      const payload = {
-        digits:           action.action_value,
-        duration_millis:  500,
-        ...common
-      };
+      const payload = { digits: action.action_value, duration_millis: 500, ...common };
       console.log('📤 Sending DTMF:', payload);
-      const { status, data } = await telnyxAPI(
-        `/calls/${callControlId}/actions/send_dtmf`,
-        'POST',
-        payload
-      );
-      console.log(`✅ DTMF response ${status}:`, data);
-
+      await telnyxAPI(`/calls/${callControlId}/actions/send_dtmf`, 'POST', payload);
     } else if (action.action_type === 'speech') {
-      const payload = {
-        payload: action.action_value,
-        voice:   'female',
-        language:'en-US',
-        ...common
-      };
-      const { status, data } = await telnyxAPI(
-        `/calls/${callControlId}/actions/speak`,
-        'POST',
-        payload
-      );
-      console.log(`✅ Speech response ${status}:`, data);
+      const payload = { payload: action.action_value, voice: 'female', language: 'en-US', ...common };
+      console.log('📤 Speaking prompt:', payload);
+      await telnyxAPI(`/calls/${callControlId}/actions/speak`, 'POST', payload);
     }
 
     await supabase
       .from('ivr_events')
       .update({ executed: true, executed_at: new Date().toISOString() })
       .eq('id', action.id);
-
   } catch (err) {
     console.error('❌ executeIVRAction error:', err);
     await supabase
       .from('ivr_events')
       .update({ executed: true, executed_at: new Date().toISOString(), error: err.message })
       .eq('id', action.id);
+  }
+}
+
+async function transferToVAPI(callControlId, callLegId) {
+  const baseSip = process.env.VAPI_SIP_ADDRESS;
+  if (!baseSip) {
+    console.error('❌ VAPI_SIP_ADDRESS is not defined.');
+    return;
+  }
+
+  const sipAddress = `${baseSip}?X-Call-ID=${callLegId}&source=ivr`;
+  try {
+    console.log(`🔁 Transferring call ${callControlId} to ${sipAddress}`);
+    await telnyxAPI(
+      `/calls/${callControlId}/actions/transfer_call`, 'POST',
+      { to: sipAddress, sip: { headers: { 'X-Routed-By': 'IVR-Poller' } } }
+    );
+
+    // Mark session as transferred
+    await supabase
+      .from('call_sessions')
+      .update({ call_status: 'transferred' })
+      .eq('call_id', callLegId);
+    console.log(`✅ Session ${callLegId} marked as transferred`);
+  } catch (err) {
+    console.error('❌ Error transferring to VAPI SIP:', err);
   }
 }
 
@@ -291,65 +305,21 @@ async function handleCallHangup(event, res) {
   return res.status(200).json({ received: true });
 }
 
-async function getOrCreateSession(callId) {
-  try {
-    const { data: existing } = await supabase
-      .from('call_sessions')
-      .select('*')
-      .eq('call_id', callId)
-      .maybeSingle();
-    if (existing) return existing;
-
-    const { data: newSession } = await supabase
-      .from('call_sessions')
-      .insert([{
-        call_id:        callId,
-        created_at:     new Date().toISOString(),
-        stream_started: false,
-        call_status:    'active'
-      }])
-      .single();
-    return newSession;
-
-  } catch (err) {
-    console.error('❌ getOrCreateSession error:', err);
-    return null;
-  }
-}
-
-async function transferToVAPI(callControlId, callLegId) {
-  const baseSip = process.env.VAPI_SIP_ADDRESS;
-
-  if (!baseSip) {
-    console.error('❌ VAPI_SIP_ADDRESS is not defined.');
-    return;
-  }
-
-  // Add any query parameters you want to pass to Vapi
-  const sipAddress = `${baseSip}?X-Call-ID=${callLegId}&source=ivr`;
-
-  try {
-    console.log(`🔁 Transferring call ${callControlId} to ${sipAddress}`);
-    const { status, data } = await telnyxAPI(
-      `/calls/${callControlId}/actions/transfer_call`,
-      'POST',
-      {
-        to: sipAddress,
-        sip: {
-          headers: {
-            'X-Routed-By': 'IVR-Poller'
-          }
-        }
-      }
-    );
-    console.log(`✅ Transfer initiated (${status}):`, data);
-  } catch (err) {
-    console.error('❌ Error transferring to VAPI SIP:', err);
-  }
-}
-
 export const config = {
-  api: {
-    bodyParser: true
-  }
+  api: { bodyParser: true }
 };
+
+// -----------------------------------------
+// ⚠️ Fallback TTS Insertion Guard (example)
+// Ensure your IVR classifier or event  
+// insertion logic only enqueues the default "speak to someone" prompt
+// when no human has been detected:
+// 
+// if (session.ivr_detection_state !== 'human' && session.ivr_detection_state !== 'ivr_then_human') {
+//   await supabase.from('ivr_events').insert({
+//     call_id: leg,
+//     action_type: 'speech',
+//     action_value: 'To speak with someone, please ...',
+//     executed: false,
+//   });
+// }
