@@ -188,6 +188,15 @@ async function startIVRActionPoller(ctl, leg) {
         clearInterval(timer);
         if (['human','ivr_then_human'].includes(session?.ivr_detection_state)) {
           console.log('👤 Human detected — hand off to VAPI');
+          try {
+            await supabase
+              .from('ivr_events')
+              .update({ executed: true, executed_at: new Date().toISOString(), error: 'skipped_due_to_human' })
+              .eq('call_id', leg)
+              .eq('executed', false);
+          } catch (err) {
+            console.error('❌ Error marking pending IVR events executed:', err);
+          }
           await transferToVAPI(ctl, leg);
         }
         return;
@@ -299,7 +308,7 @@ async function transferToVAPI(callControlId, callLegId) {
     return;
   }
 
-  const sipAddress = `${baseSip}?X-Call-ID=${callLegId}&source=ivr`;
+  const sipAddress = `sip:${baseSip}?X-Call-ID=${callLegId}&source=ivr`;
 
   try {
     console.log(`🔁 Transferring call ${callControlId} to ${sipAddress}`);
