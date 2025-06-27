@@ -220,7 +220,7 @@ async function startIVRMonitor(ctl, leg) {
   console.log('👁️ Starting IVR detection monitor for call:', leg);
   const monitorId = crypto.randomUUID().slice(0, 8);
   let checkCount = 0;
-  const maxChecks = 120; // 2 minutes at 1-second intervals
+  const maxChecks = 480; // 2 minutes at 250ms intervals
   let transferred = false;
 
   const monitor = setInterval(async () => {
@@ -296,7 +296,7 @@ async function startIVRMonitor(ctl, leg) {
     } catch (err) {
       console.error(`❌ [${monitorId}] Monitor error:`, err.message);
     }
-  }, 1000); // Check every second
+  }, 250); // Check every 250ms instead of 1000ms
 
   console.log(`✅ [${monitorId}] IVR monitor running`);
 }
@@ -615,19 +615,13 @@ async function transferToVAPI(callControlId, callLegId) {
     
     // Telnyx transfer request body according to their docs
     const transferBody = {
-      to: sipAddress,
-      // Optional fields that might help:
-      webhook_url: process.env.WEBHOOK_URL ? `${process.env.WEBHOOK_URL}/api/telnyx/voice-api-handler-vapi` : undefined,
-      webhook_url_method: 'POST'
+      to: sipAddress
     };
     
-    // Add custom headers if needed - Telnyx supports custom_headers for SIP
-    if (callLegId) {
-      transferBody.custom_headers = [
-        { name: 'X-Call-ID', value: callLegId },
-        { name: 'X-Source', value: 'ivr-detection' },
-        { name: 'X-Detection-Result', value: 'human' }
-      ];
+    // Add webhook URL if configured (optional)
+    if (process.env.WEBHOOK_URL) {
+      transferBody.webhook_url = `${process.env.WEBHOOK_URL}/api/telnyx/voice-api-handler-vapi`;
+      transferBody.webhook_url_method = 'POST';
     }
     
     console.log('📤 Transfer request:', JSON.stringify(transferBody, null, 2));
@@ -638,7 +632,7 @@ async function transferToVAPI(callControlId, callLegId) {
       transferBody
     );
     
-    console.log(`✅ Transfer initiated (${status}):`, data);
+    console.log(`✅ Transfer initiated (${status}):`, JSON.stringify(data, null, 2));
     
     // Mark transfer as completed
     await supabase
