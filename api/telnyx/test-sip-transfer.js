@@ -88,8 +88,20 @@ async function doTransferTest(control_id, res) {
     : `sip:${VAPI_SIP_ADDRESS}`;
   
   console.log('📍 Transferring to:', sipAddress);
+  
+  // Get the 'from' number from the original call
+  // This ensures we use the same Telnyx number that received the call
+  const fromNumber = req.body?.data?.payload?.to || process.env.TELNYX_PHONE_NUMBER;
+  console.log('📞 Using from number:', fromNumber);
 
   try {
+    const transferPayload = { 
+      to: sipAddress,
+      from: fromNumber // Use the Telnyx number that received the call
+    };
+    
+    console.log('📤 Transfer payload:', JSON.stringify(transferPayload, null, 2));
+    
     const response = await fetch(
       `https://api.telnyx.com/v2/calls/${control_id}/actions/transfer`,
       {
@@ -99,7 +111,7 @@ async function doTransferTest(control_id, res) {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        body: JSON.stringify({ to: sipAddress })
+        body: JSON.stringify(transferPayload)
       }
     );
 
