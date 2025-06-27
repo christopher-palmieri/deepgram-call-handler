@@ -185,6 +185,8 @@ async function handleCallInitiated(event, res) {
 }
 
 async function handleCallAnswered(event, res) {
+  console.log('👻 I see dead console.logs - Code deployed at:', new Date().toISOString());
+  
   const ctl = event.payload.call_control_id;
   const leg = event.payload.call_leg_id;
   console.log('📞 Call answered - Control ID:', ctl, 'Leg ID:', leg, 'Starting WebSocket…');
