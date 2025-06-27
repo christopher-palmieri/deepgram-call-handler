@@ -189,6 +189,22 @@ async function handleCallAnswered(event, res) {
   const leg = event.payload.call_leg_id;
   console.log('📞 Call answered - Control ID:', ctl, 'Leg ID:', leg, 'Starting WebSocket…');
 
+  // Play a brief message to keep human on the line while we detect
+  try {
+    await telnyxAPI(
+      `/calls/${ctl}/actions/speak`,
+      'POST',
+      {
+        payload: "Please hold for a moment",
+        voice: 'female',
+        language: 'en-US'
+      }
+    );
+    console.log('✅ Played hold message');
+  } catch (err) {
+    console.error('❌ Error playing hold message:', err);
+  }
+
   const WS = process.env.TELNYX_WS_URL;
   try {
     const { data: sr } = await telnyxAPI(
