@@ -600,7 +600,17 @@ async function transferToVAPI(callControlId, callLegId) {
     return;
   }
 
-  const sipAddress = baseSip.startsWith('sip:') ? baseSip : `sip:${baseSip}`;
+  // Ensure proper SIP URI format
+  let sipAddress;
+  if (baseSip.startsWith('sip:')) {
+    sipAddress = baseSip;
+  } else if (baseSip.includes('@')) {
+    sipAddress = `sip:${baseSip}`;
+  } else {
+    // If it's just a domain/IP, might need full format
+    console.log('⚠️ VAPI_SIP_ADDRESS might be incomplete:', baseSip);
+    sipAddress = `sip:${baseSip}`;
+  }
 
   try {
     console.log(`🔁 Transferring call ${callControlId} to ${sipAddress}`);
@@ -615,7 +625,8 @@ async function transferToVAPI(callControlId, callLegId) {
     
     // Telnyx transfer request body according to their docs
     const transferBody = {
-      to: sipAddress
+      to: sipAddress,
+      from: process.env.TELNYX_PHONE_NUMBER || 'sip:transfer@telnyx.com'  // Add from field
     };
     
     // Add webhook URL if configured (optional)
@@ -632,7 +643,23 @@ async function transferToVAPI(callControlId, callLegId) {
       transferBody
     );
     
-    console.log(`✅ Transfer initiated (${status}):`, JSON.stringify(data, null, 2));
+    console.log(`✅ Transfer API response (${status}):`, JSON.stringify(data, null, 2));
+    
+    // Check if transfer was accepted
+    if (status === 200 || status === 202) {
+      console.log('✅ Transfer accepted by Telnyx');
+      
+      // Mark transfer as completed
+      await supabase
+        .from('call_sessions')
+        .update({ 
+          transfer_completed: true,
+          transfer_completed_at: new Date().toISOString()
+        })
+        .eq('call_id', callLegId);
+    } else {
+      console.log('⚠️ Unexpected status code:', status);
+    }
     
     // Mark transfer as completed
     await supabase
