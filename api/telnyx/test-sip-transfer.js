@@ -39,7 +39,7 @@ export default async function handler(req, res) {
         
         // TEST: Immediate transfer when call is answered
         if (process.env.TEST_AUTO_TRANSFER === 'true') {
-          return await doTransferTest(payload.call_control_id, res);
+          return await doTransferTest(payload.call_control_id, payload.to, res);
         }
         break;
         
@@ -60,7 +60,7 @@ export default async function handler(req, res) {
   const control_id = body.control_id || body.call_control_id;
   if (control_id) {
     console.log('🧪 Manual transfer test requested');
-    return await doTransferTest(control_id, res);
+    return await doTransferTest(control_id, null, res);
   }
   
   // Unknown request
@@ -71,7 +71,7 @@ export default async function handler(req, res) {
 }
 
 // Helper function to do the actual transfer test
-async function doTransferTest(control_id, res) {
+async function doTransferTest(control_id, fromNumber, res) {
   console.log('🚀 Starting transfer test for:', control_id);
   
   const TELNYX_API_KEY = process.env.TELNYX_API_KEY;
@@ -89,15 +89,14 @@ async function doTransferTest(control_id, res) {
   
   console.log('📍 Transferring to:', sipAddress);
   
-  // Get the 'from' number from the original call
-  // This ensures we use the same Telnyx number that received the call
-  const fromNumber = req.body?.data?.payload?.to || process.env.TELNYX_PHONE_NUMBER;
-  console.log('📞 Using from number:', fromNumber);
+  // Use the fromNumber if provided, otherwise use env var
+  const from = fromNumber || process.env.TELNYX_PHONE_NUMBER;
+  console.log('📞 Using from number:', from);
 
   try {
     const transferPayload = { 
       to: sipAddress,
-      from: fromNumber // Use the Telnyx number that received the call
+      from: from
     };
     
     console.log('📤 Transfer payload:', JSON.stringify(transferPayload, null, 2));
