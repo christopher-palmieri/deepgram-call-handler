@@ -237,18 +237,18 @@ async function startIVRMonitor(ctl, leg) {
         .eq('call_id', leg)
         .maybeSingle();
 
-      // Stop conditions
-      if (!session || 
-          session.call_status === 'completed' || 
-          session.transfer_initiated ||
-          transferred ||
-          checkCount >= maxChecks) {
-        
+      // Stop conditions - but don't stop if human detected and not yet transferred
+      const shouldStop = !session || 
+                        session.call_status === 'completed' || 
+                        (session.transfer_initiated && transferred) || // Only stop if BOTH are true
+                        (!session.ivr_detection_state && checkCount >= maxChecks); // Only timeout if no detection yet
+      
+      if (shouldStop) {
         console.log(`⏹️ [${monitorId}] Stopping IVR monitor (reason: ${
           !session ? 'no_session' :
           session.call_status === 'completed' ? 'call_ended' :
-          session.transfer_initiated || transferred ? 'already_transferred' :
-          'timeout'
+          (session.transfer_initiated && transferred) ? 'transfer_completed' :
+          'timeout_without_detection'
         })`);
         
         clearInterval(monitor);
@@ -553,6 +553,7 @@ async function executeIVRAction(callControlId, callLegId, action) {
 }
 
 async function transferToVAPI(callControlId, callLegId) {
+  console.log(`👻 TRANSFER FUNCTION REACHED - controlId: ${callControlId}, legId: ${callLegId}`);
   console.log(`📍 transferToVAPI called with controlId: ${callControlId}, legId: ${callLegId}`);
   
   const baseSip = process.env.VAPI_SIP_ADDRESS;
