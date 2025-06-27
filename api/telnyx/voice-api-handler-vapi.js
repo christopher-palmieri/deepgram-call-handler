@@ -189,22 +189,6 @@ async function handleCallAnswered(event, res) {
   const leg = event.payload.call_leg_id;
   console.log('📞 Call answered - Control ID:', ctl, 'Leg ID:', leg, 'Starting WebSocket…');
 
-  // Play a brief message to keep human on the line while we detect
-  try {
-    await telnyxAPI(
-      `/calls/${ctl}/actions/speak`,
-      'POST',
-      {
-        payload: "Please hold for a moment",
-        voice: 'female',
-        language: 'en-US'
-      }
-    );
-    console.log('✅ Played hold message');
-  } catch (err) {
-    console.error('❌ Error playing hold message:', err);
-  }
-
   const WS = process.env.TELNYX_WS_URL;
   try {
     const { data: sr } = await telnyxAPI(
@@ -616,7 +600,7 @@ async function transferToVAPI(callControlId, callLegId) {
     return;
   }
 
-  const sipAddress = `${baseSip}?X-Call-ID=${callLegId}&source=ivr`;
+  const sipAddress = baseSip.startsWith('sip:') ? baseSip : `sip:${baseSip}`;
 
   try {
     console.log(`🔁 Transferring call ${callControlId} to ${sipAddress}`);
@@ -629,19 +613,29 @@ async function transferToVAPI(callControlId, callLegId) {
       })
       .eq('call_id', callLegId);
     
-    // Use the correct Telnyx transfer endpoint
+    // Telnyx transfer request body according to their docs
+    const transferBody = {
+      to: sipAddress,
+      // Optional fields that might help:
+      webhook_url: process.env.WEBHOOK_URL ? `${process.env.WEBHOOK_URL}/api/telnyx/voice-api-handler-vapi` : undefined,
+      webhook_url_method: 'POST'
+    };
+    
+    // Add custom headers if needed - Telnyx supports custom_headers for SIP
+    if (callLegId) {
+      transferBody.custom_headers = [
+        { name: 'X-Call-ID', value: callLegId },
+        { name: 'X-Source', value: 'ivr-detection' },
+        { name: 'X-Detection-Result', value: 'human' }
+      ];
+    }
+    
+    console.log('📤 Transfer request:', JSON.stringify(transferBody, null, 2));
+    
     const { status, data } = await telnyxAPI(
       `/calls/${callControlId}/actions/transfer`,
       'POST',
-      {
-        to: sipAddress,
-        // Optional: add custom headers
-        custom_headers: {
-          'X-Routed-By': 'IVR-Monitor',
-          'X-Detection-State': 'human',
-          'X-Call-Leg-Id': callLegId
-        }
-      }
+      transferBody
     );
     
     console.log(`✅ Transfer initiated (${status}):`, data);
