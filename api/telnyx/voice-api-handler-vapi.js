@@ -219,6 +219,7 @@ async function handleCallAnswered(event, res) {
 
 // New monitor function that watches for human detection
 async function startIVRMonitor(ctl, leg) {
+  console.log('👻👻👻 I see dead monitors - startIVRMonitor called at:', new Date().toISOString());
   console.log('👁️ Starting IVR detection monitor for call:', leg);
   const monitorId = crypto.randomUUID().slice(0, 8);
   let checkCount = 0;
@@ -264,7 +265,7 @@ async function startIVRMonitor(ctl, leg) {
 
       // Check if human detected
       if (['human', 'ivr_then_human'].includes(session.ivr_detection_state)) {
-        console.log(`👤 [${monitorId}] Human detected (${session.ivr_detection_state}) - initiating transfer`);
+        console.log(`👤 [${monitorId}] Human detected (${session.ivr_detection_state}) - initiating transfer [FROM UPDATED CODE v2]`);
         
         // Mark as transferring to prevent duplicate transfers
         transferred = true;
