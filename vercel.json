@@ -1,8 +1,0 @@
-{
-  "crons": [
-    {
-      "path": "/api/cron/cleanup-actions",
-      "schedule": "*/5 * * * *"  // Every 5 minutes
-    }
-  ]
-}
