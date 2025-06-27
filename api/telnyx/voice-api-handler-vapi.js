@@ -104,6 +104,54 @@ async function handleCallInitiated(event, res) {
     direction
   );
 
+  // CRITICAL: Clean up ALL stale actions for this call_id first
+  try {
+    // First, check if there are any old actions with this exact call_id
+    const { data: existingActions, error: checkError } = await supabase
+      .from('ivr_events')
+      .select('id, created_at, transcript')
+      .eq('call_id', callLegId)
+      .eq('executed', false);
+    
+    if (existingActions && existingActions.length > 0) {
+      console.log(`⚠️ Found ${existingActions.length} existing actions for call_id ${callLegId}`);
+      
+      // Mark ALL of them as expired since this is a new call with the same ID
+      const { data: cleaned, error: cleanError } = await supabase
+        .from('ivr_events')
+        .update({ 
+          executed: true, 
+          executed_at: new Date().toISOString(),
+          error: 'expired_same_call_id_reused'
+        })
+        .eq('call_id', callLegId)
+        .eq('executed', false)
+        .select();
+      
+      if (cleaned) {
+        console.log(`🧹 Cleaned up ${cleaned.length} stale actions for reused call_id ${callLegId}`);
+      }
+    }
+    
+    // Also clean up any orphaned actions older than 60 seconds
+    const { data: oldActions, error } = await supabase
+      .from('ivr_events')
+      .update({ 
+        executed: true, 
+        executed_at: new Date().toISOString(),
+        error: 'expired_timeout'
+      })
+      .eq('executed', false)
+      .lt('created_at', new Date(Date.now() - 60000).toISOString()) // Actions older than 60 seconds
+      .select();
+    
+    if (oldActions && oldActions.length > 0) {
+      console.log(`🧹 Cleaned up ${oldActions.length} old actions (timeout)`);
+    }
+  } catch (err) {
+    console.error('❌ Error cleaning stale actions:', err);
+  }
+
   // 1) Create or fetch your Supabase session
   await getOrCreateSession(callLegId);
 
@@ -111,7 +159,10 @@ async function handleCallInitiated(event, res) {
   try {
     await supabase
       .from('call_sessions')
-      .update({ call_control_id: callControlId })
+      .update({ 
+        call_control_id: callControlId,
+        call_initiated_at: new Date().toISOString()
+      })
       .eq('call_id', callLegId);
     console.log('✅ Saved call_control_id to session');
   } catch (err) {
@@ -298,17 +349,68 @@ async function startIVRActionPoller(ctl, leg) {
 
       // Only process actions if still in IVR mode
       if (session.ivr_detection_state === 'ivr_only') {
+        // Get the call initialization time to filter out old actions
+        const { data: callSession } = await supabase
+          .from('call_sessions')
+          .select('created_at, call_initiated_at')
+          .eq('call_id', leg)
+          .single();
+        
+        if (!callSession) {
+          console.log(`❌ [${pollerId}] No call session found`);
+          continue;
+        }
+
+        // Use call_initiated_at if available, otherwise created_at
+        const callStartTime = callSession.call_initiated_at || callSession.created_at;
+
         const { data: actions } = await supabase
           .from('ivr_events')
           .select('*')
           .eq('call_id', leg)
           .eq('executed', false)
           .not('action_value', 'is', null)
+          .gte('created_at', callStartTime) // Only get actions created after call started
           .order('created_at', { ascending: false })
           .limit(1);
 
         const action = actions && actions[0];
         if (action) {
+          // Triple-check: ensure this action was created AFTER this call started
+          const actionTime = new Date(action.created_at);
+          const callTime = new Date(callStartTime);
+          
+          if (actionTime < callTime) {
+            console.log(`⚠️ [${pollerId}] Skipping action created before call start: ${action.created_at} < ${callStartTime}`);
+            
+            // Mark this old action as expired
+            await supabase
+              .from('ivr_events')
+              .update({ 
+                executed: true, 
+                executed_at: new Date().toISOString(),
+                error: 'created_before_call_start'
+              })
+              .eq('id', action.id);
+            continue;
+          }
+          
+          // Double-check this action is really for this call
+          if (action.call_id !== leg) {
+            console.log(`⚠️ [${pollerId}] Skipping action for different call: ${action.call_id} !== ${leg}`);
+            
+            // This should never happen with the query above, but just in case
+            await supabase
+              .from('ivr_events')
+              .update({ 
+                executed: true, 
+                executed_at: new Date().toISOString(),
+                error: 'wrong_call_id'
+              })
+              .eq('id', action.id);
+            continue;
+          }
+          
           console.log(`🎯 [${pollerId}] Executing action:`, action.action_type, action.action_value);
           await executeIVRAction(ctl, leg, action);
         }
@@ -326,28 +428,67 @@ async function startIVRActionPoller(ctl, leg) {
 async function executeIVRAction(callControlId, callLegId, action) {
   console.log('🎯 Executing IVR action:', action.id, action.action_type, action.action_value);
 
-  // Final check before execution
+  // Final check before execution - verify call still exists and is active
   try {
     const { data: session } = await supabase
       .from('call_sessions')
-      .select('ivr_detection_state, transfer_initiated')
+      .select('ivr_detection_state, transfer_initiated, call_status, call_control_id')
       .eq('call_id', callLegId)
       .maybeSingle();
 
-    if (session && (session.transfer_initiated || ['human', 'ivr_then_human'].includes(session.ivr_detection_state))) {
-      console.log('⏭️ Skipping IVR action - human detected or transfer initiated');
+    if (!session) {
+      console.log('⏭️ Skipping IVR action - no session found');
       await supabase
         .from('ivr_events')
         .update({ 
           executed: true, 
           executed_at: new Date().toISOString(), 
-          error: 'skipped_due_to_human_or_transfer' 
+          error: 'no_session_found' 
+        })
+        .eq('id', action.id);
+      return;
+    }
+
+    // Verify the control ID matches
+    if (session.call_control_id !== callControlId) {
+      console.log('⏭️ Skipping IVR action - control ID mismatch');
+      await supabase
+        .from('ivr_events')
+        .update({ 
+          executed: true, 
+          executed_at: new Date().toISOString(), 
+          error: 'control_id_mismatch' 
+        })
+        .eq('id', action.id);
+      return;
+    }
+
+    if (session.call_status !== 'active' || 
+        session.transfer_initiated || 
+        ['human', 'ivr_then_human'].includes(session.ivr_detection_state)) {
+      console.log('⏭️ Skipping IVR action - call not active, human detected, or transfer initiated');
+      await supabase
+        .from('ivr_events')
+        .update({ 
+          executed: true, 
+          executed_at: new Date().toISOString(), 
+          error: 'skipped_due_to_state' 
         })
         .eq('id', action.id);
       return;
     }
   } catch (err) {
     console.error('❌ Error checking call state:', err);
+    // Don't execute if we can't verify state
+    await supabase
+      .from('ivr_events')
+      .update({ 
+        executed: true, 
+        executed_at: new Date().toISOString(), 
+        error: `state_check_error: ${err.message}` 
+      })
+      .eq('id', action.id);
+    return;
   }
 
   const common = {
@@ -411,12 +552,59 @@ async function transferToVAPI(callControlId, callLegId) {
     return;
   }
 
+  // First verify the call is still active
+  try {
+    const { data: session } = await supabase
+      .from('call_sessions')
+      .select('call_status, call_control_id')
+      .eq('call_id', callLegId)
+      .maybeSingle();
+
+    if (!session || session.call_status !== 'active') {
+      console.error('❌ Cannot transfer - call is not active');
+      return;
+    }
+
+    if (session.call_control_id !== callControlId) {
+      console.error('❌ Control ID mismatch - updating to use correct ID');
+      callControlId = session.call_control_id;
+    }
+  } catch (err) {
+    console.error('❌ Error verifying call state before transfer:', err);
+    return;
+  }
+
   const sipAddress = `${baseSip}?X-Call-ID=${callLegId}&source=ivr`;
 
   try {
     console.log(`🔁 Transferring call ${callControlId} to ${sipAddress}`);
     
-    // Mark transfer as completed before making the API call
+    // Mark transfer as started
+    await supabase
+      .from('call_sessions')
+      .update({ 
+        transfer_started_at: new Date().toISOString()
+      })
+      .eq('call_id', callLegId);
+    
+    // Use the correct Telnyx transfer endpoint
+    const { status, data } = await telnyxAPI(
+      `/calls/${callControlId}/actions/transfer`,
+      'POST',
+      {
+        to: sipAddress,
+        // Optional: add custom headers
+        custom_headers: {
+          'X-Routed-By': 'IVR-Monitor',
+          'X-Detection-State': 'human',
+          'X-Call-Leg-Id': callLegId
+        }
+      }
+    );
+    
+    console.log(`✅ Transfer initiated (${status}):`, data);
+    
+    // Mark transfer as completed
     await supabase
       .from('call_sessions')
       .update({ 
@@ -424,19 +612,7 @@ async function transferToVAPI(callControlId, callLegId) {
         transfer_completed_at: new Date().toISOString()
       })
       .eq('call_id', callLegId);
-    
-    const { status, data } = await telnyxAPI(
-      `/calls/${callControlId}/actions/transfer`,
-      'POST',
-      {
-        to: sipAddress,
-        sip_headers: {
-          'X-Routed-By': 'IVR-Monitor',
-          'X-Detection-State': 'human'
-        }
-      }
-    );
-    console.log(`✅ Transfer completed (${status}):`, data);
+      
   } catch (err) {
     console.error('❌ Error transferring to VAPI SIP:', err);
     
