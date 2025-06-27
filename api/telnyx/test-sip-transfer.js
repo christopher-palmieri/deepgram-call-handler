@@ -39,7 +39,8 @@ export default async function handler(req, res) {
         
         // TEST: Immediate transfer when call is answered
         if (process.env.TEST_AUTO_TRANSFER === 'true') {
-          return await doTransferTest(payload.call_control_id, payload.to, res);
+          // For outgoing calls: 'from' is YOUR Telnyx number
+          return await doTransferTest(payload.call_control_id, payload.from, res);
         }
         break;
         
