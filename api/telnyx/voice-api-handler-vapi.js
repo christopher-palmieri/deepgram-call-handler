@@ -358,7 +358,7 @@ async function startIVRActionPoller(ctl, leg) {
         
         if (!callSession) {
           console.log(`❌ [${pollerId}] No call session found`);
-          continue;
+          return;
         }
 
         // Use call_initiated_at if available, otherwise created_at
@@ -392,7 +392,7 @@ async function startIVRActionPoller(ctl, leg) {
                 error: 'created_before_call_start'
               })
               .eq('id', action.id);
-            continue;
+            return;
           }
           
           // Double-check this action is really for this call
@@ -408,7 +408,7 @@ async function startIVRActionPoller(ctl, leg) {
                 error: 'wrong_call_id'
               })
               .eq('id', action.id);
-            continue;
+            return;
           }
           
           console.log(`🎯 [${pollerId}] Executing action:`, action.action_type, action.action_value);
