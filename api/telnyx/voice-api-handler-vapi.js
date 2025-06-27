@@ -554,6 +554,32 @@ async function transferToVAPI(callControlId, callLegId) {
 
   // First verify the call is still active
   try {
+    // Try to get call status from Telnyx
+    const { data: callStatus } = await telnyxAPI(
+      `/calls/${callControlId}`,
+      'GET'
+    ).catch(err => {
+      console.log('⚠️ Could not retrieve call status:', err.message);
+      return { data: null };
+    });
+
+    if (!callStatus || callStatus.data?.state === 'hangup') {
+      console.log('❌ Cannot transfer - call already ended');
+      
+      // Update session to reflect this
+      await supabase
+        .from('call_sessions')
+        .update({ 
+          transfer_error: 'call_already_ended',
+          transfer_error_at: new Date().toISOString(),
+          call_status: 'completed'
+        })
+        .eq('call_id', callLegId);
+      
+      return;
+    }
+
+    // Also check our database
     const { data: session } = await supabase
       .from('call_sessions')
       .select('call_status, call_control_id')
@@ -561,7 +587,7 @@ async function transferToVAPI(callControlId, callLegId) {
       .maybeSingle();
 
     if (!session || session.call_status !== 'active') {
-      console.error('❌ Cannot transfer - call is not active');
+      console.error('❌ Cannot transfer - call is not active in database');
       return;
     }
 
