@@ -1,5 +1,6 @@
 // api/telnyx/test-sip-transfer.js
 // Simple, isolated SIP transfer test
+// Transfer to VAPI
 
 import fetch from 'node-fetch';
 
