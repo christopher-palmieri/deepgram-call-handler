@@ -1,20 +1,40 @@
 // api/telnyx/test-sip-transfer.js
 // Simple, isolated SIP transfer test
-// Transfer to VAPI
 
 import fetch from 'node-fetch';
 
 export default async function handler(req, res) {
-  // Only accept POST
+  console.log('🧪 TEST endpoint hit - Method:', req.method);
+  console.log('📦 Request body:', req.body);
+  console.log('🔍 Request query:', req.query);
+  
+  // Support GET for easy testing
+  if (req.method === 'GET') {
+    return res.status(200).json({ 
+      status: 'Test endpoint is working!',
+      env_check: {
+        has_telnyx_key: !!process.env.TELNYX_API_KEY,
+        has_vapi_address: !!process.env.VAPI_SIP_ADDRESS,
+        vapi_address: process.env.VAPI_SIP_ADDRESS ? `${process.env.VAPI_SIP_ADDRESS.substring(0, 10)}...` : 'not set'
+      },
+      usage: {
+        method: 'POST',
+        body: { call_control_id: 'your_control_id_here' }
+      }
+    });
+  }
+
+  // Only accept POST for actual transfer
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
   }
 
-  const { call_control_id } = req.body;
+  const { call_control_id } = req.body || {};
   
   if (!call_control_id) {
     return res.status(400).json({ 
       error: 'Missing call_control_id',
+      received_body: req.body,
       usage: 'POST /api/telnyx/test-sip-transfer with { "call_control_id": "..." }'
     });
   }
@@ -74,7 +94,6 @@ export default async function handler(req, res) {
     }
 
     console.log('📥 Telnyx Response Status:', response.status);
-    console.log('📥 Telnyx Response Headers:', response.headers.raw());
     console.log('📥 Telnyx Response Body:', JSON.stringify(responseData, null, 2));
 
     // Return full details for debugging
