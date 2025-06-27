@@ -278,8 +278,13 @@ async function startIVRMonitor(ctl, leg) {
           console.log(`⏹️ Stopped action poller due to human detection`);
         }
         
-        // Transfer to VAPI
-        await transferToVAPI(ctl, leg);
+        // Transfer to VAPI - log immediately to confirm we reach this
+        console.log(`🚀 About to call transferToVAPI for ${leg}`);
+        try {
+          await transferToVAPI(ctl, leg);
+        } catch (err) {
+          console.error('❌ Transfer function error:', err);
+        }
         
         // Stop this monitor
         clearInterval(monitor);
@@ -545,6 +550,8 @@ async function executeIVRAction(callControlId, callLegId, action) {
 }
 
 async function transferToVAPI(callControlId, callLegId) {
+  console.log(`📍 transferToVAPI called with controlId: ${callControlId}, legId: ${callLegId}`);
+  
   const baseSip = process.env.VAPI_SIP_ADDRESS;
 
   if (!baseSip) {
@@ -600,6 +607,8 @@ async function transferToVAPI(callControlId, callLegId) {
     return;
   }
 
+  console.log(`🔍 [transferToVAPI] VAPI_SIP_ADDRESS from env:`, baseSip);
+  
   // Ensure proper SIP URI format
   let sipAddress;
   if (baseSip.startsWith('sip:')) {
@@ -611,6 +620,8 @@ async function transferToVAPI(callControlId, callLegId) {
     console.log('⚠️ VAPI_SIP_ADDRESS might be incomplete:', baseSip);
     sipAddress = `sip:${baseSip}`;
   }
+  
+  console.log(`📍 [transferToVAPI] Final SIP address:`, sipAddress);
 
   try {
     console.log(`🔁 Transferring call ${callControlId} to ${sipAddress}`);
