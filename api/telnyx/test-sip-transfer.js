@@ -126,27 +126,34 @@ async function handleTelnyxWebhook(event, res) {
     case 'call.answered':
       console.log('✅ Call answered');
       
-      // Auto-transfer if enabled
-      if (process.env.TEST_AUTO_TRANSFER === 'true') {
-        console.log('🤖 Auto-transfer enabled - starting transfer sequence...');
+      // Check if this is the original call leg (not a transfer leg)
+      if (payload.to && !payload.to.includes('sip:')) {
+        console.log('📞 Original call leg answered');
         
-        // Store call info for diagnostics
-        global.lastAnsweredCall = {
-          control_id: payload.call_control_id,
-          leg_id: payload.call_leg_id,
-          from: payload.from,
-          to: payload.to,
-          answered_at: new Date().toISOString()
-        };
-        
-        // Wait briefly to ensure call is stable
-        await sleep(CONFIG.TRANSFER_DELAY_MS);
-        
-        // Execute transfer
-        return await executeTransferTest(payload.call_control_id, res);
+        // Auto-transfer if enabled
+        if (process.env.TEST_AUTO_TRANSFER === 'true') {
+          console.log('🤖 Auto-transfer enabled - starting transfer sequence...');
+          
+          // Store call info for diagnostics
+          global.lastAnsweredCall = {
+            control_id: payload.call_control_id,
+            leg_id: payload.call_leg_id,
+            from: payload.from,
+            to: payload.to,
+            answered_at: new Date().toISOString()
+          };
+          
+          // Wait briefly to ensure call is stable
+          await sleep(CONFIG.TRANSFER_DELAY_MS);
+          
+          // Execute transfer
+          return await executeTransferTest(payload.call_control_id, res);
+        } else {
+          console.log('ℹ️ Auto-transfer disabled. Call answered but not transferring.');
+          console.log('💡 Enable with TEST_AUTO_TRANSFER=true or use manual test');
+        }
       } else {
-        console.log('ℹ️ Auto-transfer disabled. Call answered but not transferring.');
-        console.log('💡 Enable with TEST_AUTO_TRANSFER=true or use manual test');
+        console.log('📞 Transfer leg answered - ignoring to prevent loops');
       }
       break;
 
@@ -346,78 +353,11 @@ async function doTransfer(controlId) {
     console.log('⚠️ Supervised transfer not supported, trying blind transfer...');
   }
   
-  // Option 2: Blind transfer with audio bridging
-  try {
-    // Play hold music or message during transfer
-    console.log('🎵 Playing hold music during transfer...');
-    
-    // Start audio playback (non-blocking)
-    telnyxAPI(
-      `/calls/${controlId}/actions/playback_start`,
-      'POST',
-      {
-        audio_url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', // Replace with your audio
-        loop: true,
-        overlay: true // Plays over the transfer process
-      }
-    ).catch(err => console.log('Could not play hold music:', err));
-    
-    // Small delay to start audio
-    await sleep(100);
-    
-    // Execute blind transfer
-    const blindPayload = {
-      to: VAPI_SIP,
-      from: TELNYX_NUMBER,
-      transfer_type: 'blind', // Immediate transfer
-      // Ring timeout - shorter = less ringing heard
-      timeout_secs: 5, // Reduce from default
-      // Add headers for VAPI
-      sip_headers: [
-        {
-          name: 'Alert-Info',
-          value: '<http://www.notused.com>;info=alert-autoanswer'
-        },
-        {
-          name: 'Call-Info',
-          value: 'answer-after=0' // Answer immediately
-        },
-        {
-          name: 'X-Telnyx-Transfer',
-          value: 'seamless'
-        }
-      ]
-    };
-    
-    console.log('📤 Blind transfer payload:', JSON.stringify(blindPayload, null, 2));
-    
-    const response = await telnyxAPI(
-      `/calls/${controlId}/actions/transfer`,
-      'POST',
-      blindPayload
-    );
-    
-    if (response.ok) {
-      console.log('✅ Blind transfer initiated');
-      
-      // Stop hold music after a brief moment
-      setTimeout(() => {
-        telnyxAPI(
-          `/calls/${controlId}/actions/playback_stop`,
-          'POST',
-          {}
-        ).catch(() => {}); // Ignore errors if call already transferred
-      }, 1000);
-      
-      return { success: true, type: 'blind', data: response.data };
-    }
-    
-  } catch (error) {
-    console.error('❌ Blind transfer failed:', error);
-  }
+  // Skip blind transfer - may be causing issues
+  // Blind transfer commented out to simplify
   
-  // Option 3: Standard transfer (fallback)
-  console.log('🔄 Falling back to standard transfer...');
+  // Simple standard transfer only
+  console.log('🔄 Executing standard SIP transfer...');
   
   const standardPayload = {
     to: VAPI_SIP,
