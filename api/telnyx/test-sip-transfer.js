@@ -7,7 +7,7 @@ import fetch from 'node-fetch';
 const CONFIG = {
   VAPI_SIP: 'sip:brandon-call-for-kits@sip.vapi.ai',
   TELNYX_API_URL: 'https://api.telnyx.com/v2',
-  TRANSFER_DELAY_MS: 500, // Reduced delay for faster transfer
+  TRANSFER_DELAY_MS: 0, // No delay - immediate transfer
   SPEAK_BEFORE_TRANSFER: false // DISABLED pre-transfer announcement
 };
 
@@ -143,8 +143,8 @@ async function handleTelnyxWebhook(event, res) {
             answered_at: new Date().toISOString()
           };
           
-          // Wait briefly to ensure call is stable
-          await sleep(CONFIG.TRANSFER_DELAY_MS);
+          // No delay - transfer immediately
+          // await sleep(CONFIG.TRANSFER_DELAY_MS);
           
           // Execute transfer
           return await executeTransferTest(payload.call_control_id, res);
