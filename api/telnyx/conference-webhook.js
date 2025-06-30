@@ -5,12 +5,13 @@ export const config = { api: { bodyParser: true } };
 
 export default async function handler(req, res) {
   // Ensure a valid 'from' number
-  const FROM_NUMBER = process.env.TELNYX_NUMBER || '+16092370151';
-  // Health check for browser
+  const FROM_NUMBER = process.env.TELNYX_PHONE_NUMBER || '+16092370151';
+
   // Health check for browser
   if (req.method === 'GET') {
     return res.status(200).send('Webhook endpoint is live');
   }
+
   // Only POST events
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
@@ -59,7 +60,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({
           connection_id: pl.connection_id,
           to: state.human,
-          from: process.env.TELNYX_NUMBER,
+          from: FROM_NUMBER,
           enable_early_media: true,
           conference_config: {
             conference_name: room,
