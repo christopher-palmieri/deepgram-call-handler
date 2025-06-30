@@ -340,23 +340,6 @@ async function handleTelnyxWebhook(event, res) {
     case 'call.transfer.completed':
       console.log('✅ Transfer completed successfully!');
       console.log('🌉 VAPI and human are now connected');
-      
-      // If this is a human-leg transfer completion, send a brief audio to establish RTP
-      if (payload.call_control_id && payload.to && !payload.to.includes('sip:')) {
-        console.log('🔊 Sending audio to establish RTP path...');
-        
-        // Send DTMF tone to establish audio path
-        await telnyxAPI(
-          `/calls/${payload.call_control_id}/actions/send_dtmf`,
-          'POST',
-          {
-            digits: "1",
-            duration_millis: 100
-          }
-        );
-        
-        console.log('✅ RTP establishment tone sent');
-      }
       break;
 
     case 'call.transfer.failed':
