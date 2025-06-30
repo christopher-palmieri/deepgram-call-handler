@@ -8,14 +8,14 @@ export default async function handler(req, res) {
     const evt = (body.data && body.data.event_type) || body.event_type;
     const payload = (body.data && body.data.payload) || body.payload;
 
-    // Always ACK status updates
+    // ACK Telnyx status updates & end-of-call-report
     if (evt === 'status-update' || evt === 'end-of-call-report') {
       return res.status(200).json({ received: true });
     }
 
-    // On VAPI participant joined
-    if (evt === 'participant.joined' && payload.sip_uri && payload.sip_uri.includes('vapi.ai')) {
-      const state = JSON.parse(payload.client_state);
+    // On VAPI participant joined to conference
+    if (evt === 'conference.participant.joined' && payload.sip_uri && payload.sip_uri.includes('vapi.ai')) {
+      const state = JSON.parse(atob(payload.client_state));
       const room = `conf-${state.session_id}`;
       const human = state.human;
 
@@ -28,10 +28,14 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           connection_id: process.env.TELNYX_VOICE_API_APPLICATION_ID,
-          to: `conference:${room}`,
+          to: human,                           // E.164 phone number
           from: process.env.TELNYX_NUMBER,
-          to_number: human,
           enable_early_media: true,
+          conference_config: {
+            conference_name: room,
+            start_conference_on_enter: true,
+            end_conference_on_exit: true
+          },
           webhook_url: `${process.env.WEBHOOK_URL}/conference-webhook`,
           webhook_url_method: 'POST'
         })
