@@ -141,7 +141,7 @@ async function initiateVAPIFirstCall(params, res) {
     console.log('📞 Call Control ID:', callData?.call_control_id);
     console.log('🔗 Call Leg ID:', callData?.call_leg_id);
     
-    // Store transfer intent
+    // Store transfer intent locally for this process only
     transferState.set(callData.call_control_id, {
       human_number: toNumber,
       vapi_called_at: new Date().toISOString(),
@@ -200,7 +200,8 @@ async function handleTelnyxWebhook(event, res) {
     direction: payload.direction,
     from: payload.from,
     to: payload.to,
-    call_type: callType
+    call_type: callType,
+    human_number: humanNumber
   });
 
   switch (eventType) {
@@ -221,16 +222,11 @@ async function handleTelnyxWebhook(event, res) {
       if (callType === 'vapi-first' && payload.to?.includes('sip:')) {
         console.log('🤖 VAPI answered!');
         
-        const transferInfo = transferState.get(payload.call_control_id);
-        if (transferInfo && transferInfo.human_number) {
-          console.log('🔄 Auto-transferring to human:', transferInfo.human_number);
-          
-          // Update state
-          transferState.set(payload.call_control_id, {
-            ...transferInfo,
-            status: 'vapi_answered',
-            answered_at: new Date().toISOString()
-          });
+        // First, try to get human number from custom headers
+        const humanNumberFromHeader = customHeaders.find(h => h.name === 'X-Human-Number')?.value;
+        
+        if (humanNumberFromHeader) {
+          console.log('🔄 Auto-transferring to human from header:', humanNumberFromHeader);
           
           // Wait briefly for VAPI to fully establish
           await sleep(CONFIG.VAPI_ANSWER_DELAY_MS);
@@ -238,9 +234,42 @@ async function handleTelnyxWebhook(event, res) {
           // Execute transfer to add human
           return await executeTransferToHuman(
             payload.call_control_id, 
-            transferInfo.human_number, 
+            humanNumberFromHeader, 
             res
           );
+        } else {
+          // Fallback: Try to decode from client_state
+          console.log('⚠️ No human number in headers, checking client_state...');
+          
+          if (payload.client_state) {
+            try {
+              const clientState = JSON.parse(atob(payload.client_state));
+              console.log('📦 Decoded client state:', clientState);
+              
+              if (clientState.human_number) {
+                console.log('🔄 Found human number in client_state:', clientState.human_number);
+                
+                // Wait briefly for VAPI to fully establish
+                await sleep(CONFIG.VAPI_ANSWER_DELAY_MS);
+                
+                // Execute transfer to add human
+                return await executeTransferToHuman(
+                  payload.call_control_id, 
+                  clientState.human_number, 
+                  res
+                );
+              } else {
+                console.error('❌ No human number found in client_state!');
+              }
+            } catch (e) {
+              console.error('❌ Failed to parse client_state:', e);
+            }
+          } else {
+            console.error('❌ No client_state to decode!');
+          }
+          
+          // If we get here, we couldn't find a human number
+          console.error('❌ Unable to determine human number for transfer!');
         }
       } else if (payload.to && !payload.to.includes('sip:')) {
         // This is likely the human leg answering after transfer
@@ -302,7 +331,7 @@ async function executeTransferToHuman(vapiControlId, humanNumber, res) {
   console.log('📞 VAPI Control ID:', vapiControlId);
   console.log('📞 Human Number:', humanNumber);
   
-  // Prevent duplicate transfers
+  // Prevent duplicate transfers using local state
   const currentState = transferState.get(vapiControlId);
   if (currentState?.transferring || currentState?.completed) {
     console.log('⚠️ Transfer already in progress or completed');
