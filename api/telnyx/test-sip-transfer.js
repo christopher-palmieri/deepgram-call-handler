@@ -7,7 +7,7 @@ import fetch from 'node-fetch';
 const CONFIG = {
   VAPI_SIP: 'sip:brandon-call-for-kits@sip.vapi.ai',
   TELNYX_API_URL: 'https://api.telnyx.com/v2',
-  VAPI_ANSWER_DELAY_MS: 2000, // Wait for VAPI to answer
+  VAPI_ANSWER_DELAY_MS: 500, // Reduced from 2000ms to 500ms
   TRANSFER_TO_HUMAN_DELAY_MS: 500 // Small delay before transferring
 };
 
@@ -231,12 +231,38 @@ async function handleTelnyxWebhook(event, res) {
           // Wait briefly for VAPI to fully establish
           await sleep(CONFIG.VAPI_ANSWER_DELAY_MS);
           
+          // MUTE VAPI before transfer
+          console.log('🔇 Muting VAPI before transfer...');
+          const muteResponse = await telnyxAPI(
+            `/calls/${payload.call_control_id}/actions/mute`,
+            'POST',
+            {
+              direction: 'both' // Mute both inbound and outbound audio
+            }
+          );
+          
+          if (muteResponse.ok) {
+            console.log('✅ VAPI muted successfully');
+          } else {
+            console.log('⚠️ Failed to mute VAPI:', muteResponse.status);
+          }
+          
           // Execute transfer to add human
-          return await executeTransferToHuman(
+          const transferResult = await executeTransferToHuman(
             payload.call_control_id, 
             humanNumberFromHeader, 
             res
           );
+          
+          // Schedule unmute after 15 seconds
+          if (transferResult.success) {
+            console.log('⏰ Scheduling unmute in 15 seconds...');
+            setTimeout(async () => {
+              await unmuteVAPIWithAnnouncement(payload.call_control_id);
+            }, 15000); // 15 seconds
+          }
+          
+          return transferResult;
         } else {
           // Fallback: Try to decode from client_state
           console.log('⚠️ No human number in headers, checking client_state...');
@@ -252,12 +278,38 @@ async function handleTelnyxWebhook(event, res) {
                 // Wait briefly for VAPI to fully establish
                 await sleep(CONFIG.VAPI_ANSWER_DELAY_MS);
                 
+                // MUTE VAPI before transfer
+                console.log('🔇 Muting VAPI before transfer...');
+                const muteResponse = await telnyxAPI(
+                  `/calls/${payload.call_control_id}/actions/mute`,
+                  'POST',
+                  {
+                    direction: 'both'
+                  }
+                );
+                
+                if (muteResponse.ok) {
+                  console.log('✅ VAPI muted successfully');
+                } else {
+                  console.log('⚠️ Failed to mute VAPI:', muteResponse.status);
+                }
+                
                 // Execute transfer to add human
-                return await executeTransferToHuman(
+                const transferResult = await executeTransferToHuman(
                   payload.call_control_id, 
                   clientState.human_number, 
                   res
                 );
+                
+                // Schedule unmute after 15 seconds
+                if (transferResult.success) {
+                  console.log('⏰ Scheduling unmute in 15 seconds...');
+                  setTimeout(async () => {
+                    await unmuteVAPIWithAnnouncement(payload.call_control_id);
+                  }, 15000); // 15 seconds
+                }
+                
+                return transferResult;
               } else {
                 console.error('❌ No human number found in client_state!');
               }
@@ -288,6 +340,23 @@ async function handleTelnyxWebhook(event, res) {
     case 'call.transfer.completed':
       console.log('✅ Transfer completed successfully!');
       console.log('🌉 VAPI and human are now connected');
+      
+      // If this is a human-leg transfer completion, send a brief audio to establish RTP
+      if (payload.call_control_id && payload.to && !payload.to.includes('sip:')) {
+        console.log('🔊 Sending audio to establish RTP path...');
+        
+        // Send DTMF tone to establish audio path
+        await telnyxAPI(
+          `/calls/${payload.call_control_id}/actions/send_dtmf`,
+          'POST',
+          {
+            digits: "1",
+            duration_millis: 100
+          }
+        );
+        
+        console.log('✅ RTP establishment tone sent');
+      }
       break;
 
     case 'call.transfer.failed':
@@ -434,6 +503,17 @@ async function doReferTransfer(vapiControlId, humanNumber) {
     webhook_url: process.env.WEBHOOK_URL ? 
       `${process.env.WEBHOOK_URL}/api/telnyx/test-sip-transfer` : undefined,
     webhook_url_method: 'POST',
+    // Add SIP headers to improve audio routing
+    sip_headers: [
+      {
+        name: 'X-Audio-Direction',
+        value: 'both'
+      },
+      {
+        name: 'X-RTP-AutoAdjust',
+        value: 'yes'
+      }
+    ],
     // Custom headers for the new leg
     custom_headers: [
       {
@@ -444,7 +524,10 @@ async function doReferTransfer(vapiControlId, humanNumber) {
         name: 'X-VAPI-Bridge',
         value: 'true'
       }
-    ]
+    ],
+    // Add audio processing options
+    audio_url: 'silence_stream://1000', // 1 second of silence to establish audio path
+    answering_machine_detection: 'disabled' // Ensure no AMD delay
   };
   
   // Remove undefined fields
@@ -571,6 +654,53 @@ async function telnyxAPI(endpoint, method = 'POST', body = null) {
 // Helper function
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Unmute VAPI with announcement
+async function unmuteVAPIWithAnnouncement(callControlId) {
+  console.log('🔊 Time to unmute VAPI with announcement...');
+  
+  try {
+    // First, play the announcement
+    console.log('📢 Playing unmute announcement...');
+    const speakResponse = await telnyxAPI(
+      `/calls/${callControlId}/actions/speak`,
+      'POST',
+      {
+        payload: "Unmuting",
+        voice: "male",
+        language: "en-US"
+      }
+    );
+    
+    if (!speakResponse.ok) {
+      console.error('⚠️ Failed to play announcement:', speakResponse.status);
+    } else {
+      console.log('✅ Announcement played');
+    }
+    
+    // Wait a moment for the announcement to finish
+    await sleep(1000);
+    
+    // Now unmute the call
+    console.log('🔊 Unmuting VAPI...');
+    const unmuteResponse = await telnyxAPI(
+      `/calls/${callControlId}/actions/unmute`,
+      'POST',
+      {
+        direction: 'both' // Unmute both directions
+      }
+    );
+    
+    if (unmuteResponse.ok) {
+      console.log('✅ VAPI unmuted successfully at', new Date().toISOString());
+    } else {
+      console.error('❌ Failed to unmute VAPI:', unmuteResponse.status, unmuteResponse.data);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error in unmute process:', error.message);
+  }
 }
 
 export const config = {
