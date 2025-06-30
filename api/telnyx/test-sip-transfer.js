@@ -1,19 +1,17 @@
 // api/telnyx/test-sip-transfer.js
-// VAPI-first implementation with call interception
+// Enhanced test script - Calls VAPI first, then transfers to add human
 
 import fetch from 'node-fetch';
-import crypto from 'crypto';
 
 // Configuration constants
 const CONFIG = {
   VAPI_SIP: 'sip:brandon-call-for-kits@sip.vapi.ai',
   TELNYX_API_URL: 'https://api.telnyx.com/v2',
-  VAPI_CONNECT_DELAY_MS: 2000, // Wait 2 seconds for VAPI to fully connect
-  SPEAK_BEFORE_TRANSFER: false
+  VAPI_ANSWER_DELAY_MS: 2000, // Wait for VAPI to answer
+  TRANSFER_TO_HUMAN_DELAY_MS: 500 // Small delay before transferring
 };
 
-// Global state to track calls and transfers
-const callState = new Map();
+// Global state to track transfers and prevent duplicates
 const transferState = new Map();
 global.processedEvents = global.processedEvents || new Set();
 
@@ -21,23 +19,33 @@ export default async function handler(req, res) {
   console.log('🧪 TEST endpoint hit');
   console.log('📍 Method:', req.method);
   console.log('📍 Time:', new Date().toISOString());
+  console.log('📍 Headers:', JSON.stringify(req.headers, null, 2));
   
-  // GET: Status check
+  // GET: Status check and manual test instructions
   if (req.method === 'GET') {
-    return res.status(200).json({ 
-      status: 'Test endpoint ready - VAPI-first intercept mode',
+    const status = {
+      status: 'Test endpoint ready - VAPI First Mode',
       timestamp: new Date().toISOString(),
+      mode: 'VAPI_FIRST_THEN_HUMAN',
       environment: {
         telnyx_api_key: process.env.TELNYX_API_KEY ? '✅ Set' : '❌ Missing',
         telnyx_phone: process.env.TELNYX_PHONE_NUMBER || 'Not set',
+        human_phone: process.env.HUMAN_PHONE_NUMBER || 'Not set',
         auto_transfer: process.env.TEST_AUTO_TRANSFER === 'true' ? '✅ Enabled' : '❌ Disabled',
-        webhook_url: process.env.WEBHOOK_URL || 'Not set',
-        connection_id: process.env.TELNYX_CONNECTION_ID || process.env.TELNYX_VOICE_API_APPLICATION_ID || 'Not set'
+        webhook_url: process.env.WEBHOOK_URL || 'Not set'
       },
       vapi_config: {
-        sip_address: CONFIG.VAPI_SIP
+        sip_address: CONFIG.VAPI_SIP,
+        answer_delay: CONFIG.VAPI_ANSWER_DELAY_MS
+      },
+      instructions: {
+        trigger_call: 'POST to this endpoint with {"action": "initiate", "to_number": "+1234567890"}',
+        manual_test: 'POST with {"control_id": "your-vapi-call-control-id", "to_number": "+1234567890"}',
+        webhook_path: `${process.env.WEBHOOK_URL || 'YOUR_DOMAIN'}/api/telnyx/test-sip-transfer`
       }
-    });
+    };
+    
+    return res.status(200).json(status);
   }
 
   if (req.method !== 'POST') {
@@ -47,16 +55,119 @@ export default async function handler(req, res) {
   const body = req.body || {};
   console.log('📨 Request body:', JSON.stringify(body, null, 2));
   
+  // Handle call initiation request
+  if (body.action === 'initiate') {
+    return await initiateVAPIFirstCall(body, res);
+  }
+  
   // Handle Telnyx webhooks
   if (body.data?.event_type) {
     return await handleTelnyxWebhook(body.data, res);
   }
   
-  // Unknown request
+  // Handle manual transfer test
+  if (body.control_id || body.call_control_id) {
+    const controlId = body.control_id || body.call_control_id;
+    const toNumber = body.to_number || process.env.HUMAN_PHONE_NUMBER;
+    console.log('🧪 Manual transfer test for control ID:', controlId);
+    console.log('📞 Transfer to:', toNumber);
+    
+    return await executeTransferToHuman(controlId, toNumber, res);
+  }
+  
+  // Invalid request
   return res.status(400).json({ 
     error: 'Invalid request',
-    expected: 'Telnyx webhook with data.event_type'
+    expected: {
+      initiate: '{"action": "initiate", "to_number": "+1234567890"}',
+      webhook: 'Telnyx webhook with data.event_type',
+      manual: '{"control_id": "xxx", "to_number": "+1234567890"}'
+    }
   });
+}
+
+// Initiate VAPI-first call sequence
+async function initiateVAPIFirstCall(params, res) {
+  console.log('🚀 Starting VAPI-first call sequence');
+  
+  const toNumber = params.to_number || process.env.HUMAN_PHONE_NUMBER;
+  if (!toNumber) {
+    return res.status(400).json({ error: 'to_number required' });
+  }
+  
+  try {
+    // Step 1: Call VAPI
+    console.log('📞 Step 1: Calling VAPI...');
+    
+    const vapiCallResponse = await telnyxAPI('/calls', 'POST', {
+      connection_id: process.env.TELNYX_CONNECTION_ID || process.env.TELNYX_VOICE_API_APPLICATION_ID,
+      to: CONFIG.VAPI_SIP,
+      from: process.env.TELNYX_PHONE_NUMBER,
+      webhook_url: `${process.env.WEBHOOK_URL}/api/telnyx/test-sip-transfer`,
+      webhook_url_method: 'POST',
+      timeout_secs: 60,
+      timeout_limit_secs: 600,
+      // Custom headers to track intent
+      custom_headers: [
+        {
+          name: 'X-Call-Type',
+          value: 'vapi-first'
+        },
+        {
+          name: 'X-Human-Number',
+          value: toNumber
+        },
+        {
+          name: 'X-Session-ID',
+          value: crypto.randomUUID()
+        }
+      ],
+      // Track state
+      client_state: btoa(JSON.stringify({
+        initiated_at: new Date().toISOString(),
+        type: 'vapi_first',
+        human_number: toNumber,
+        auto_transfer: true
+      }))
+    });
+    
+    if (!vapiCallResponse.ok) {
+      console.error('❌ Failed to call VAPI:', vapiCallResponse.status, vapiCallResponse.data);
+      throw new Error(vapiCallResponse.data?.errors?.[0]?.detail || 'Failed to call VAPI');
+    }
+    
+    const callData = vapiCallResponse.data?.data;
+    console.log('✅ VAPI call initiated');
+    console.log('📞 Call Control ID:', callData?.call_control_id);
+    console.log('🔗 Call Leg ID:', callData?.call_leg_id);
+    
+    // Store transfer intent
+    transferState.set(callData.call_control_id, {
+      human_number: toNumber,
+      vapi_called_at: new Date().toISOString(),
+      status: 'calling_vapi'
+    });
+    
+    return res.status(200).json({
+      success: true,
+      message: 'VAPI call initiated, will auto-transfer when answered',
+      call_control_id: callData?.call_control_id,
+      vapi_sip: CONFIG.VAPI_SIP,
+      human_number: toNumber,
+      next_steps: [
+        'VAPI will be called',
+        'When VAPI answers, system will wait briefly',
+        'Call will be transferred to add human participant'
+      ]
+    });
+    
+  } catch (error) {
+    console.error('❌ Error initiating VAPI call:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 }
 
 // Handle different Telnyx webhook events
@@ -64,240 +175,321 @@ async function handleTelnyxWebhook(event, res) {
   const eventType = event.event_type;
   const payload = event.payload || {};
   
+  // Log webhook with deduplication check
+  console.log(`📞 Webhook ${eventType} at ${new Date().toISOString()}`);
+  console.log(`📞 For call: ${payload.call_control_id}`);
+  
   // Check for duplicate webhooks
   if (global.processedEvents?.has(event.id)) {
     console.log('⚠️ Duplicate webhook - already processed');
     return res.status(200).json({ received: true });
   }
+  
+  // Track processed events
   global.processedEvents.add(event.id);
   
-  console.log(`📞 Webhook ${eventType} at ${new Date().toISOString()}`);
-  console.log(`📞 For call: ${payload.call_control_id}`);
-  
-  // Parse client state if available
-  let clientState = {};
-  try {
-    if (payload.client_state) {
-      clientState = JSON.parse(Buffer.from(payload.client_state, 'base64').toString());
-    }
-  } catch (e) {
-    console.log('Could not parse client state');
-  }
+  // Extract custom headers
+  const customHeaders = payload.custom_headers || [];
+  const callType = customHeaders.find(h => h.name === 'X-Call-Type')?.value;
+  const humanNumber = customHeaders.find(h => h.name === 'X-Human-Number')?.value;
   
   console.log('📞 Call details:', {
     control_id: payload.call_control_id,
     leg_id: payload.call_leg_id,
+    state: payload.state,
+    direction: payload.direction,
     from: payload.from,
     to: payload.to,
-    direction: payload.direction,
-    client_state: clientState
+    call_type: callType
   });
 
   switch (eventType) {
     case 'call.initiated':
-      console.log('📞 Call initiated');
+      console.log('📞 Call initiated - waiting for answer...');
       
-      // INTERCEPT: Redirect outbound calls to VAPI first
-      if (shouldUseVAPIFirst(payload, clientState) && payload.direction === 'outgoing') {
-        console.log('🔄 Intercepting call - redirecting to VAPI first...');
-        
-        const originalTarget = payload.to;
-        console.log('📍 Original target (clinic):', originalTarget);
-        
-        try {
-          await telnyxAPI(
-            `/calls/${payload.call_control_id}/actions/transfer`,
-            'POST',
-            {
-              to: CONFIG.VAPI_SIP,
-              from: payload.from,
-              client_state: Buffer.from(JSON.stringify({
-                flow: 'vapi_first_intercepted',
-                original_target: originalTarget,
-                clinic_number: originalTarget
-              })).toString('base64')
-            }
-          );
-          console.log('✅ Call redirected to VAPI');
-        } catch (error) {
-          console.error('❌ Failed to redirect to VAPI:', error);
-        }
+      // For incoming calls (not our outbound VAPI call)
+      if (payload.direction === 'incoming' && callType !== 'vapi-first') {
+        console.log('📞 Incoming call detected - answering...');
+        await answerCall(payload.call_control_id);
       }
       break;
 
     case 'call.answered':
       console.log('✅ Call answered');
       
-      // Check if this is VAPI answering after our redirect
-      if (clientState.flow === 'vapi_first_intercepted' && payload.to.includes('sip:')) {
-        console.log('✅ VAPI answered! Waiting before calling clinic...');
+      // Check if this is our VAPI call being answered
+      if (callType === 'vapi-first' && payload.to?.includes('sip:')) {
+        console.log('🤖 VAPI answered!');
         
-        const clinicNumber = clientState.original_target || clientState.clinic_number;
-        console.log('📞 Will call clinic:', clinicNumber);
-        
-        // Wait for VAPI to fully connect
-        setTimeout(async () => {
-          await handleVAPIConnectedAndCallClinic(payload.call_control_id, clinicNumber);
-        }, CONFIG.VAPI_CONNECT_DELAY_MS);
+        const transferInfo = transferState.get(payload.call_control_id);
+        if (transferInfo && transferInfo.human_number) {
+          console.log('🔄 Auto-transferring to human:', transferInfo.human_number);
+          
+          // Update state
+          transferState.set(payload.call_control_id, {
+            ...transferInfo,
+            status: 'vapi_answered',
+            answered_at: new Date().toISOString()
+          });
+          
+          // Wait briefly for VAPI to fully establish
+          await sleep(CONFIG.VAPI_ANSWER_DELAY_MS);
+          
+          // Execute transfer to add human
+          return await executeTransferToHuman(
+            payload.call_control_id, 
+            transferInfo.human_number, 
+            res
+          );
+        }
+      } else if (payload.to && !payload.to.includes('sip:')) {
+        // This is likely the human leg answering after transfer
+        console.log('👤 Human answered - bridge complete!');
       }
-      
-      // Check if this is clinic answering
-      else if (clientState.flow === 'calling_clinic') {
-        console.log('✅ Clinic answered! Bridging with VAPI...');
-        await bridgeVAPIAndClinic(payload.call_control_id, clientState.vapi_call_id);
-      }
-      break;
-
-    case 'call.bridged':
-      console.log('✅ Calls successfully bridged!');
       break;
 
     case 'call.hangup':
       console.log('📞 Call ended:', payload.hangup_cause);
-      callState.delete(payload.call_control_id);
-      transferState.delete(payload.call_control_id);
+      // Clean up transfer state
+      if (payload.call_control_id) {
+        transferState.delete(payload.call_control_id);
+      }
+      break;
+
+    case 'call.transfer.completed':
+      console.log('✅ Transfer completed successfully!');
+      console.log('🌉 VAPI and human are now connected');
+      break;
+
+    case 'call.transfer.failed':
+      console.log('❌ Transfer failed:', payload.failure_reason);
       break;
 
     default:
       console.log(`📨 Other event: ${eventType}`);
   }
 
+  // Always return 200 for webhooks
   return res.status(200).json({ received: true });
 }
 
-// Determine if we should use VAPI-first approach
-function shouldUseVAPIFirst(payload, clientState) {
-  // Enable VAPI-first for all outbound calls when TEST_AUTO_TRANSFER is true
-  if (process.env.TEST_AUTO_TRANSFER === 'true') {
-    // Make sure we don't redirect already redirected calls
-    if (clientState.flow === 'vapi_first_intercepted' || 
-        clientState.flow === 'calling_clinic' ||
-        payload.to?.includes('sip:')) {
+// Answer an incoming call
+async function answerCall(controlId) {
+  console.log('📞 Answering call:', controlId);
+  
+  try {
+    const response = await telnyxAPI(
+      `/calls/${controlId}/actions/answer`,
+      'POST'
+    );
+    
+    if (response.ok) {
+      console.log('✅ Call answered successfully');
+      return true;
+    } else {
+      console.error('❌ Failed to answer:', response.status, response.data);
       return false;
     }
-    return true;
+  } catch (error) {
+    console.error('❌ Error answering call:', error.message);
+    return false;
   }
-  
-  return false;
 }
 
-// Handle when VAPI is connected and we need to call the clinic
-async function handleVAPIConnectedAndCallClinic(vapiCallId, clinicNumber) {
-  console.log('🔇 Step 1: Muting VAPI...');
+// Execute transfer to add human to the VAPI call
+async function executeTransferToHuman(vapiControlId, humanNumber, res) {
+  console.log('🚀 Starting transfer to add human');
+  console.log('📞 VAPI Control ID:', vapiControlId);
+  console.log('📞 Human Number:', humanNumber);
+  
+  // Prevent duplicate transfers
+  const currentState = transferState.get(vapiControlId);
+  if (currentState?.transferring || currentState?.completed) {
+    console.log('⚠️ Transfer already in progress or completed');
+    return res.status(200).json({
+      message: 'Transfer already handled',
+      control_id: vapiControlId,
+      state: currentState
+    });
+  }
+  
+  // Mark as transferring
+  transferState.set(vapiControlId, {
+    ...currentState,
+    transferring: true,
+    transfer_started_at: new Date().toISOString()
+  });
   
   try {
-    // Mute VAPI
-    await telnyxAPI(
-      `/calls/${vapiCallId}/actions/mute`,
-      'POST',
-      { direction: 'both' }
-    );
-    console.log('✅ VAPI muted');
+    // Check environment
+    if (!process.env.TELNYX_API_KEY) {
+      throw new Error('TELNYX_API_KEY not configured');
+    }
     
-    // Now call the clinic
-    console.log('📞 Step 2: Calling clinic:', clinicNumber);
+    // Verify call is still active
+    const callStatus = await getCallStatus(vapiControlId);
+    if (!callStatus.active) {
+      throw new Error(`VAPI call not active. State: ${callStatus.state}`);
+    }
     
-    const clinicCallResponse = await telnyxAPI(
-      '/calls',
-      'POST',
-      {
-        connection_id: process.env.TELNYX_CONNECTION_ID || process.env.TELNYX_VOICE_API_APPLICATION_ID,
-        to: clinicNumber,
+    console.log('✅ VAPI call is active and ready for transfer');
+    
+    // Execute REFER transfer to add human
+    const transferResult = await doReferTransfer(vapiControlId, humanNumber);
+    
+    // Mark as completed
+    transferState.set(vapiControlId, {
+      ...transferState.get(vapiControlId),
+      transferring: false,
+      completed: true,
+      completed_at: new Date().toISOString()
+    });
+    
+    // Clean up after 5 minutes
+    setTimeout(() => transferState.delete(vapiControlId), 5 * 60 * 1000);
+    
+    // Return result
+    return res.status(200).json({
+      test: 'completed',
+      success: transferResult.success,
+      timestamp: new Date().toISOString(),
+      vapi_call: {
+        control_id: vapiControlId,
+        was_active: callStatus.active,
+        state_before_transfer: callStatus.state
+      },
+      transfer_details: {
+        to: humanNumber,
         from: process.env.TELNYX_PHONE_NUMBER,
-        webhook_url: `${process.env.WEBHOOK_URL || 'https://v0-new-project-qykgboija9j.vercel.app'}/api/telnyx/test-sip-transfer`,
-        webhook_url_method: 'POST',
-        timeout_secs: 60,
-        client_state: Buffer.from(JSON.stringify({
-          flow: 'calling_clinic',
-          vapi_call_id: vapiCallId
-        })).toString('base64')
-      }
-    );
+        method: 'REFER',
+        type: transferResult.type
+      },
+      result: transferResult
+    });
     
-    if (clinicCallResponse.ok) {
-      const clinicCallId = clinicCallResponse.data.data.call_control_id;
-      console.log('✅ Clinic call initiated:', clinicCallId);
-      
-      // Store the relationship
-      callState.set(clinicCallId, {
-        type: 'clinic_call',
-        vapi_call_id: vapiCallId
+  } catch (error) {
+    console.error('❌ Transfer failed:', error.message);
+    
+    // Mark as failed
+    transferState.set(vapiControlId, {
+      ...transferState.get(vapiControlId),
+      transferring: false,
+      completed: false,
+      error: error.message
+    });
+    
+    return res.status(500).json({
+      test: 'failed',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+}
+
+// Execute REFER transfer to add human to VAPI call
+async function doReferTransfer(vapiControlId, humanNumber) {
+  console.log('🔄 Executing REFER transfer to add human');
+  
+  const TELNYX_NUMBER = process.env.TELNYX_PHONE_NUMBER;
+  
+  if (!TELNYX_NUMBER) {
+    throw new Error('TELNYX_PHONE_NUMBER environment variable is required');
+  }
+  
+  // Use standard transfer which implements SIP REFER
+  console.log('🔄 Using REFER transfer method...');
+  
+  const transferPayload = {
+    to: humanNumber, // Transfer to human number
+    from: TELNYX_NUMBER,
+    webhook_url: process.env.WEBHOOK_URL ? 
+      `${process.env.WEBHOOK_URL}/api/telnyx/test-sip-transfer` : undefined,
+    webhook_url_method: 'POST',
+    // Custom headers for the new leg
+    custom_headers: [
+      {
+        name: 'X-Call-Type',
+        value: 'human-leg'
+      },
+      {
+        name: 'X-VAPI-Bridge',
+        value: 'true'
+      }
+    ]
+  };
+  
+  // Remove undefined fields
+  Object.keys(transferPayload).forEach(key => 
+    transferPayload[key] === undefined && delete transferPayload[key]
+  );
+  
+  console.log('📤 Transfer payload:', JSON.stringify(transferPayload, null, 2));
+  
+  const response = await telnyxAPI(
+    `/calls/${vapiControlId}/actions/transfer`,
+    'POST',
+    transferPayload
+  );
+  
+  console.log('📥 Transfer response:', {
+    status: response.status,
+    ok: response.ok,
+    data: response.data
+  });
+  
+  if (response.ok) {
+    console.log('✅ REFER transfer initiated successfully!');
+    console.log('🎯 Human will be added to call with VAPI');
+  } else {
+    console.error('❌ Transfer failed');
+    
+    // Log detailed error info
+    if (response.data?.errors) {
+      response.data.errors.forEach(err => {
+        console.error('  Error:', err.title || err.detail || err);
       });
-    } else {
-      console.error('❌ Failed to call clinic:', clinicCallResponse.data);
     }
-    
-  } catch (error) {
-    console.error('❌ Error in VAPI connect handler:', error);
   }
+  
+  return {
+    success: response.ok,
+    type: 'REFER',
+    status: response.status,
+    data: response.data,
+    human_number: humanNumber,
+    warning: response.ok ? null : 'Transfer failed'
+  };
 }
 
-// Bridge VAPI and clinic calls
-async function bridgeVAPIAndClinic(clinicCallId, vapiCallId) {
-  console.log('🌉 Step 3: Bridging VAPI and clinic calls...');
+// Get current call status
+async function getCallStatus(controlId) {
+  console.log('🔍 Checking call status...');
   
   try {
-    // First unmute VAPI
-    await telnyxAPI(
-      `/calls/${vapiCallId}/actions/unmute`,
-      'POST',
-      { direction: 'both' }
-    );
-    console.log('✅ VAPI unmuted');
-    
-    // Bridge the calls
-    const bridgeResponse = await telnyxAPI(
-      `/calls/${clinicCallId}/actions/bridge`,
-      'POST',
-      { call_control_id: vapiCallId }
+    const response = await telnyxAPI(
+      `/calls/${controlId}`,
+      'GET'
     );
     
-    if (bridgeResponse.ok) {
-      console.log('✅ Calls bridged successfully!');
-      console.log('🎯 Clinic is now connected to VAPI with no ringing!');
-    } else {
-      console.log('⚠️ Bridge failed, trying conference...');
-      await conferenceFailback(clinicCallId, vapiCallId);
+    if (response.ok && response.data?.data) {
+      const call = response.data.data;
+      const state = call.state || 'unknown';
+      const active = state !== 'hangup' && state !== 'parked';
+      
+      console.log(`📞 Call state: ${state} (active: ${active})`);
+      
+      return {
+        active,
+        state,
+        details: call
+      };
     }
     
-  } catch (error) {
-    console.error('❌ Error bridging calls:', error);
-  }
-}
-
-// Conference fallback if bridge doesn't work
-async function conferenceFailback(call1Id, call2Id) {
-  const conferenceId = `vapi-bridge-${Date.now()}`;
-  
-  try {
-    console.log('🎪 Creating conference bridge...');
-    
-    // Put both calls in the same conference
-    await telnyxAPI(
-      `/calls/${call1Id}/actions/join_conference`,
-      'POST',
-      {
-        call_control_id: call1Id,
-        name: conferenceId,
-        mute: false,
-        start_conference_on_enter: true
-      }
-    );
-    
-    await telnyxAPI(
-      `/calls/${call2Id}/actions/join_conference`,
-      'POST',
-      {
-        call_control_id: call2Id,
-        name: conferenceId,
-        mute: false
-      }
-    );
-    
-    console.log('✅ Both calls joined conference:', conferenceId);
+    return { active: false, state: 'error' };
     
   } catch (error) {
-    console.error('❌ Conference fallback failed:', error);
+    console.error('❌ Could not get call status:', error.message);
+    return { active: false, state: 'error' };
   }
 }
 
