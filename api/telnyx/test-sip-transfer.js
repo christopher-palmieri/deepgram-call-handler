@@ -20,7 +20,7 @@ export default async function handler(req, res) {
   console.log('📍 Method:', req.method);
   console.log('📍 Time:', new Date().toISOString());
   console.log('📍 Headers:', JSON.stringify(req.headers, null, 2));
-  
+
   // GET: Status check and manual test instructions
   if (req.method === 'GET') {
     const status = {
@@ -33,18 +33,8 @@ export default async function handler(req, res) {
         human_phone: process.env.HUMAN_PHONE_NUMBER || 'Not set',
         auto_transfer: process.env.TEST_AUTO_TRANSFER === 'true' ? '✅ Enabled' : '❌ Disabled',
         webhook_url: process.env.WEBHOOK_URL || 'Not set'
-      },
-      vapi_config: {
-        sip_address: CONFIG.VAPI_SIP,
-        answer_delay: CONFIG.VAPI_ANSWER_DELAY_MS
-      },
-      instructions: {
-        trigger_call: 'POST to this endpoint with {"action": "initiate", "to_number": "+1234567890"}',
-        manual_test: 'POST with {"control_id": "your-vapi-call-control-id", "to_number": "+1234567890"}',
-        webhook_path: `${process.env.WEBHOOK_URL || 'YOUR_DOMAIN'}/api/telnyx/test-sip-transfer`
       }
     };
-    
     return res.status(200).json(status);
   }
 
@@ -53,28 +43,32 @@ export default async function handler(req, res) {
   }
 
   const body = req.body || {};
-  console.log('📨 Request body:', JSON.stringify(body, null, 2));
-  
-  // Handle call initiation request
+  const data = body.data || {};
+  const evt = data.event_type;
+
+  // Acknowledge Telnyx status-update and end-of-call-report events
+  if (evt === 'status-update' || evt === 'end-of-call-report') {
+    console.log(`📨 Received Telnyx ${evt}, ack’ing`);
+    return res.status(200).json({ received: true });
+  }
+
+  // Handle manual initiate action
   if (body.action === 'initiate') {
     return await initiateVAPIFirstCall(body, res);
   }
-  
-  // Handle Telnyx webhooks
-  if (body.data?.event_type) {
-    return await handleTelnyxWebhook(body.data, res);
+
+  // Handle Telnyx webhook events
+  if (data.event_type) {
+    return await handleTelnyxWebhook(data, res);
   }
-  
+
   // Handle manual transfer test
   if (body.control_id || body.call_control_id) {
     const controlId = body.control_id || body.call_control_id;
     const toNumber = body.to_number || process.env.HUMAN_PHONE_NUMBER;
-    console.log('🧪 Manual transfer test for control ID:', controlId);
-    console.log('📞 Transfer to:', toNumber);
-    
     return await executeTransferToHuman(controlId, toNumber, res);
   }
-  
+
   // Invalid request
   return res.status(400).json({ 
     error: 'Invalid request',
