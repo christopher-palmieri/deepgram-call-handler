@@ -1,15 +1,22 @@
 // -----------------------------
 // Vercel Webhook Handler: Join Human to Conference
 // -----------------------------
-import fetch from 'node-fetch';
 export const config = { api: { bodyParser: true } };
 
 export default async function handler(req, res) {
+  // Health check for browser
+  if (req.method === 'GET') {
+    return res.status(200).send('Webhook endpoint is live');
+  }
+  // Only POST events
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method Not Allowed' });
+  }
+
   try {
-    // Safely parse body in case bodyParser didn't populate it
+    // Safely parse JSON body or raw text
     let body = req.body || {};
-    // If body is still empty, attempt to parse raw text
-    if (Object.keys(body).length === 0 && req.method === 'POST') {
+    if (Object.keys(body).length === 0) {
       try {
         const text = await new Promise((resolve, reject) => {
           let data = '';
@@ -18,9 +25,8 @@ export default async function handler(req, res) {
           req.on('error', reject);
         });
         body = JSON.parse(text);
-      } catch (e) {
-        console.warn('Could not parse raw body, continuing with empty object');
-        body = {};
+      } catch {
+        console.warn('Could not parse raw body');
       }
     }
 
@@ -29,13 +35,13 @@ export default async function handler(req, res) {
 
     console.log('Webhook hit:', evt, 'payload:', JSON.stringify(pl));
 
-    // ACK Telnyx status updates & end-of-call-report
+    // ACK non-call events
     if (evt === 'status-update' || evt === 'end-of-call-report') {
       return res.status(200).json({ received: true });
     }
 
-    // Conference participant joined: VAPI
-    if (evt === 'conference.participant.joined' && pl.sip_uri && pl.sip_uri.includes('vapi.ai')) {
+    // On VAPI joining the conference
+    if (evt === 'conference.participant.joined' && pl.call_control_id === pl.creator_call_control_id) {
       const state = JSON.parse(atob(pl.client_state));
       const room = `conf-${state.session_id}`;
       console.log('VAPI joined conference:', room);
@@ -57,7 +63,7 @@ export default async function handler(req, res) {
             start_conference_on_enter: true,
             end_conference_on_exit: true
           },
-          webhook_url: `${process.env.WEBHOOK_URL}/conference-webhook`,
+          webhook_url: 'https://v0-new-project-qykgboija9j.vercel.app/api/telnyx/conference-webhook',
           webhook_url_method: 'POST'
         })
       });
@@ -65,7 +71,7 @@ export default async function handler(req, res) {
       console.log('Human dial response:', humanResult);
     }
 
-    // ACK everything
+    // Always ACK
     return res.status(200).json({ received: true });
   } catch (err) {
     console.error('Webhook handler error:', err);
