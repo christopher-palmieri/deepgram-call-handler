@@ -1,12 +1,16 @@
 // api/telnyx/deepgram-texml.js
-// Simple TeXML endpoint that immediately dials VAPI (no IVR detection)
+// Combined TeXML handler with debug modes and dial status handling
 
 export default async function handler(req, res) {
-  console.log('📞 DeepGram TeXML Handler (Simple VAPI Dial)');
+  console.log('📞 DeepGram TeXML Handler');
   console.log('📞 Method:', req.method);
   console.log('📞 URL:', req.url);
-  console.log('📞 Headers:', JSON.stringify(req.headers, null, 2));
   console.log('📞 Body:', JSON.stringify(req.body, null, 2));
+  
+  // Check if this is a dial status callback
+  if (req.body?.DialCallStatus) {
+    return handleDialStatus(req, res);
+  }
   
   // Extract call information from TeXML webhook
   const {
@@ -29,44 +33,163 @@ export default async function handler(req, res) {
     CallStatus
   });
   
-  // Your VAPI configuration
+  // Configuration
   const VAPI_SIP_ADDRESS = process.env.VAPI_SIP_ADDRESS || 'brandon-call-for-kits@sip.vapi.ai';
-  const TELNYX_PHONE_NUMBER = process.env.TELNYX_NUMBER_MERCERVILLE || process.env.TELNYX_PHONE_NUMBER || To;
+  const TELNYX_PHONE_NUMBER = process.env.TELNYX_NUMBER_MERCERVILLE || process.env.TELNYX_PHONE_NUMBER || From;
   
-  // Ensure proper SIP URI format
-  const sipUri = VAPI_SIP_ADDRESS.startsWith('sip:') 
-    ? VAPI_SIP_ADDRESS 
-    : `sip:${VAPI_SIP_ADDRESS}`;
+  // Debug mode - set via environment variable
+  const DEBUG_MODE = process.env.TEXML_DEBUG_MODE || 'production'; // 'test1', 'test2', 'test3', 'production'
   
-  console.log('🎯 Dialing VAPI at:', sipUri);
-  console.log('📞 Using caller ID:', TELNYX_PHONE_NUMBER);
+  console.log('🔍 Debug Mode:', DEBUG_MODE);
   
-  // Simple TeXML that immediately dials VAPI
-  const texmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+  let texmlResponse;
+  
+  switch(DEBUG_MODE) {
+    case 'test1':
+      // Test 1: Just play a message and hang up
+      console.log('🧪 Running Test 1: Basic TeXML test');
+      texmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">Connecting you now, please wait.</Say>
-  <Dial callerId="${TELNYX_PHONE_NUMBER}" timeout="30" action="https://v0-new-project-qykgboija9j.vercel.app/api/telnyx/dial-status">
+  <Say voice="alice">This is test 1. If you hear this, TeXML is working correctly. Goodbye!</Say>
+  <Hangup />
+</Response>`;
+      break;
+      
+    case 'test2':
+      // Test 2: Try dialing a regular number
+      console.log('🧪 Running Test 2: Dial regular number');
+      texmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Test 2. Dialing your number now.</Say>
+  <Dial callerId="${From}" timeout="20">${To}</Dial>
+</Response>`;
+      break;
+      
+    case 'test3':
+      // Test 3: Simple SIP dial without headers
+      console.log('🧪 Running Test 3: Simple SIP dial');
+      texmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Test 3. Connecting to VAPI.</Say>
+  <Dial timeout="30">
+    <Sip>sip:brandon-call-for-kits@sip.vapi.ai</Sip>
+  </Dial>
+</Response>`;
+      break;
+      
+    case 'test4':
+      // Test 4: SIP dial with caller ID
+      console.log('🧪 Running Test 4: SIP dial with caller ID');
+      texmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Test 4. Connecting to VAPI with caller ID.</Say>
+  <Dial callerId="${TELNYX_PHONE_NUMBER}" timeout="30">
+    <Sip>sip:brandon-call-for-kits@sip.vapi.ai</Sip>
+  </Dial>
+</Response>`;
+      break;
+      
+    case 'production':
+    default:
+      // Production: Full VAPI dial with headers and status callback
+      console.log('🚀 Production mode: Full VAPI dial');
+      
+      // Ensure proper SIP URI format
+      const sipUri = VAPI_SIP_ADDRESS.startsWith('sip:') 
+        ? VAPI_SIP_ADDRESS 
+        : `sip:${VAPI_SIP_ADDRESS}`;
+      
+      texmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Connecting you now.</Say>
+  <Dial callerId="${TELNYX_PHONE_NUMBER}" timeout="30" action="https://v0-new-project-qykgboija9j.vercel.app/api/telnyx/deepgram-texml?dialStatus=true">
     <Sip>
       <Uri>${sipUri}</Uri>
       <Headers>
         <Header name="X-Call-Sid" value="${CallSid || 'unknown'}" />
         <Header name="X-Original-From" value="${From || 'unknown'}" />
-        <Header name="X-Original-To" value="${To || 'unknown'}" />
-        <Header name="X-Telnyx-Account" value="${AccountSid || 'unknown'}" />
         <Header name="Alert-Info" value="auto-answer" />
-        <Header name="Call-Info" value="answer-after=0" />
-        <Header name="Answer-Mode" value="Auto" />
-        <Header name="P-Auto-Answer" value="normal" />
       </Headers>
     </Sip>
   </Dial>
 </Response>`;
+      break;
+  }
   
   console.log('📄 Sending TeXML Response:');
   console.log(texmlResponse);
   
   res.setHeader('Content-Type', 'text/xml; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
+  res.status(200).send(texmlResponse);
+}
+
+// Handle dial status callbacks
+function handleDialStatus(req, res) {
+  console.log('📞 Dial Status Callback Handler');
+  
+  const {
+    CallSid,
+    DialCallStatus,
+    DialCallDuration,
+    DialCallSid,
+    RecordingUrl,
+    From,
+    To
+  } = req.body || {};
+  
+  console.log('📞 Dial Result:', {
+    CallSid,
+    DialCallStatus,
+    DialCallDuration,
+    DialCallSid
+  });
+  
+  // Handle different dial outcomes
+  let texmlResponse;
+  
+  switch (DialCallStatus) {
+    case 'completed':
+      console.log('✅ Call completed successfully');
+      texmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Hangup />
+</Response>`;
+      break;
+      
+    case 'busy':
+      console.log('🔴 VAPI was busy');
+      texmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">The system is currently busy. Please try again later.</Say>
+  <Hangup />
+</Response>`;
+      break;
+      
+    case 'no-answer':
+      console.log('🔴 VAPI did not answer');
+      texmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Unable to connect your call. Please try again.</Say>
+  <Hangup />
+</Response>`;
+      break;
+      
+    case 'failed':
+    default:
+      console.log('🔴 Call failed:', DialCallStatus);
+      texmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">We encountered an error. Please call back.</Say>
+  <Hangup />
+</Response>`;
+      break;
+  }
+  
+  console.log('📄 Sending Dial Status TeXML Response:');
+  console.log(texmlResponse);
+  
+  res.setHeader('Content-Type', 'text/xml; charset=utf-8');
   res.status(200).send(texmlResponse);
 }
 
