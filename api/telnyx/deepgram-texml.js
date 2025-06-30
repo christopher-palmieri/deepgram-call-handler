@@ -89,6 +89,18 @@ export default async function handler(req, res) {
 </Response>`;
       break;
       
+    case 'test5':
+      // Test 5: SIP dial with error callback
+      console.log('🧪 Running Test 5: SIP dial with error callback');
+      texmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Test 5. Connecting to VAPI with error tracking.</Say>
+  <Dial callerId="${TELNYX_PHONE_NUMBER}" timeout="30" action="https://v0-new-project-qykgboija9j.vercel.app/api/telnyx/deepgram-texml?dialStatus=true">
+    <Sip>sip:brandon-call-for-kits@sip.vapi.ai</Sip>
+  </Dial>
+</Response>`;
+      break;
+      
     case 'production':
     default:
       // Production: Full VAPI dial with headers and status callback
