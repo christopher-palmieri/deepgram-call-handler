@@ -6,7 +6,24 @@ export const config = { api: { bodyParser: true } };
 
 export default async function handler(req, res) {
   try {
-    const body = req.body;
+    // Safely parse body in case bodyParser didn't populate it
+    let body = req.body || {};
+    // If body is still empty, attempt to parse raw text
+    if (Object.keys(body).length === 0 && req.method === 'POST') {
+      try {
+        const text = await new Promise((resolve, reject) => {
+          let data = '';
+          req.on('data', chunk => data += chunk);
+          req.on('end', () => resolve(data));
+          req.on('error', reject);
+        });
+        body = JSON.parse(text);
+      } catch (e) {
+        console.warn('Could not parse raw body, continuing with empty object');
+        body = {};
+      }
+    }
+
     const evt = (body.data && body.data.event_type) || body.event_type;
     const pl = (body.data && body.data.payload) || body.payload;
 
