@@ -105,15 +105,8 @@ async function initiateVAPIFirstCall(params, res) {
       from: process.env.TELNYX_PHONE_NUMBER,
       webhook_url: `${process.env.WEBHOOK_URL}/api/telnyx/test-sip-transfer`,
       webhook_url_method: 'POST',
-      timeout_secs: 30, // Reduced to match transfer timeout
+      timeout_secs: 30, // Reduced to potentially fix wait-for-user delay
       timeout_limit_secs: 600,
-      // Add SIP headers for VAPI
-      sip_headers: [
-        {
-          name: 'X-VAPI-Mode',
-          value: 'wait-for-user'
-        }
-      ],
       // Custom headers to track intent
       custom_headers: [
         {
