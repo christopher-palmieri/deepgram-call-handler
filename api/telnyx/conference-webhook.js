@@ -4,6 +4,9 @@
 export const config = { api: { bodyParser: true } };
 
 export default async function handler(req, res) {
+  // Ensure a valid 'from' number
+  const FROM_NUMBER = process.env.TELNYX_NUMBER || '+16092370151';
+  // Health check for browser
   // Health check for browser
   if (req.method === 'GET') {
     return res.status(200).send('Webhook endpoint is live');
