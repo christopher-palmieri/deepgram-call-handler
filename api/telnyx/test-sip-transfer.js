@@ -16,26 +16,19 @@ const transferState = new Map();
 global.processedEvents = global.processedEvents || new Set();
 
 export default async function handler(req, res) {
-  console.log('🧪 TEST endpoint hit');
-  console.log('📍 Method:', req.method);
-  console.log('📍 Time:', new Date().toISOString());
-  console.log('📍 Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('🧪 TEST endpoint hit', req.method, new Date().toISOString());
 
-  // GET: Status check and manual test instructions
+  if (req.method === 'OPTIONS') {
+    return res.status(200).send();
+  }
+
+  // GET status check
   if (req.method === 'GET') {
-    const status = {
-      status: 'Test endpoint ready - VAPI First Mode',
-      timestamp: new Date().toISOString(),
+    return res.status(200).json({
+      status: 'ready',
       mode: 'VAPI_FIRST_THEN_HUMAN',
-      environment: {
-        telnyx_api_key: process.env.TELNYX_API_KEY ? '✅ Set' : '❌ Missing',
-        telnyx_phone: process.env.TELNYX_PHONE_NUMBER || 'Not set',
-        human_phone: process.env.HUMAN_PHONE_NUMBER || 'Not set',
-        auto_transfer: process.env.TEST_AUTO_TRANSFER === 'true' ? '✅ Enabled' : '❌ Disabled',
-        webhook_url: process.env.WEBHOOK_URL || 'Not set'
-      }
-    };
-    return res.status(200).json(status);
+      timestamp: new Date().toISOString()
+    });
   }
 
   if (req.method !== 'POST') {
@@ -43,42 +36,40 @@ export default async function handler(req, res) {
   }
 
   const body = req.body || {};
-  const data = body.data || {};
-  const evt = data.event_type;
+  // Grab the event name from either wrapper
+  const evt =
+    (body.data && body.data.event_type) ||
+    body.event_type ||
+    null;
 
-  // Acknowledge Telnyx status-update and end-of-call-report events
+  // Immediately ACK VAPI status updates & end-of-call-report
   if (evt === 'status-update' || evt === 'end-of-call-report') {
-    console.log(`📨 Received Telnyx ${evt}, ack’ing`);
+    console.log(`📨 ACK’ing ${evt}`);
     return res.status(200).json({ received: true });
   }
 
-  // Handle manual initiate action
+  // Manual trigger
   if (body.action === 'initiate') {
     return await initiateVAPIFirstCall(body, res);
   }
 
-  // Handle Telnyx webhook events
-  if (data.event_type) {
-    return await handleTelnyxWebhook(data, res);
+  // All Telnyx call.* events
+  if (evt && evt.startsWith('call.')) {
+    return await handleTelnyxWebhook(body.data || { event_type: evt, payload: body }, res);
   }
 
-  // Handle manual transfer test
+  // Manual REFER test
   if (body.control_id || body.call_control_id) {
-    const controlId = body.control_id || body.call_control_id;
-    const toNumber = body.to_number || process.env.HUMAN_PHONE_NUMBER;
-    return await executeTransferToHuman(controlId, toNumber, res);
+    const id = body.control_id || body.call_control_id;
+    const to = body.to_number || process.env.HUMAN_PHONE_NUMBER;
+    return await executeTransferToHuman(id, to, res);
   }
 
-  // Invalid request
-  return res.status(400).json({ 
-    error: 'Invalid request',
-    expected: {
-      initiate: '{"action": "initiate", "to_number": "+1234567890"}',
-      webhook: 'Telnyx webhook with data.event_type',
-      manual: '{"control_id": "xxx", "to_number": "+1234567890"}'
-    }
-  });
+  // Fallback: always 200 for anything else we might get
+  console.log('📨 Unrecognized webhook, ACK’ing anyway');
+  return res.status(200).json({ received: true });
 }
+
 
 // Initiate VAPI-first call sequence
 async function initiateVAPIFirstCall(params, res) {
