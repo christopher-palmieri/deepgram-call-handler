@@ -1,4 +1,53 @@
-// api/telnyx/test-sip-transfer.js
+// Handle different Telnyx webhook events
+async function handleTelnyxWebhook(event, res) {
+  const eventType = event.event_type;
+  const payload = event.payload || {};
+  
+  // Check for duplicate webhooks
+  if (global.processedEvents?.has(event.id)) {
+    console.log('⚠️ Duplicate webhook - already processed');
+    return res.status(200).json({ received: true });
+  }
+  global.processedEvents.add(event.id);
+  
+  console.log(`📞 Webhook: ${eventType} at ${new Date().toISOString()}`);
+  console.log(`📞 For call: ${payload.call_control_id}`);
+  
+  console.log('📞 Call details:', {
+    control_id: payload.call_control_id,
+    leg_id: payload.call_leg_id,
+    state: payload.state,
+    direction: payload.direction,
+    from: payload.from,
+    to: payload.to
+  });
+
+  switch (eventType) {
+    case 'call.initiated':
+      console.log('📞 Call initiated - waiting for answer...');
+      
+      // Answer incoming calls
+      if (payload.direction === 'incoming') {
+        console.log('📞 Incoming call detected - answering...');
+        const answered = await answerCall(payload.call_control_id);
+        if (!answered) {
+          console.error('❌ Failed to answer call');
+        }
+      }
+      break;
+
+    case 'call.answered':
+      console.log('✅ Call answered');
+      
+      // Check if this is the original call (human on the line)
+      if (payload.to && !payload.to.includes('sip:')) {
+        console.log('📞 Human answered - original call leg');
+        
+        // Auto-transfer if enabled
+        if (process.env.TEST_AUTO_TRANSFER === 'true') {
+          console.log('🤖 Auto-transfer enabled - starting VAPI-first bridge sequence...');
+          
+          // Store// api/telnyx/test-sip-transfer.js
 // Modified to: 1) Call VAPI first, 2) Wait, 3) Mute VAPI, 4) Dial clinic
 
 import fetch from 'node-fetch';
