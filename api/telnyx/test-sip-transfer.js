@@ -7,7 +7,7 @@ import fetch from 'node-fetch';
 const CONFIG = {
   VAPI_SIP: 'sip:brandon-call-for-kits@sip.vapi.ai',
   TELNYX_API_URL: 'https://api.telnyx.com/v2',
-  VAPI_ANSWER_DELAY_MS: 2000, // Wait for VAPI to answer
+  VAPI_ANSWER_DELAY_MS: 5000, // Wait for VAPI to answer
   TRANSFER_TO_HUMAN_DELAY_MS: 500 // Small delay before transferring
 };
 
