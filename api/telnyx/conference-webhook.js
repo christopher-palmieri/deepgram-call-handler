@@ -1,26 +1,30 @@
+// -----------------------------
+// Vercel Webhook Handler: Join Human to Conference
+// -----------------------------
 import fetch from 'node-fetch';
-
 export const config = { api: { bodyParser: true } };
 
 export default async function handler(req, res) {
   try {
     const body = req.body;
     const evt = (body.data && body.data.event_type) || body.event_type;
-    const payload = (body.data && body.data.payload) || body.payload;
+    const pl = (body.data && body.data.payload) || body.payload;
+
+    console.log('Webhook hit:', evt, 'payload:', JSON.stringify(pl));
 
     // ACK Telnyx status updates & end-of-call-report
     if (evt === 'status-update' || evt === 'end-of-call-report') {
       return res.status(200).json({ received: true });
     }
 
-    // On VAPI participant joined to conference
-    if (evt === 'conference.participant.joined' && payload.sip_uri && payload.sip_uri.includes('vapi.ai')) {
-      const state = JSON.parse(atob(payload.client_state));
+    // Conference participant joined: VAPI
+    if (evt === 'conference.participant.joined' && pl.sip_uri && pl.sip_uri.includes('vapi.ai')) {
+      const state = JSON.parse(atob(pl.client_state));
       const room = `conf-${state.session_id}`;
-      const human = state.human;
+      console.log('VAPI joined conference:', room);
 
       // Dial human into same conference
-      await fetch(`https://api.telnyx.com/v2/calls`, {
+      const humanResp = await fetch('https://api.telnyx.com/v2/calls', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`,
@@ -28,7 +32,7 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           connection_id: process.env.TELNYX_VOICE_API_APPLICATION_ID,
-          to: human,                           // E.164 phone number
+          to: state.human,
           from: process.env.TELNYX_NUMBER,
           enable_early_media: true,
           conference_config: {
@@ -40,19 +44,14 @@ export default async function handler(req, res) {
           webhook_url_method: 'POST'
         })
       });
-
-      return res.status(200).json({ received: true });
+      const humanResult = await humanResp.json();
+      console.log('Human dial response:', humanResult);
     }
 
-    // Acknowledge other conference events
-    if (evt && evt.startsWith('conference.')) {
-      return res.status(200).json({ received: true });
-    }
-
-    // Fallback ACK
+    // ACK everything
     return res.status(200).json({ received: true });
   } catch (err) {
-    console.error('Webhook error:', err);
+    console.error('Webhook handler error:', err);
     return res.status(200).json({ received: true, error: err.message });
   }
 }
