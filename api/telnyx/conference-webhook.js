@@ -54,7 +54,7 @@ export default async function handler(req, res) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          connection_id: process.env.TELNYX_VOICE_API_APPLICATION_ID,
+          connection_id: pl.connection_id,
           to: state.human,
           from: process.env.TELNYX_NUMBER,
           enable_early_media: true,
