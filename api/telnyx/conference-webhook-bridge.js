@@ -1,8 +1,18 @@
+/**
+ * File: api/telnyx/conference-webhook-bridge.js
+ * Purpose: Webhook handler for Telnyx `conference.*` events.
+ * This module only responds to incoming conference events (joined, floor.changed, etc.).
+ * It manages holding/unholding the VAPI leg and dialing the human leg into the conference.
+ * Do NOT initiate a conference here—conference creation (dialing VAPI with client_state)
+ * happens via the helper in `conference-bridge.js` (e.g. from your voice-api-handler).
+ */
 // api/telnyx/conference-webhook-bridge.js
-// Conference Webhook Handler - responds to Telnyx conference.* events
-// Manages VAPI and human legs within the conference
-
-// Handles all conference.* events from Telnyx to manage VAPI & human legs
+// Conference Webhook Handler (Telnyx webhook endpoint for conference.* events)
+// ------------------------------------------------------------------------------
+// THIS MODULE ONLY HANDLES incoming conference events from Telnyx.
+// It manages holding/unholding and dialing the human leg.
+// To initiate a conference (dial VAPI + set client_state), use the
+// helper function in `conference-bridge.js` in your Vercel functions.
 
 import fetch from 'node-fetch';
 
