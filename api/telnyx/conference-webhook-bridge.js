@@ -7,7 +7,7 @@ const TELNYX_API_URL = 'https://api.telnyx.com/v2';
 
 export const config = { api: { bodyParser: true } };
 
-// Telnyx helper: throws on non-2xx
+// Low-level Telnyx wrapper: throws on HTTP error, returns parsed JSON
 async function telnyxAPI(endpoint, method = 'POST', body = {}) {
   const resp = await fetch(`${TELNYX_API_URL}${endpoint}`, {
     method,
@@ -18,6 +18,7 @@ async function telnyxAPI(endpoint, method = 'POST', body = {}) {
     },
     body: method !== 'GET' ? JSON.stringify(body) : undefined,
   });
+
   const data = await resp.json().catch(() => null);
   if (!resp.ok) {
     const detail = data?.errors?.[0]?.detail || `HTTP ${resp.status}`;
@@ -36,13 +37,14 @@ export default async function handler(req, res) {
 
   const event = req.body?.data;
   if (!event) {
+    // ACK Telnyx health-check or malformed
     return res.status(200).json({ received: true });
   }
 
   const { event_type, payload: pl } = event;
   console.log(`🔔 ${event_type} payload:`, pl);
 
-  // Only handle the moment *our* VAPI leg joins
+  // Only act when *our* VAPI (creator) leg joins the conference
   if (
     event_type === 'conference.participant.joined' &&
     pl.call_control_id === pl.creator_call_control_id
@@ -52,38 +54,43 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing client_state' });
     }
 
-    // decode client_state
+    // Decode client_state
     let state;
     try {
       state = JSON.parse(
         Buffer.from(pl.client_state, 'base64').toString('utf8')
       );
     } catch (err) {
-      console.error('❌ Invalid client_state JSON/base64:', err);
+      console.error('❌ Invalid base64 client_state:', err);
       return res.status(400).json({ error: 'Invalid client_state' });
     }
 
-    const human = state.human;
+    const { human, session_id } = state;
     if (!human) {
       console.error('❌ Missing human number in client_state:', state);
       return res.status(400).json({ error: 'Missing human in client_state' });
     }
 
-    const room = pl.conference_id;
-    console.log(`🧩 VAPI joined room "${room}", dialing clinic ${human}`);
+    const confId = pl.conference_id;
+    console.log(`🧩 VAPI joined conference "${confId}", dialing clinic ${human}`);
 
-    // dial the human into that same conference
+    // Build payload to dial the human leg into the same conference
     const humanPayload = {
-      connection_id: process.env.TELNYX_VOICE_API_APPLICATION_ID,
-      to:            human,
-      from:          process.env.TELNYX_PHONE_NUMBER,
+      connection_id:          process.env.TELNYX_VOICE_API_APPLICATION_ID,
+      to:                     human,
+      from:                   process.env.TELNYX_PHONE_NUMBER,
+      enable_early_media:     true,
       conference_config: {
-        conference_id:            room,
+        conference_id:             confId,
         start_conference_on_enter: true,
         end_conference_on_exit:    true
-      }
+      },
+      // Re-declare webhook so Telnyx knows where to send further events
+      webhook_url:        process.env.CONFERENCE_WEBHOOK_URL,
+      webhook_url_method: 'POST'
     };
 
+    // Fire off the human dial
     try {
       const humanResp = await fetch(`${TELNYX_API_URL}/calls`, {
         method: 'POST',
@@ -110,6 +117,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // always ack
+  // Always ACK
   return res.status(200).json({ received: true });
 }
