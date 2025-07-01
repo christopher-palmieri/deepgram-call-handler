@@ -7,13 +7,9 @@ export default async function handler(req, res) {
   // Ensure a valid 'from' number
   const FROM_NUMBER = process.env.TELNYX_PHONE_NUMBER || '+16092370151';
 
-  // Health check for browser
-  if (req.method === 'GET') {
-    return res.status(200).send('Webhook endpoint is live');
-  }
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  }
+  // Health check
+  if (req.method === 'GET') return res.status(200).send('Webhook endpoint is live');
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
   try {
     // Parse JSON body or raw text
@@ -34,7 +30,7 @@ export default async function handler(req, res) {
 
     const evt = (body.data && body.data.event_type) || body.event_type;
     const pl = (body.data && body.data.payload) || body.payload;
-    console.log('Webhook hit:', evt, 'payload:', JSON.stringify(pl));
+    console.log('Webhook hit:', evt, JSON.stringify(pl));
 
     // ACK non-conference events
     if (evt === 'status-update' || evt === 'end-of-call-report') {
@@ -45,7 +41,7 @@ export default async function handler(req, res) {
     if (evt === 'conference.participant.joined' && pl.call_control_id === pl.creator_call_control_id) {
       const state = JSON.parse(atob(pl.client_state));
       const room = `conf-${state.session_id}`;
-      console.log('VAPI leg joined conference:', room);
+      console.log('VAPI joined conference:', room);
 
       // Dial human into same conference
       const humanResp = await fetch('https://api.telnyx.com/v2/calls', {
@@ -59,11 +55,7 @@ export default async function handler(req, res) {
           to: state.human,
           from: FROM_NUMBER,
           enable_early_media: true,
-          conference_config: {
-            conference_name: room,
-            start_conference_on_enter: true,
-            end_conference_on_exit: true
-          },
+          conference_config: { conference_name: room, start_conference_on_enter: true, end_conference_on_exit: true },
           webhook_url: 'https://v0-new-project-qykgboija9j.vercel.app/api/telnyx/conference-webhook',
           webhook_url_method: 'POST'
         })
@@ -71,19 +63,13 @@ export default async function handler(req, res) {
       const humanResult = await humanResp.json();
       console.log('Human dial response:', humanResult);
 
-      // Schedule unmute after 15 seconds and log indicator
+      // Schedule unmute after 15 seconds
       setTimeout(async () => {
         console.log('⏰ 15s elapsed: unmuting VAPI leg', pl.call_control_id);
         try {
           const unmuteResp = await fetch(
             `https://api.telnyx.com/v2/calls/${pl.call_control_id}/actions/unmute`,
-            {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`,
-                'Content-Type': 'application/json'
-              }
-            }
+            { method: 'POST', headers: { 'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 'Content-Type': 'application/json' } }
           );
           const unmuteJson = await unmuteResp.json();
           console.log('Unmute response:', unmuteJson);
