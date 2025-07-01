@@ -65,6 +65,14 @@ export default async function handler(req, res) {
   }
 }
 
+// --- Event Handlers ---
+
+async function handleCallInitiated(event, res) {
+  console.log('📞 call.initiated:', event.payload.call_control_id);
+  // Retain existing logic if needed; here we simply ACK
+  return res.status(200).json({ received: true });
+}
+
 async function handleCallAnswered(event, res) {
   const ctl = event.payload.call_control_id;
   const leg = event.payload.call_leg_id;
@@ -86,7 +94,7 @@ async function handleCallAnswered(event, res) {
     console.error('❌ Error starting IVR stream:', err);
   }
 
-  // 2) Extract human number from client_state (encoded by your edge function)
+  // 2) Extract human number from client_state (encoded by edge function)
   let humanNum;
   if (event.payload.client_state) {
     try {
@@ -102,7 +110,7 @@ async function handleCallAnswered(event, res) {
     return res.status(500).json({ error: 'Missing human number in client_state' });
   }
 
-  // 3) After IVR/human detection, bridge via conference
+  // 3) Bridge via conference
   const vapiSip   = process.env.VAPI_SIP_ADDRESS;
   const fromNum   = process.env.TELNYX_PHONE_NUMBER;
   const appId     = process.env.TELNYX_VOICE_API_APPLICATION_ID;
@@ -133,12 +141,10 @@ async function handleStreamingStarted(event, res) {
 
 async function handleStreamingStopped(event, res) {
   console.log('🛑 streaming.stopped:', event.payload.stream_id);
-  // Cleanup logic if needed
   return res.status(200).json({ received: true });
 }
 
 async function handleCallHangup(event, res) {
   console.log('📞 call.hangup:', event.payload.call_leg_id);
-  // Cleanup timers/actionPollers/supabase state
   return res.status(200).json({ received: true });
 }
