@@ -62,6 +62,12 @@ export default async function handler(req, res) {
 
       // Hold VAPI leg immediately
       console.log('🔇 Holding VAPI leg:', pl.call_control_id);
+      console.log('📍 Full participant data:', JSON.stringify(pl));
+      
+      // Check if this is actually the VAPI participant
+      const isVAPICreator = pl.call_control_id === pl.creator_call_control_id;
+      console.log('🔍 Is VAPI creator?', isVAPICreator);
+      
       const holdResp = await fetch(
         `${TELNYX_API_URL}/calls/${pl.call_control_id}/actions/hold`,
         { 
@@ -72,7 +78,8 @@ export default async function handler(req, res) {
           } 
         }
       );
-      console.log('Hold response:', holdResp.status);
+      const holdResult = await holdResp.json();
+      console.log('Hold response:', holdResp.status, JSON.stringify(holdResult));
 
       // Update database to track VAPI hold status
       await supabase
@@ -84,6 +91,33 @@ export default async function handler(req, res) {
         .eq('conference_session_id', session_id);
 
       // Dial clinic/human into conference with IVR detection webhook
+      const webhookUrl = `${process.env.WEBHOOK_URL || 'https://v0-new-project-qykgboija9j.vercel.app'}/api/telnyx/voice-api-handler-vapi-bridge`;
+      console.log('📞 Dialing clinic with webhook URL:', webhookUrl);
+      
+      const dialBody = {
+        connection_id: pl.connection_id,
+        to: human,
+        from: FROM_NUMBER,
+        enable_early_media: true,
+        conference_config: { 
+          conference_name: room, 
+          start_conference_on_enter: true, 
+          end_conference_on_exit: true 
+        },
+        // IMPORTANT: Send webhooks to voice-api-handler-vapi-bridge for IVR detection
+        webhook_url: webhookUrl,
+        webhook_url_method: 'POST',
+        // Pass conference info in client state
+        client_state: btoa(JSON.stringify({
+          ...JSON.parse(atob(pl.client_state)),
+          conference_name: room,
+          vapi_control_id: pl.call_control_id,
+          is_conference_leg: true
+        }))
+      };
+      
+      console.log('📤 Dial request body:', JSON.stringify(dialBody, null, 2));
+      
       const dialResp = await fetch(
         `${TELNYX_API_URL}/calls`,
         {
@@ -92,44 +126,49 @@ export default async function handler(req, res) {
             'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
             'Content-Type':'application/json' 
           },
-          body: JSON.stringify({
-            connection_id: pl.connection_id,
-            to: human,
-            from: FROM_NUMBER,
-            enable_early_media: true,
-            conference_config: { 
-              conference_name: room, 
-              start_conference_on_enter: true, 
-              end_conference_on_exit: true 
-            },
-            // IMPORTANT: Send webhooks to voice-api-handler-vapi-bridge for IVR detection
-            webhook_url: `${process.env.WEBHOOK_URL}/api/telnyx/voice-api-handler-vapi-bridge`,
-            webhook_url_method: 'POST',
-            // Pass conference info in client state
-            client_state: btoa(JSON.stringify({
-              ...JSON.parse(atob(pl.client_state)),
-              conference_name: room,
-              vapi_control_id: pl.call_control_id,
-              is_conference_leg: true
-            }))
-          })
+          body: JSON.stringify(dialBody)
         }
       );
-      console.log('Clinic dial response:', dialResp.status);
+      const dialResult = await dialResp.json();
+      console.log('Clinic dial response:', dialResp.status, JSON.stringify(dialResult));
       
       // Store the conference info in database
-      await supabase
+      const clinicCallId = `clinic-${session_id}`;
+      
+      // Check if session already exists
+      const { data: existingSession } = await supabase
         .from('call_sessions')
-        .insert([{
-          call_id: `clinic-${session_id}`, // Unique ID for clinic leg
-          conference_session_id: session_id,
-          conference_created: true,
-          vapi_control_id: pl.call_control_id,
-          vapi_on_hold: true,
-          target_number: human,
-          call_status: 'active',
-          created_at: new Date().toISOString()
-        }]);
+        .select('*')
+        .eq('call_id', clinicCallId)
+        .maybeSingle();
+      
+      if (!existingSession) {
+        // Create new session
+        await supabase
+          .from('call_sessions')
+          .insert([{
+            call_id: clinicCallId,
+            conference_session_id: session_id,
+            conference_created: true,
+            vapi_control_id: pl.call_control_id,
+            vapi_on_hold: true,
+            target_number: human,
+            call_status: 'active',
+            bridge_mode: true,
+            created_at: new Date().toISOString()
+          }]);
+        console.log('✅ Created call session for clinic leg');
+      } else {
+        // Update existing session
+        await supabase
+          .from('call_sessions')
+          .update({
+            vapi_control_id: pl.call_control_id,
+            vapi_on_hold: true
+          })
+          .eq('call_id', clinicCallId);
+        console.log('✅ Updated existing call session');
+      }
 
       // Start monitoring for unmute conditions
       startUnmuteMonitor(session_id, pl.call_control_id);
