@@ -137,16 +137,33 @@ async function handleCallInitiated(event, res) {
     direction
   );
 
+  // Check if this is a conference clinic leg
+  let conferenceInfo = null;
+  let actualCallId = callLegId;
+  
+  if (event.payload.client_state) {
+    try {
+      const state = JSON.parse(Buffer.from(event.payload.client_state, 'base64').toString());
+      if (state.is_conference_leg) {
+        console.log('🎯 Conference clinic leg initiated');
+        conferenceInfo = state;
+        actualCallId = `clinic-${state.session_id}`;
+      }
+    } catch (e) {
+      console.log('Not a conference leg, using regular flow');
+    }
+  }
+
   // CRITICAL: Clean up ALL stale actions for this call_id first
   try {
     const { data: existingActions } = await supabase
       .from('ivr_events')
       .select('id, created_at, transcript')
-      .eq('call_id', callLegId)
+      .eq('call_id', actualCallId)
       .eq('executed', false);
     
     if (existingActions && existingActions.length > 0) {
-      console.log(`⚠️ Found ${existingActions.length} existing actions for call_id ${callLegId}`);
+      console.log(`⚠️ Found ${existingActions.length} existing actions for call_id ${actualCallId}`);
       
       const { data: cleaned } = await supabase
         .from('ivr_events')
@@ -155,12 +172,12 @@ async function handleCallInitiated(event, res) {
           executed_at: new Date().toISOString(),
           error: 'expired_same_call_id_reused'
         })
-        .eq('call_id', callLegId)
+        .eq('call_id', actualCallId)
         .eq('executed', false)
         .select();
       
       if (cleaned) {
-        console.log(`🧹 Cleaned up ${cleaned.length} stale actions for reused call_id ${callLegId}`);
+        console.log(`🧹 Cleaned up ${cleaned.length} stale actions for reused call_id ${actualCallId}`);
       }
     }
     
@@ -183,18 +200,27 @@ async function handleCallInitiated(event, res) {
   }
 
   // 1) Create or fetch your Supabase session
-  await getOrCreateSession(callLegId);
+  await getOrCreateSession(actualCallId);
 
-  // 2) Persist the Telnyx control ID and bridge mode
+  // 2) Persist the Telnyx control ID and conference info
   try {
+    const updateData = { 
+      call_control_id: callControlId,
+      call_initiated_at: new Date().toISOString(),
+      bridge_mode: true
+    };
+    
+    if (conferenceInfo) {
+      updateData.conference_session_id = conferenceInfo.session_id;
+      updateData.vapi_control_id = conferenceInfo.vapi_control_id;
+      updateData.target_number = event.payload.to;
+    }
+    
     await supabase
       .from('call_sessions')
-      .update({ 
-        call_control_id: callControlId,
-        call_initiated_at: new Date().toISOString(),
-        bridge_mode: true // Mark this as using bridge mode
-      })
-      .eq('call_id', callLegId);
+      .update(updateData)
+      .eq('call_id', actualCallId);
+      
     console.log('✅ Saved call_control_id to session (bridge mode)');
   } catch (err) {
     console.error('❌ Could not save call_control_id:', err);
@@ -352,10 +378,12 @@ if (!global.actionPollers) {
 }
 
 // Conference IVR monitor - monitors clinic leg and unmutes VAPI when appropriate
-async function startConferenceIVRMonitor(ctl, leg, conferenceInfo) {
-  console.log('🌉 Starting Conference IVR monitor for clinic leg:', leg);
+async function startConferenceIVRMonitor(ctl, dbCallId, telnyxLegId, conferenceInfo) {
+  console.log('🌉 Starting Conference IVR monitor');
+  console.log('   DB Call ID:', dbCallId);
+  console.log('   Telnyx Leg ID:', telnyxLegId);
+  
   const monitorId = crypto.randomUUID().slice(0, 8);
-  const sessionCallId = `clinic-${conferenceInfo.session_id}`;
   let checkCount = 0;
   const maxChecks = 480; // 2 minutes at 250ms intervals
 
@@ -363,10 +391,11 @@ async function startConferenceIVRMonitor(ctl, leg, conferenceInfo) {
     checkCount++;
     
     try {
+      // Check session by database ID
       const { data: session } = await supabase
         .from('call_sessions')
         .select('ivr_detection_state, call_status, vapi_on_hold')
-        .eq('call_id', sessionCallId)
+        .eq('call_id', dbCallId)
         .maybeSingle();
 
       const shouldStop = !session || 
@@ -378,9 +407,9 @@ async function startConferenceIVRMonitor(ctl, leg, conferenceInfo) {
         console.log(`⏹️ [${monitorId}] Stopping conference IVR monitor`);
         clearInterval(monitor);
         
-        if (global.actionPollers && global.actionPollers[sessionCallId]) {
-          clearInterval(global.actionPollers[sessionCallId]);
-          delete global.actionPollers[sessionCallId];
+        if (global.actionPollers && global.actionPollers[telnyxLegId]) {
+          clearInterval(global.actionPollers[telnyxLegId]);
+          delete global.actionPollers[telnyxLegId];
         }
         
         return;
@@ -412,7 +441,7 @@ async function startConferenceIVRMonitor(ctl, leg, conferenceInfo) {
               vapi_unmuted_at: new Date().toISOString(),
               vapi_unmute_reason: 'human_detected_clinic_leg'
             })
-            .eq('call_id', sessionCallId);
+            .eq('call_id', dbCallId);
 
         } catch (err) {
           console.error('❌ Failed to unmute VAPI:', err);
@@ -420,9 +449,9 @@ async function startConferenceIVRMonitor(ctl, leg, conferenceInfo) {
         
         // Stop monitoring
         clearInterval(monitor);
-        if (global.actionPollers && global.actionPollers[sessionCallId]) {
-          clearInterval(global.actionPollers[sessionCallId]);
-          delete global.actionPollers[sessionCallId];
+        if (global.actionPollers && global.actionPollers[telnyxLegId]) {
+          clearInterval(global.actionPollers[telnyxLegId]);
+          delete global.actionPollers[telnyxLegId];
         }
         
         return;
@@ -430,9 +459,9 @@ async function startConferenceIVRMonitor(ctl, leg, conferenceInfo) {
 
       // If IVR detected and no action poller running, start one
       if (session.ivr_detection_state === 'ivr_only' && 
-          (!global.actionPollers || !global.actionPollers[sessionCallId])) {
+          (!global.actionPollers || !global.actionPollers[telnyxLegId])) {
         console.log(`🤖 [${monitorId}] IVR detected on clinic leg, starting action poller`);
-        startConferenceIVRActionPoller(ctl, sessionCallId, conferenceInfo);
+        startConferenceIVRActionPoller(ctl, dbCallId, telnyxLegId, conferenceInfo);
       }
 
     } catch (err) {
@@ -444,13 +473,16 @@ async function startConferenceIVRMonitor(ctl, leg, conferenceInfo) {
 }
 
 // Conference IVR action poller - handles DTMF/speech for clinic leg
-async function startConferenceIVRActionPoller(ctl, sessionCallId, conferenceInfo) {
-  if (global.actionPollers[sessionCallId]) {
-    console.log('⚠️ Action poller already running for', sessionCallId);
+async function startConferenceIVRActionPoller(ctl, dbCallId, telnyxLegId, conferenceInfo) {
+  if (global.actionPollers[telnyxLegId]) {
+    console.log('⚠️ Action poller already running for', telnyxLegId);
     return;
   }
 
-  console.log('🔄 Starting Conference IVR action poller for:', sessionCallId);
+  console.log('🔄 Starting Conference IVR action poller');
+  console.log('   DB Call ID:', dbCallId);
+  console.log('   Telnyx Leg ID:', telnyxLegId);
+  
   const pollerId = crypto.randomUUID().slice(0, 8);
   let count = 0, max = 60;
 
@@ -460,7 +492,7 @@ async function startConferenceIVRActionPoller(ctl, sessionCallId, conferenceInfo
       const { data: session } = await supabase
         .from('call_sessions')
         .select('ivr_detection_state, call_status, vapi_on_hold')
-        .eq('call_id', sessionCallId)
+        .eq('call_id', dbCallId)
         .maybeSingle();
 
       if (!session || 
@@ -471,15 +503,16 @@ async function startConferenceIVRActionPoller(ctl, sessionCallId, conferenceInfo
         
         console.log(`⏹️ [${pollerId}] Stopping conference action poller`);
         clearInterval(timer);
-        delete global.actionPollers[sessionCallId];
+        delete global.actionPollers[telnyxLegId];
         return;
       }
 
       if (session.ivr_detection_state === 'ivr_only') {
+        // Check for actions using the Telnyx leg ID (that's what Railway will use)
         const { data: actions } = await supabase
           .from('ivr_events')
           .select('*')
-          .eq('call_id', sessionCallId)
+          .eq('call_id', telnyxLegId)  // Use actual Telnyx leg ID
           .eq('executed', false)
           .not('action_value', 'is', null)
           .order('created_at', { ascending: false })
@@ -488,7 +521,7 @@ async function startConferenceIVRActionPoller(ctl, sessionCallId, conferenceInfo
         const action = actions && actions[0];
         if (action) {
           console.log(`🎯 [${pollerId}] Executing conference action:`, action.action_type, action.action_value);
-          await executeIVRAction(ctl, sessionCallId, action);
+          await executeIVRAction(ctl, telnyxLegId, action);  // Use Telnyx leg ID
           
           // Check if this action should trigger VAPI unmute
           if (action.action_type === 'dtmf' && /^[1-9]$/.test(action.action_value)) {
@@ -512,7 +545,7 @@ async function startConferenceIVRActionPoller(ctl, sessionCallId, conferenceInfo
                 vapi_unmuted_at: new Date().toISOString(),
                 vapi_unmute_reason: 'ivr_action_completed'
               })
-              .eq('call_id', sessionCallId);
+              .eq('call_id', dbCallId);  // Update using DB call ID
           }
         }
       }
@@ -521,7 +554,7 @@ async function startConferenceIVRActionPoller(ctl, sessionCallId, conferenceInfo
     }
   }, 2000);
 
-  global.actionPollers[sessionCallId] = timer;
+  global.actionPollers[telnyxLegId] = timer;
   console.log(`✅ [${pollerId}] Conference action poller running`);
 }
 
