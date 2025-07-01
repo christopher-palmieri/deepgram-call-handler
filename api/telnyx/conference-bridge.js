@@ -1,6 +1,6 @@
 // -----------------------------
 // File: conference-bridge.js
-// Encapsulates conference creation and management logic
+// Encapsulates conference creation and management logic 
 // -----------------------------
 import fetch from 'node-fetch';
 
