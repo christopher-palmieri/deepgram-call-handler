@@ -48,47 +48,67 @@ export default async function handler(req, res) {
     }
 
     // When VAPI joins the conference
-    if (evt === 'conference.participant.joined' && pl.call_control_id === pl.creator_call_control_id) {
-      const { session_id, human } = JSON.parse(atob(pl.client_state));
-      const room = `conf-${session_id}`;
-      console.log('🤖 VAPI joined conference:', room);
-
-      // Store VAPI participant info
-      vapiParticipants.set(session_id, {
-        call_control_id: pl.call_control_id,
-        on_hold: true,
-        joined_at: new Date().toISOString()
-      });
-
-      // Hold VAPI leg immediately
-      console.log('🔇 Holding VAPI leg:', pl.call_control_id);
-      console.log('📍 Full participant data:', JSON.stringify(pl));
+    if (evt === 'conference.participant.joined') {
+      console.log('🎯 Participant joined:', pl.participant_id, 'Call Control:', pl.call_control_id);
       
-      // Check if this is actually the VAPI participant
-      const isVAPICreator = pl.call_control_id === pl.creator_call_control_id;
-      console.log('🔍 Is VAPI creator?', isVAPICreator);
+      // Check if this is VAPI by looking at the client state
+      let isVAPI = false;
+      let sessionData = null;
       
-      const holdResp = await fetch(
-        `${TELNYX_API_URL}/calls/${pl.call_control_id}/actions/hold`,
-        { 
-          method: 'POST', 
-          headers: { 
-            'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
-            'Content-Type':'application/json' 
-          } 
+      if (pl.client_state) {
+        try {
+          sessionData = JSON.parse(atob(pl.client_state));
+          // The initial VAPI call should have session_id and human in client_state
+          isVAPI = sessionData.session_id && sessionData.human && !sessionData.is_conference_leg;
+          console.log('📍 Client state:', sessionData, 'Is VAPI?', isVAPI);
+        } catch (e) {
+          console.log('Failed to parse client state');
         }
-      );
-      const holdResult = await holdResp.json();
-      console.log('Hold response:', holdResp.status, JSON.stringify(holdResult));
+      }
+      
+      if (isVAPI && sessionData) {
+        const { session_id, human } = sessionData;
+        const room = `conf-${session_id}`;
+        console.log('🤖 VAPI joined conference:', room);
 
-      // Update database to track VAPI hold status
-      await supabase
-        .from('call_sessions')
-        .update({ 
-          vapi_on_hold: true,
-          vapi_control_id: pl.call_control_id 
-        })
-        .eq('conference_session_id', session_id);
+        // Store VAPI participant info
+        vapiParticipants.set(session_id, {
+          call_control_id: pl.call_control_id,
+          participant_id: pl.participant_id,
+          on_hold: false, // Will be set to true after hold
+          joined_at: new Date().toISOString()
+        });
+
+        // Use the conference hold endpoint instead of call hold
+        console.log('🔇 Holding VAPI participant:', pl.participant_id);
+        const holdResp = await fetch(
+          `${TELNYX_API_URL}/conferences/${pl.conference_id}/participants/${pl.participant_id}/hold`,
+          { 
+            method: 'PUT', 
+            headers: { 
+              'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
+              'Content-Type':'application/json' 
+            },
+            body: JSON.stringify({})
+          }
+        );
+        const holdResult = await holdResp.text();
+        console.log('Hold response:', holdResp.status, holdResult);
+        
+        if (holdResp.ok) {
+          vapiParticipants.get(session_id).on_hold = true;
+        }
+
+        // Update database to track VAPI hold status
+        await supabase
+          .from('call_sessions')
+          .update({ 
+            vapi_on_hold: holdResp.ok,
+            vapi_control_id: pl.call_control_id,
+            vapi_participant_id: pl.participant_id,
+            conference_id: pl.conference_id
+          })
+          .eq('conference_session_id', session_id);
 
       // Dial clinic/human into conference with IVR detection webhook
       const webhookUrl = `${process.env.WEBHOOK_URL || 'https://v0-new-project-qykgboija9j.vercel.app'}/api/telnyx/voice-api-handler-vapi-bridge`;
@@ -234,15 +254,37 @@ async function startUnmuteMonitor(sessionId, vapiControlId) {
       if (shouldUnmute || checkCount >= maxChecks) {
         console.log(`🔊 Unmuting VAPI (reason: ${shouldUnmute ? shouldUnmute.reason : 'timeout'})`);
         
-        // Unhold VAPI
+        // Get participant info
+        const participant = vapiParticipants.get(sessionId);
+        if (!participant) {
+          console.error('❌ No participant info found');
+          clearInterval(monitor);
+          return;
+        }
+        
+        // Get conference ID from session
+        const { data: sessionData } = await supabase
+          .from('call_sessions')
+          .select('conference_id')
+          .eq('conference_session_id', sessionId)
+          .single();
+        
+        if (!sessionData?.conference_id) {
+          console.error('❌ No conference ID found');
+          clearInterval(monitor);
+          return;
+        }
+        
+        // Unhold VAPI using conference participant endpoint
         const unholdResp = await fetch(
-          `${TELNYX_API_URL}/calls/${vapiControlId}/actions/unhold`,
+          `${TELNYX_API_URL}/conferences/${sessionData.conference_id}/participants/${participant.participant_id}/unhold`,
           { 
-            method: 'POST', 
+            method: 'PUT', 
             headers: { 
               'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
               'Content-Type':'application/json' 
-            } 
+            },
+            body: JSON.stringify({})
           }
         );
         console.log('Unhold response:', unholdResp.status);
