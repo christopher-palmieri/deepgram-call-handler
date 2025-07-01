@@ -351,6 +351,180 @@ if (!global.actionPollers) {
   global.actionPollers = {};
 }
 
+// Conference IVR monitor - monitors clinic leg and unmutes VAPI when appropriate
+async function startConferenceIVRMonitor(ctl, leg, conferenceInfo) {
+  console.log('🌉 Starting Conference IVR monitor for clinic leg:', leg);
+  const monitorId = crypto.randomUUID().slice(0, 8);
+  const sessionCallId = `clinic-${conferenceInfo.session_id}`;
+  let checkCount = 0;
+  const maxChecks = 480; // 2 minutes at 250ms intervals
+
+  const monitor = setInterval(async () => {
+    checkCount++;
+    
+    try {
+      const { data: session } = await supabase
+        .from('call_sessions')
+        .select('ivr_detection_state, call_status, vapi_on_hold')
+        .eq('call_id', sessionCallId)
+        .maybeSingle();
+
+      const shouldStop = !session || 
+                        session.call_status === 'completed' || 
+                        !session.vapi_on_hold || // Already unmuted
+                        (!session.ivr_detection_state && checkCount >= maxChecks);
+      
+      if (shouldStop) {
+        console.log(`⏹️ [${monitorId}] Stopping conference IVR monitor`);
+        clearInterval(monitor);
+        
+        if (global.actionPollers && global.actionPollers[sessionCallId]) {
+          clearInterval(global.actionPollers[sessionCallId]);
+          delete global.actionPollers[sessionCallId];
+        }
+        
+        return;
+      }
+
+      // Check if human detected on clinic leg
+      if (['human', 'ivr_then_human'].includes(session.ivr_detection_state)) {
+        console.log(`👤 [${monitorId}] Human detected on clinic leg - unmuting VAPI`);
+        
+        // Unmute VAPI
+        try {
+          const unholdResp = await fetch(
+            `${TELNYX_API_URL}/calls/${conferenceInfo.vapi_control_id}/actions/unhold`,
+            { 
+              method: 'POST', 
+              headers: { 
+                'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
+                'Content-Type':'application/json' 
+              } 
+            }
+          );
+          console.log('Unhold response:', unholdResp.status);
+
+          // Update database
+          await supabase
+            .from('call_sessions')
+            .update({ 
+              vapi_on_hold: false,
+              vapi_unmuted_at: new Date().toISOString(),
+              vapi_unmute_reason: 'human_detected_clinic_leg'
+            })
+            .eq('call_id', sessionCallId);
+
+        } catch (err) {
+          console.error('❌ Failed to unmute VAPI:', err);
+        }
+        
+        // Stop monitoring
+        clearInterval(monitor);
+        if (global.actionPollers && global.actionPollers[sessionCallId]) {
+          clearInterval(global.actionPollers[sessionCallId]);
+          delete global.actionPollers[sessionCallId];
+        }
+        
+        return;
+      }
+
+      // If IVR detected and no action poller running, start one
+      if (session.ivr_detection_state === 'ivr_only' && 
+          (!global.actionPollers || !global.actionPollers[sessionCallId])) {
+        console.log(`🤖 [${monitorId}] IVR detected on clinic leg, starting action poller`);
+        startConferenceIVRActionPoller(ctl, sessionCallId, conferenceInfo);
+      }
+
+    } catch (err) {
+      console.error(`❌ [${monitorId}] Conference monitor error:`, err.message);
+    }
+  }, 250);
+
+  console.log(`✅ [${monitorId}] Conference IVR monitor running`);
+}
+
+// Conference IVR action poller - handles DTMF/speech for clinic leg
+async function startConferenceIVRActionPoller(ctl, sessionCallId, conferenceInfo) {
+  if (global.actionPollers[sessionCallId]) {
+    console.log('⚠️ Action poller already running for', sessionCallId);
+    return;
+  }
+
+  console.log('🔄 Starting Conference IVR action poller for:', sessionCallId);
+  const pollerId = crypto.randomUUID().slice(0, 8);
+  let count = 0, max = 60;
+
+  const timer = setInterval(async () => {
+    count++;
+    try {
+      const { data: session } = await supabase
+        .from('call_sessions')
+        .select('ivr_detection_state, call_status, vapi_on_hold')
+        .eq('call_id', sessionCallId)
+        .maybeSingle();
+
+      if (!session || 
+          session.call_status === 'completed' ||
+          !session.vapi_on_hold ||
+          ['human', 'ivr_then_human'].includes(session.ivr_detection_state) ||
+          count >= max) {
+        
+        console.log(`⏹️ [${pollerId}] Stopping conference action poller`);
+        clearInterval(timer);
+        delete global.actionPollers[sessionCallId];
+        return;
+      }
+
+      if (session.ivr_detection_state === 'ivr_only') {
+        const { data: actions } = await supabase
+          .from('ivr_events')
+          .select('*')
+          .eq('call_id', sessionCallId)
+          .eq('executed', false)
+          .not('action_value', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        const action = actions && actions[0];
+        if (action) {
+          console.log(`🎯 [${pollerId}] Executing conference action:`, action.action_type, action.action_value);
+          await executeIVRAction(ctl, sessionCallId, action);
+          
+          // Check if this action should trigger VAPI unmute
+          if (action.action_type === 'dtmf' && /^[1-9]$/.test(action.action_value)) {
+            console.log('🔊 DTMF action completed - unmuting VAPI');
+            
+            const unholdResp = await fetch(
+              `${TELNYX_API_URL}/calls/${conferenceInfo.vapi_control_id}/actions/unhold`,
+              { 
+                method: 'POST', 
+                headers: { 
+                  'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
+                  'Content-Type':'application/json' 
+                } 
+              }
+            );
+            
+            await supabase
+              .from('call_sessions')
+              .update({ 
+                vapi_on_hold: false,
+                vapi_unmuted_at: new Date().toISOString(),
+                vapi_unmute_reason: 'ivr_action_completed'
+              })
+              .eq('call_id', sessionCallId);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`❌ [${pollerId}] Conference poll error:`, err.message);
+    }
+  }, 2000);
+
+  global.actionPollers[sessionCallId] = timer;
+  console.log(`✅ [${pollerId}] Conference action poller running`);
+}
+
 // Bridge mode action poller
 async function startIVRActionPollerBridgeMode(ctl, leg) {
   if (global.actionPollers[leg]) {
