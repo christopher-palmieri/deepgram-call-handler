@@ -83,7 +83,7 @@ export default async function handler(req, res) {
         })
         .eq('conference_session_id', session_id);
 
-      // Dial human into conference
+      // Dial clinic/human into conference with IVR detection webhook
       const dialResp = await fetch(
         `${TELNYX_API_URL}/calls`,
         {
@@ -102,13 +102,34 @@ export default async function handler(req, res) {
               start_conference_on_enter: true, 
               end_conference_on_exit: true 
             },
-            webhook_url: `${process.env.WEBHOOK_URL}/api/telnyx/conference-webhook-bridge`,
+            // IMPORTANT: Send webhooks to voice-api-handler-vapi-bridge for IVR detection
+            webhook_url: `${process.env.WEBHOOK_URL}/api/telnyx/voice-api-handler-vapi-bridge`,
             webhook_url_method: 'POST',
-            client_state: pl.client_state
+            // Pass conference info in client state
+            client_state: btoa(JSON.stringify({
+              ...JSON.parse(atob(pl.client_state)),
+              conference_name: room,
+              vapi_control_id: pl.call_control_id,
+              is_conference_leg: true
+            }))
           })
         }
       );
-      console.log('Human dial response:', dialResp.status);
+      console.log('Clinic dial response:', dialResp.status);
+      
+      // Store the conference info in database
+      await supabase
+        .from('call_sessions')
+        .insert([{
+          call_id: `clinic-${session_id}`, // Unique ID for clinic leg
+          conference_session_id: session_id,
+          conference_created: true,
+          vapi_control_id: pl.call_control_id,
+          vapi_on_hold: true,
+          target_number: human,
+          call_status: 'active',
+          created_at: new Date().toISOString()
+        }]);
 
       // Start monitoring for unmute conditions
       startUnmuteMonitor(session_id, pl.call_control_id);
