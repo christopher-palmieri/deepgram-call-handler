@@ -1,144 +1,76 @@
-/**
- * File: api/telnyx/conference-webhook-bridge.js
- * Purpose: Webhook handler for Telnyx `conference.*` events.
- * This module only responds to incoming conference events (joined, floor.changed, etc.).
- * It manages holding/unholding the VAPI leg and dialing the human leg into the conference.
- * Do NOT initiate a conference here—conference creation (dialing VAPI with client_state)
- * happens via the helper in `conference-bridge.js` (e.g. from your voice-api-handler).
- */
 // api/telnyx/conference-webhook-bridge.js
-// Conference Webhook Handler (Telnyx webhook endpoint for conference.* events)
-// ------------------------------------------------------------------------------
-// THIS MODULE ONLY HANDLES incoming conference events from Telnyx.
-// It manages holding/unholding and dialing the human leg.
-// To initiate a conference (dial VAPI + set client_state), use the
-// helper function in `conference-bridge.js` in your Vercel functions.
 
 import fetch from 'node-fetch';
 
-export const config = {
-  api: { bodyParser: true }
-};
-
+const TELNYX_API_KEY = process.env.TELNYX_API_KEY;
 const TELNYX_API_URL = 'https://api.telnyx.com/v2';
-const API_KEY = process.env.TELNYX_API_KEY;
-const FROM_NUMBER = process.env.TELNYX_PHONE_NUMBER;
+
+export const config = { api: { bodyParser: true } };
+
+async function telnyxAPI(endpoint, method = 'POST', body = {}) {
+  const resp = await fetch(`${TELNYX_API_URL}${endpoint}`, {
+    method,
+    headers: {
+      'Authorization': `Bearer ${TELNYX_API_KEY}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: method !== 'GET' ? JSON.stringify(body) : undefined,
+  });
+  const data = await resp.json().catch(() => null);
+  if (!resp.ok) throw new Error(data?.errors?.[0]?.detail || `HTTP ${resp.status}`);
+  return data;
+}
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
-    return res.status(200).send('Conference webhook is live');
+    return res.status(200).send('conference-webhook-bridge is live');
   }
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // Parse the incoming webhook payload
-  let body = req.body;
-  // Support raw body parsing if needed
-  if (!body.data) {
-    try {
-      const text = await new Promise((resolve, reject) => {
-        let data = '';
-        req.on('data', chunk => data += chunk);
-        req.on('end', () => resolve(data));
-        req.on('error', reject);
-      });
-      body = JSON.parse(text);
-    } catch(_) {
-      console.warn('Could not parse raw body');
+  const event = req.body?.data;
+  if (!event) return res.status(200).json({ received: true });
+
+  const { event_type, payload: pl } = event;
+  console.log(`🔔 ${event_type} payload:`, pl);
+
+  // Only handle VAPI join => dial human
+  if (event_type === 'conference.participant.joined' && pl.call_control_id === pl.creator_call_control_id) {
+    // Extract human number from client_state
+    let human;
+    if (pl.client_state) {
+      try {
+        const state = JSON.parse(Buffer.from(pl.client_state, 'base64').toString());
+        human = state.human;
+      } catch (e) {
+        console.error('❌ Invalid client_state:', e);
+      }
     }
-  }
-
-  const eventType = body.data?.event_type || body.event_type;
-  const pl = body.data?.payload || body.payload;
-
-  console.log('Webhook hit:', eventType, 'payload:', pl);
-
-  // Decode client_state to retrieve session_id & human number
-  let state = {};
-  if (pl.client_state) {
-    try {
-      state = JSON.parse(Buffer.from(pl.client_state, 'base64').toString());
-    } catch (err) {
-      console.warn('Failed to parse client_state:', err);
+    if (!human) {
+      console.error('❌ Missing human number in client_state on conference join');
+      return res.status(400).json({ error: 'Missing human in client_state' });
     }
-  }
 
-  // Determine the VAPI call control ID (creator of the conference)
-  const vapiControlId = pl.creator_call_control_id;
-  const conferenceId = pl.conference_id;
+    const confId = pl.conference_id;
+    console.log(`🧩 VAPI joined conference ${confId}, now dialing human ${human}`);
 
-  switch (eventType) {
-    // When VAPI joins the conference, hold it and dial the human in
-    case 'conference.participant.joined': {
-      // Only act when the VAPI leg first joins
-      if (pl.call_control_id === vapiControlId) {
-        console.log('VAPI joined conference:', conferenceId);
-
-        // 1) Hold VAPI leg
-        await fetch(`${TELNYX_API_URL}/calls/${vapiControlId}/actions/hold`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${API_KEY}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        console.log('Held VAPI leg:', vapiControlId);
-
-        // 2) Dial human into same conference
-        const human = state.human;
-        if (human) {
-          const resp = await fetch(`${TELNYX_API_URL}/calls`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${API_KEY}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              connection_id: pl.connection_id,
-              to: human,
-              from: FROM_NUMBER,
-              enable_early_media: true,
-              conference_config: {
-                conference_name: conferenceId,
-                start_conference_on_enter: true,
-                end_conference_on_exit: true
-              },
-              webhook_url: process.env.CONFERENCE_WEBHOOK_URL,
-              webhook_url_method: 'POST'
-            })
-          });
-          const data = await resp.json();
-          console.log('Dialed human into conference:', data);
-        } else {
-          console.warn('No human number found in client_state');
+    try {
+      const resp = await telnyxAPI('/calls', 'POST', {
+        connection_id: process.env.TELNYX_VOICE_API_APPLICATION_ID,
+        to: human,
+        from: process.env.TELNYX_PHONE_NUMBER,
+        conference_config: {
+          conference_id: confId,
+          start_conference_on_enter: true,
+          end_conference_on_exit: true
         }
-      }
-      break;
+      });
+      console.log('✅ Human dialed into conference:', resp.data?.call_control_id);
+    } catch (err) {
+      console.error('❌ Error dialing human into conference:', err.message);
     }
-
-    // When floor changes (often indicates human took floor), unhold VAPI
-    case 'conference.floor.changed': {
-      console.log('Conference floor changed:', pl);
-      // If the floor leg is not VAPI, assume human has floor => unhold VAPI
-      if (pl.call_control_id !== vapiControlId) {
-        await fetch(`${TELNYX_API_URL}/calls/${vapiControlId}/actions/unhold`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${API_KEY}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        console.log('Unheld VAPI leg:', vapiControlId);
-      }
-      break;
-    }
-
-    // Other events we can log or ignore
-    case 'conference.participant.left':
-    case 'conference.ended':
-    default:
-      console.log('No action for event:', eventType);
   }
 
   return res.status(200).json({ received: true });
