@@ -1,4 +1,7 @@
 // api/telnyx/conference-webhook-bridge.js
+// Conference Webhook Handler - responds to Telnyx conference.* events
+// Manages VAPI and human legs within the conference
+
 // Handles all conference.* events from Telnyx to manage VAPI & human legs
 
 import fetch from 'node-fetch';
