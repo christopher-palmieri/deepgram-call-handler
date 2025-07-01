@@ -144,10 +144,12 @@ async function handleCallInitiated(event, res) {
   if (event.payload.client_state) {
     try {
       const state = JSON.parse(Buffer.from(event.payload.client_state, 'base64').toString());
+      console.log('🔍 Client state in call initiated:', state);
       if (state.is_conference_leg) {
         console.log('🎯 Conference clinic leg initiated');
         conferenceInfo = state;
         actualCallId = `clinic-${state.session_id}`;
+        console.log('📍 Using actualCallId:', actualCallId);
       }
     } catch (e) {
       console.log('Not a conference leg, using regular flow');
@@ -159,11 +161,11 @@ async function handleCallInitiated(event, res) {
     const { data: existingActions } = await supabase
       .from('ivr_events')
       .select('id, created_at, transcript')
-      .eq('call_id', actualCallId)
+      .eq('call_id', callLegId) // Always use actual Telnyx leg ID for ivr_events
       .eq('executed', false);
     
     if (existingActions && existingActions.length > 0) {
-      console.log(`⚠️ Found ${existingActions.length} existing actions for call_id ${actualCallId}`);
+      console.log(`⚠️ Found ${existingActions.length} existing actions for call_id ${callLegId}`);
       
       const { data: cleaned } = await supabase
         .from('ivr_events')
@@ -172,42 +174,34 @@ async function handleCallInitiated(event, res) {
           executed_at: new Date().toISOString(),
           error: 'expired_same_call_id_reused'
         })
-        .eq('call_id', actualCallId)
+        .eq('call_id', callLegId)
         .eq('executed', false)
         .select();
       
       if (cleaned) {
-        console.log(`🧹 Cleaned up ${cleaned.length} stale actions for reused call_id ${actualCallId}`);
+        console.log(`🧹 Cleaned up ${cleaned.length} stale actions for reused call_id ${callLegId}`);
       }
-    }
-    
-    const { data: oldActions } = await supabase
-      .from('ivr_events')
-      .update({ 
-        executed: true, 
-        executed_at: new Date().toISOString(),
-        error: 'expired_timeout'
-      })
-      .eq('executed', false)
-      .lt('created_at', new Date(Date.now() - 60000).toISOString())
-      .select();
-    
-    if (oldActions && oldActions.length > 0) {
-      console.log(`🧹 Cleaned up ${oldActions.length} old actions (timeout)`);
     }
   } catch (err) {
     console.error('❌ Error cleaning stale actions:', err);
   }
 
   // 1) Create or fetch your Supabase session
-  await getOrCreateSession(actualCallId);
+  const session = await getOrCreateSession(actualCallId);
+  console.log('📊 Session created/fetched:', {
+    call_id: session?.call_id,
+    telnyx_leg_id: session?.telnyx_leg_id,
+    actualCallId,
+    originalLegId: callLegId
+  });
 
   // 2) Persist the Telnyx control ID and conference info
   try {
     const updateData = { 
       call_control_id: callControlId,
       call_initiated_at: new Date().toISOString(),
-      bridge_mode: true
+      bridge_mode: true,
+      telnyx_leg_id: callLegId // Always store the actual Telnyx leg ID
     };
     
     if (conferenceInfo) {
@@ -216,12 +210,19 @@ async function handleCallInitiated(event, res) {
       updateData.target_number = event.payload.to;
     }
     
-    await supabase
+    console.log('📝 Updating session with:', updateData);
+    
+    const { data: updated, error } = await supabase
       .from('call_sessions')
       .update(updateData)
-      .eq('call_id', actualCallId);
+      .eq('call_id', actualCallId)
+      .select();
       
-    console.log('✅ Saved call_control_id to session (bridge mode)');
+    if (error) {
+      console.error('❌ Error updating session:', error);
+    } else {
+      console.log('✅ Updated session:', updated?.[0]);
+    }
   } catch (err) {
     console.error('❌ Could not save call_control_id:', err);
   }
