@@ -78,6 +78,7 @@ async function dialClinicIntoConference(sessionData, room, human) {
         call_status: 'active',
         bridge_mode: true,
         created_at: new Date().toISOString()
+        // Note: telnyx_leg_id will be filled in when the call is initiated
       }]);
     console.log('✅ Created call session for clinic leg');
   } else {
