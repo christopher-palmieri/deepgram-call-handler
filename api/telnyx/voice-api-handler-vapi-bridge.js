@@ -1,4 +1,4 @@
-// api/telnyx/voice-api-handler-vapi.js
+// api/telnyx/voice-api-handler-vapi-bridge.js
 
 import { createClient } from '@supabase/supabase-js';
 import fetch from 'node-fetch';
@@ -41,33 +41,16 @@ export default async function handler(req, res) {
   console.log('🔍 Incoming webhook:', req.method);
 
   if (req.method === 'GET') {
-    // Optional debug endpoint
-    const { debug_call_control_id, digits } = req.query;
-    if (debug_call_control_id) {
-      const dt = digits || '1';
-      console.log('🔧 Debug DTMF ➡️', debug_call_control_id, dt);
-      try {
-        const { status, data } = await telnyxAPI(
-          `/calls/${debug_call_control_id}/actions/send_dtmf`,
-          'POST',
-          { digits: dt, duration_millis: 500 }
-        );
-        console.log(`🔧 Debug DTMF response ${status}:`, data);
-        return res.status(200).json({ status, data });
-      } catch (err) {
-        console.error('🔧 Debug DTMF error:', err);
-        return res.status(500).json({ error: err.message });
-      }
-    }
-    return res.status(405).json({ error: 'Method Not Allowed' });
+    return res.status(200).send('voice-api-handler-vapi-bridge is live');
   }
-
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   const event = req.body?.data;
-  if (!event) return res.status(200).json({ received: true });
+  if (!event) {
+    return res.status(200).json({ received: true });
+  }
 
   console.log('📞 Event type:', event.event_type);
   switch (event.event_type) {
@@ -80,11 +63,6 @@ export default async function handler(req, res) {
       console.log('Unhandled event type:', event.event_type);
       return res.status(200).json({ received: true });
   }
-}
-
-async function handleCallInitiated(event, res) {
-  // ... existing logic unchanged ...
-  return res.status(200).json({ received: true });
 }
 
 async function handleCallAnswered(event, res) {
@@ -108,10 +86,24 @@ async function handleCallAnswered(event, res) {
     console.error('❌ Error starting IVR stream:', err);
   }
 
-  // 2) After IVR/human detection, bridge via conference
-  //    (replace timer-based or direct transfer)
+  // 2) Extract human number from client_state (encoded by your edge function)
+  let humanNum;
+  if (event.payload.client_state) {
+    try {
+      const state = JSON.parse(Buffer.from(event.payload.client_state, 'base64').toString());
+      humanNum = state.human;
+      console.log('Decoded client_state:', state);
+    } catch (err) {
+      console.warn('Failed to parse client_state:', err);
+    }
+  }
+  if (!humanNum) {
+    console.error('❌ No human number provided in client_state!');
+    return res.status(500).json({ error: 'Missing human number in client_state' });
+  }
+
+  // 3) After IVR/human detection, bridge via conference
   const vapiSip   = process.env.VAPI_SIP_ADDRESS;
-  const humanNum  = process.env.CLINIC_NUMBER;
   const fromNum   = process.env.TELNYX_PHONE_NUMBER;
   const appId     = process.env.TELNYX_VOICE_API_APPLICATION_ID;
   const apiKey    = process.env.TELNYX_API_KEY;
@@ -119,11 +111,14 @@ async function handleCallAnswered(event, res) {
 
   try {
     const { session_id, room } = await initiateConference(
-      vapiSip, humanNum, fromNum,
-      appId, apiKey, webhook
+      vapiSip,
+      humanNum,
+      fromNum,
+      appId,
+      apiKey,
+      webhook
     );
     console.log('✅ Conference initiated:', session_id, room);
-    // Optionally update Supabase session with room info
   } catch (err) {
     console.error('❌ Conference initiation error:', err);
   }
