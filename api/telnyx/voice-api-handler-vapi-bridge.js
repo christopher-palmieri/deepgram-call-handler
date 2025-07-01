@@ -1,11 +1,10 @@
 // api/telnyx/voice-api-handler-vapi-bridge.js
+// New version that uses conference bridging while keeping original intact
 
 import { createClient } from '@supabase/supabase-js';
 import fetch from 'node-fetch';
 import crypto from 'crypto';
-import { initiateConference } from './conference-bridge.js';
 
-// Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -13,8 +12,7 @@ const supabase = createClient(
 
 const TELNYX_API_KEY = process.env.TELNYX_API_KEY;
 const TELNYX_API_URL = 'https://api.telnyx.com/v2';
-
-export const config = { api: { bodyParser: true } };
+const EDGE_FUNCTION_URL = process.env.SUPABASE_EDGE_FUNCTION_URL || 'https://your-project.supabase.co/functions/v1/telnyx-conference-vapi';
 
 // Helper: call Telnyx and return status + parsed JSON
 async function telnyxAPI(endpoint, method = 'POST', body = {}) {
@@ -29,109 +27,496 @@ async function telnyxAPI(endpoint, method = 'POST', body = {}) {
   });
 
   let data;
-  try { data = await resp.json(); } catch { data = null; }
+  try { data = await resp.json(); }
+  catch (_){ data = null; }
+
   if (!resp.ok) {
     console.error('❌ Telnyx API Error', resp.status, data);
     throw new Error(data?.errors?.[0]?.detail || `HTTP ${resp.status}`);
   }
+
   return { status: resp.status, data };
 }
 
-export default async function handler(req, res) {
-  console.log('🔍 Incoming webhook:', req.method);
+// Helper: Call the edge function to initiate conference
+async function initiateConferenceBridge(callLegId) {
+  console.log('🌉 Initiating conference bridge via edge function');
+  
+  try {
+    const response = await fetch(EDGE_FUNCTION_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        call_leg_id: callLegId
+      })
+    });
 
-  if (req.method === 'GET') {
-    return res.status(200).send('voice-api-handler-vapi-bridge is live');
-  }
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  }
+    const result = await response.json();
+    
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Edge function failed');
+    }
 
-  const event = req.body?.data;
-  if (!event) {
-    return res.status(200).json({ received: true });
-  }
-
-  console.log('📞 Event type:', event.event_type);
-  switch (event.event_type) {
-    case 'call.initiated':     return handleCallInitiated(event, res);
-    case 'call.answered':      return handleCallAnswered(event, res);
-    case 'streaming.started':  return handleStreamingStarted(event, res);
-    case 'streaming.stopped':  return handleStreamingStopped(event, res);
-    case 'call.hangup':        return handleCallHangup(event, res);
-    default:
-      console.log('Unhandled event type:', event.event_type);
-      return res.status(200).json({ received: true });
+    console.log('✅ Conference initiated:', result.session_id);
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Failed to initiate conference:', error);
+    throw error;
   }
 }
 
-// --- Event Handlers ---
+export default async function handler(req, res) {
+  // — DEBUG DTMF via GET?
+  if (req.method === 'GET') {
+    const { debug_call_control_id, digits } = req.query;
+    if (debug_call_control_id) {
+      const dt = digits || '1';
+      console.log('🔧 Debug DTMF ➡️', debug_call_control_id, dt);
+      try {
+        const { status, data } = await telnyxAPI(
+          `/calls/${debug_call_control_id}/actions/send_dtmf`,
+          'POST',
+          { digits: dt, duration_millis: 500 }
+        );
+        console.log(`🔧 Debug DTMF response ${status}:`, data);
+        return res.status(200).json({ status, data });
+      } catch (err) {
+        console.error('🔧 Debug DTMF error:', err);
+        return res.status(500).json({ error: err.message });
+      }
+    }
+    return res.status(405).json({ error: 'Method Not Allowed' });
+  }
+
+  // — WEBHOOK HANDLING
+  if (req.method === 'POST') {
+    console.log('🔍 Incoming webhook:', req.method);
+
+    const event = req.body?.data;
+    if (!event) {
+      console.error('❌ No event data found');
+      return res.status(200).json({ received: true });
+    }
+
+    console.log('📞 Event type:', event.event_type);
+    switch (event.event_type) {
+      case 'call.initiated':
+        return handleCallInitiated(event, res);
+      case 'call.answered':
+        return handleCallAnswered(event, res);
+      case 'streaming.started':
+        return handleStreamingStarted(event, res);
+      case 'streaming.stopped':
+        return handleStreamingStopped(event, res);
+      case 'call.hangup':
+        return handleCallHangup(event, res);
+      default:
+        console.log('Unhandled event type:', event.event_type);
+        return res.status(200).json({ received: true });
+    }
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
+}
 
 async function handleCallInitiated(event, res) {
-  console.log('📞 call.initiated:', event.payload.call_control_id);
-  // Retain existing logic if needed; here we simply ACK
+  const callControlId = event.payload.call_control_id;
+  const callLegId     = event.payload.call_leg_id;
+  const direction     = event.payload.direction;
+
+  console.log(
+    '📞 Call initiated - Control ID:',
+    callControlId,
+    'Leg ID:',
+    callLegId,
+    'Dir:',
+    direction
+  );
+
+  // CRITICAL: Clean up ALL stale actions for this call_id first
+  try {
+    const { data: existingActions } = await supabase
+      .from('ivr_events')
+      .select('id, created_at, transcript')
+      .eq('call_id', callLegId)
+      .eq('executed', false);
+    
+    if (existingActions && existingActions.length > 0) {
+      console.log(`⚠️ Found ${existingActions.length} existing actions for call_id ${callLegId}`);
+      
+      const { data: cleaned } = await supabase
+        .from('ivr_events')
+        .update({ 
+          executed: true, 
+          executed_at: new Date().toISOString(),
+          error: 'expired_same_call_id_reused'
+        })
+        .eq('call_id', callLegId)
+        .eq('executed', false)
+        .select();
+      
+      if (cleaned) {
+        console.log(`🧹 Cleaned up ${cleaned.length} stale actions for reused call_id ${callLegId}`);
+      }
+    }
+    
+    const { data: oldActions } = await supabase
+      .from('ivr_events')
+      .update({ 
+        executed: true, 
+        executed_at: new Date().toISOString(),
+        error: 'expired_timeout'
+      })
+      .eq('executed', false)
+      .lt('created_at', new Date(Date.now() - 60000).toISOString())
+      .select();
+    
+    if (oldActions && oldActions.length > 0) {
+      console.log(`🧹 Cleaned up ${oldActions.length} old actions (timeout)`);
+    }
+  } catch (err) {
+    console.error('❌ Error cleaning stale actions:', err);
+  }
+
+  // 1) Create or fetch your Supabase session
+  await getOrCreateSession(callLegId);
+
+  // 2) Persist the Telnyx control ID and bridge mode
+  try {
+    await supabase
+      .from('call_sessions')
+      .update({ 
+        call_control_id: callControlId,
+        call_initiated_at: new Date().toISOString(),
+        bridge_mode: true // Mark this as using bridge mode
+      })
+      .eq('call_id', callLegId);
+    console.log('✅ Saved call_control_id to session (bridge mode)');
+  } catch (err) {
+    console.error('❌ Could not save call_control_id:', err);
+  }
+
+  // 3) If this is an inbound call, answer it
+  if (direction === 'incoming') {
+    try {
+      await telnyxAPI(`/calls/${callControlId}/actions/answer`);
+      console.log('✅ Inbound call answered');
+    } catch (err) {
+      console.error('❌ Error answering call:', err);
+    }
+  } else {
+    console.log('📤 Outbound call — nothing to answer');
+  }
+
   return res.status(200).json({ received: true });
 }
 
 async function handleCallAnswered(event, res) {
+  console.log('📞 Call answered - Bridge mode');
+  
   const ctl = event.payload.call_control_id;
   const leg = event.payload.call_leg_id;
-  console.log('📞 Call answered — starting IVR stream then initiating conference');
+  console.log('📞 Call answered - Control ID:', ctl, 'Leg ID:', leg);
 
-  // 1) Start the IVR audio stream
+  const WS = process.env.TELNYX_WS_URL;
   try {
-    await telnyxAPI(
+    const { data: sr } = await telnyxAPI(
       `/calls/${ctl}/actions/streaming_start`,
       'POST',
       {
-        stream_url: `${process.env.TELNYX_WS_URL}?call_id=${leg}&call_control_id=${ctl}`,
+        stream_url: `${WS}?call_id=${leg}&call_control_id=${ctl}`,
         stream_track: 'inbound_track',
         enable_dialogflow: false
       }
     );
-    console.log('✅ IVR stream started');
+    console.log('✅ Stream started:', sr.stream_id);
+
+    await supabase
+      .from('call_sessions')
+      .update({ stream_started: true })
+      .eq('call_id', leg);
+
+    // Start monitoring for IVR detection changes (bridge mode)
+    startIVRMonitorBridgeMode(ctl, leg);
   } catch (err) {
-    console.error('❌ Error starting IVR stream:', err);
+    console.error('❌ Error starting stream:', err);
   }
+  return res.status(200).json({ received: true });
+}
 
-  // 2) Extract human number from client_state (encoded by edge function)
-  let humanNum;
-  if (event.payload.client_state) {
+// Bridge mode monitor that initiates conference instead of direct transfer
+async function startIVRMonitorBridgeMode(ctl, leg) {
+  console.log('🌉 Starting IVR detection monitor (BRIDGE MODE) for call:', leg);
+  const monitorId = crypto.randomUUID().slice(0, 8);
+  let checkCount = 0;
+  const maxChecks = 480; // 2 minutes at 250ms intervals
+  let conferenceInitiated = false;
+
+  const monitor = setInterval(async () => {
+    checkCount++;
+    
     try {
-      const state = JSON.parse(Buffer.from(event.payload.client_state, 'base64').toString());
-      humanNum = state.human;
-      console.log('Decoded client_state:', state);
+      const { data: session } = await supabase
+        .from('call_sessions')
+        .select('ivr_detection_state, call_status, transfer_initiated, conference_session_id')
+        .eq('call_id', leg)
+        .maybeSingle();
+
+      const shouldStop = !session || 
+                        session.call_status === 'completed' || 
+                        session.conference_session_id || // Conference already created
+                        (session.transfer_initiated && conferenceInitiated) ||
+                        (!session.ivr_detection_state && checkCount >= maxChecks);
+      
+      if (shouldStop) {
+        console.log(`⏹️ [${monitorId}] Stopping IVR monitor (bridge mode)`);
+        clearInterval(monitor);
+        
+        if (global.actionPollers && global.actionPollers[leg]) {
+          clearInterval(global.actionPollers[leg]);
+          delete global.actionPollers[leg];
+        }
+        
+        return;
+      }
+
+      // Check if human detected
+      if (['human', 'ivr_then_human'].includes(session.ivr_detection_state)) {
+        console.log(`👤 [${monitorId}] Human detected - initiating conference bridge via edge function`);
+        
+        conferenceInitiated = true;
+        await supabase
+          .from('call_sessions')
+          .update({ transfer_initiated: true })
+          .eq('call_id', leg);
+        
+        if (global.actionPollers && global.actionPollers[leg]) {
+          clearInterval(global.actionPollers[leg]);
+          delete global.actionPollers[leg];
+        }
+        
+        // Call edge function to create conference
+        try {
+          const conferenceResult = await initiateConferenceBridge(leg);
+          
+          // Store conference session ID
+          await supabase
+            .from('call_sessions')
+            .update({ 
+              conference_session_id: conferenceResult.session_id,
+              conference_created_at: new Date().toISOString()
+            })
+            .eq('call_id', leg);
+            
+          console.log('✅ Conference bridge created:', conferenceResult.session_id);
+            
+        } catch (err) {
+          console.error('❌ Conference bridge creation error:', err);
+          
+          // Update error state
+          await supabase
+            .from('call_sessions')
+            .update({ 
+              conference_error: err.message,
+              conference_error_at: new Date().toISOString()
+            })
+            .eq('call_id', leg);
+        }
+        
+        clearInterval(monitor);
+        return;
+      }
+
+      // If IVR detected and no action poller running, start one
+      if (session.ivr_detection_state === 'ivr_only' && 
+          (!global.actionPollers || !global.actionPollers[leg])) {
+        console.log(`🤖 [${monitorId}] IVR detected, starting action poller (bridge mode)`);
+        startIVRActionPollerBridgeMode(ctl, leg);
+      }
+
     } catch (err) {
-      console.warn('Failed to parse client_state:', err);
+      console.error(`❌ [${monitorId}] Monitor error:`, err.message);
     }
-  }
-  if (!humanNum) {
-    console.error('❌ No human number provided in client_state!');
-    return res.status(500).json({ error: 'Missing human number in client_state' });
+  }, 250);
+
+  console.log(`✅ [${monitorId}] IVR monitor running (bridge mode)`);
+}
+
+// Initialize global storage for action pollers
+if (!global.actionPollers) {
+  global.actionPollers = {};
+}
+
+// Bridge mode action poller
+async function startIVRActionPollerBridgeMode(ctl, leg) {
+  if (global.actionPollers[leg]) {
+    console.log('⚠️ Action poller already running for', leg);
+    return;
   }
 
-  // 3) Bridge via conference
-  const vapiSip   = process.env.VAPI_SIP_ADDRESS;
-  const fromNum   = process.env.TELNYX_PHONE_NUMBER;
-  const appId     = process.env.TELNYX_VOICE_API_APPLICATION_ID;
-  const apiKey    = process.env.TELNYX_API_KEY;
-  const webhook   = process.env.CONFERENCE_WEBHOOK_URL;
+  console.log('🔄 Starting IVR action poller (BRIDGE MODE) for call:', leg);
+  const pollerId = crypto.randomUUID().slice(0, 8);
+  let count = 0, max = 60;
+
+  const timer = setInterval(async () => {
+    count++;
+    try {
+      const { data: session } = await supabase
+        .from('call_sessions')
+        .select('ivr_detection_state, call_status, transfer_initiated, conference_session_id')
+        .eq('call_id', leg)
+        .maybeSingle();
+
+      if (!session || 
+          session.call_status === 'completed' ||
+          session.transfer_initiated ||
+          session.conference_session_id ||
+          ['human', 'ivr_then_human'].includes(session.ivr_detection_state) ||
+          count >= max) {
+        
+        console.log(`⏹️ [${pollerId}] Stopping action poller (bridge mode)`);
+        clearInterval(timer);
+        delete global.actionPollers[leg];
+        return;
+      }
+
+      if (session.ivr_detection_state === 'ivr_only') {
+        const { data: callSession } = await supabase
+          .from('call_sessions')
+          .select('created_at, call_initiated_at')
+          .eq('call_id', leg)
+          .single();
+        
+        if (!callSession) return;
+
+        const callStartTime = callSession.call_initiated_at || callSession.created_at;
+
+        const { data: actions } = await supabase
+          .from('ivr_events')
+          .select('*')
+          .eq('call_id', leg)
+          .eq('executed', false)
+          .not('action_value', 'is', null)
+          .gte('created_at', callStartTime)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        const action = actions && actions[0];
+        if (action) {
+          const actionTime = new Date(action.created_at);
+          const callTime = new Date(callStartTime);
+          
+          if (actionTime < callTime) {
+            await supabase
+              .from('ivr_events')
+              .update({ 
+                executed: true, 
+                executed_at: new Date().toISOString(),
+                error: 'created_before_call_start'
+              })
+              .eq('id', action.id);
+            return;
+          }
+          
+          console.log(`🎯 [${pollerId}] Executing action:`, action.action_type, action.action_value);
+          await executeIVRAction(ctl, leg, action);
+          
+          // In bridge mode, we'll rely on the conference webhook to unmute VAPI
+          // after successful IVR actions
+        }
+      }
+    } catch (err) {
+      console.error(`❌ [${pollerId}] Poll error:`, err.message);
+    }
+  }, 2000);
+
+  global.actionPollers[leg] = timer;
+  console.log(`✅ [${pollerId}] Action poller running (bridge mode)`);
+}
+
+async function executeIVRAction(callControlId, callLegId, action) {
+  console.log('🎯 Executing IVR action:', action.id, action.action_type, action.action_value);
+
+  const { data: session } = await supabase
+    .from('call_sessions')
+    .select('ivr_detection_state, transfer_initiated, call_status, call_control_id')
+    .eq('call_id', callLegId)
+    .maybeSingle();
+
+  if (!session || session.call_status !== 'active' || 
+      session.transfer_initiated || 
+      ['human', 'ivr_then_human'].includes(session.ivr_detection_state)) {
+    console.log('⏭️ Skipping IVR action - call not active or human detected');
+    await supabase
+      .from('ivr_events')
+      .update({ 
+        executed: true, 
+        executed_at: new Date().toISOString(), 
+        error: 'skipped_due_to_state' 
+      })
+      .eq('id', action.id);
+    return;
+  }
+
+  const common = {
+    client_state: Buffer.from(JSON.stringify({
+      action_id: action.id,
+      call_id:   callLegId,
+      timestamp: new Date().toISOString()
+    })).toString('base64'),
+    command_id: crypto.randomUUID()
+  };
 
   try {
-    const { session_id, room } = await initiateConference(
-      vapiSip,
-      humanNum,
-      fromNum,
-      appId,
-      apiKey,
-      webhook
-    );
-    console.log('✅ Conference initiated:', session_id, room);
-  } catch (err) {
-    console.error('❌ Conference initiation error:', err);
-  }
+    if (action.action_type === 'dtmf') {
+      const payload = {
+        digits:           action.action_value,
+        duration_millis:  500,
+        ...common
+      };
+      console.log('📤 Sending DTMF:', payload);
+      const { status, data } = await telnyxAPI(
+        `/calls/${callControlId}/actions/send_dtmf`,
+        'POST',
+        payload
+      );
+      console.log(`✅ DTMF response ${status}:`, data);
 
-  return res.status(200).json({ received: true });
+    } else if (action.action_type === 'speech') {
+      const payload = {
+        payload: action.action_value,
+        voice:   'female',
+        language:'en-US',
+        ...common
+      };
+      const { status, data } = await telnyxAPI(
+        `/calls/${callControlId}/actions/speak`,
+        'POST',
+        payload
+      );
+      console.log(`✅ Speech response ${status}:`, data);
+    }
+
+    await supabase
+      .from('ivr_events')
+      .update({ 
+        executed: true, 
+        executed_at: new Date().toISOString(),
+        bridge_mode: true // Mark as executed in bridge mode
+      })
+      .eq('id', action.id);
+
+  } catch (err) {
+    console.error('❌ executeIVRAction error:', err);
+    await supabase
+      .from('ivr_events')
+      .update({ executed: true, executed_at: new Date().toISOString(), error: err.message })
+      .eq('id', action.id);
+  }
 }
 
 async function handleStreamingStarted(event, res) {
@@ -141,10 +526,71 @@ async function handleStreamingStarted(event, res) {
 
 async function handleStreamingStopped(event, res) {
   console.log('🛑 streaming.stopped:', event.payload.stream_id);
+  
+  const callLegId = event.payload.call_leg_id;
+  if (callLegId && global.actionPollers && global.actionPollers[callLegId]) {
+    clearInterval(global.actionPollers[callLegId]);
+    delete global.actionPollers[callLegId];
+    console.log('🧹 Cleaned up action poller on stream stop');
+  }
+  
   return res.status(200).json({ received: true });
 }
 
 async function handleCallHangup(event, res) {
-  console.log('📞 call.hangup:', event.payload.call_leg_id);
+  const leg = event.payload.call_leg_id;
+  console.log('📞 call.hangup:', leg);
+  
+  if (global.actionPollers && global.actionPollers[leg]) {
+    clearInterval(global.actionPollers[leg]);
+    delete global.actionPollers[leg];
+    console.log('🧹 Cleaned up action poller on hangup');
+  }
+  
+  await supabase
+    .from('call_sessions')
+    .update({ 
+      call_ended_at: new Date().toISOString(), 
+      call_status: 'completed' 
+    })
+    .eq('call_id', leg);
+    
   return res.status(200).json({ received: true });
 }
+
+async function getOrCreateSession(callId) {
+  try {
+    const { data: existing } = await supabase
+      .from('call_sessions')
+      .select('*')
+      .eq('call_id', callId)
+      .maybeSingle();
+    if (existing) return existing;
+
+    const { data: newSession } = await supabase
+      .from('call_sessions')
+      .insert([
+        {
+          call_id:        callId,
+          created_at:     new Date().toISOString(),
+          stream_started: false,
+          call_status:    'active',
+          transfer_initiated: false,
+          transfer_completed: false,
+          bridge_mode: true
+        }
+      ])
+      .single();
+    return newSession;
+
+  } catch (err) {
+    console.error('❌ getOrCreateSession error:', err);
+    return null;
+  }
+}
+
+export const config = {
+  api: {
+    bodyParser: true
+  }
+};
