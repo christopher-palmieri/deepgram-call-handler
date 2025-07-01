@@ -7,7 +7,7 @@ const TELNYX_API_URL = 'https://api.telnyx.com/v2';
 
 export const config = { api: { bodyParser: true } };
 
-// Low‐level Telnyx caller: returns parsed JSON or throws on error
+// Telnyx helper: throws on non-2xx
 async function telnyxAPI(endpoint, method = 'POST', body = {}) {
   const resp = await fetch(`${TELNYX_API_URL}${endpoint}`, {
     method,
@@ -42,7 +42,7 @@ export default async function handler(req, res) {
   const { event_type, payload: pl } = event;
   console.log(`🔔 ${event_type} payload:`, pl);
 
-  // Only handle the moment our VAPI leg joins the room
+  // Only handle the moment *our* VAPI leg joins
   if (
     event_type === 'conference.participant.joined' &&
     pl.call_control_id === pl.creator_call_control_id
@@ -52,7 +52,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing client_state' });
     }
 
-    // Decode the base64-encoded state
+    // decode client_state
     let state;
     try {
       state = JSON.parse(
@@ -63,21 +63,22 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid client_state' });
     }
 
-    const { room, human } = state;
-    if (!room || !human) {
-      console.error('❌ client_state missing room or human:', state);
-      return res.status(400).json({ error: 'Missing room or human in client_state' });
+    const human = state.human;
+    if (!human) {
+      console.error('❌ Missing human number in client_state:', state);
+      return res.status(400).json({ error: 'Missing human in client_state' });
     }
 
-    console.log(`🧩 VAPI joined room "${room}", now dialing clinic ${human}`);
+    const room = pl.conference_id;
+    console.log(`🧩 VAPI joined room "${room}", dialing clinic ${human}`);
 
-    // Build and send the human-leg dial
+    // dial the human into that same conference
     const humanPayload = {
       connection_id: process.env.TELNYX_VOICE_API_APPLICATION_ID,
       to:            human,
       from:          process.env.TELNYX_PHONE_NUMBER,
       conference_config: {
-        conference_name:           room,
+        conference_id:            room,
         start_conference_on_enter: true,
         end_conference_on_exit:    true
       }
@@ -105,10 +106,10 @@ export default async function handler(req, res) {
         console.log('✅ Human dialed into conference:', humanResult.data.call_control_id);
       }
     } catch (err) {
-      console.error('❌ Exception dialing human into conference:', err);
+      console.error('❌ Exception dialing human:', err);
     }
   }
 
-  // Always ACK to Telnyx
+  // always ack
   return res.status(200).json({ received: true });
 }
