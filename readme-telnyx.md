@@ -1,241 +1,184 @@
-# Telnyx IVR Classification System
+IVR-to-VAPI Bridge System Documentation
+Overview
+This system automates outbound calls to medical clinics, navigates IVR phone systems, and bridges to VAPI (AI voice assistant) when a human is reached. The architecture uses Telnyx for telephony, Railway for real-time audio processing, and Vercel for call orchestration.
+System Architecture
+Core Components
 
-## Overview
-This system is a Telnyx-based implementation of the IVR classification and navigation system. It provides the same core functionality as the Twilio version but uses Telnyx's Programmable Voice API for call control and media streaming.
+Supabase Edge Function (telnyx-conference-vapi)
 
-## Architecture
+Initiates the call flow
+Creates a Telnyx conference
+Dials VAPI first (to eliminate connection delay)
+Returns session ID for tracking
 
-### Components
-1. **Vercel API Endpoint** (`/api/telnyx/voice-api-handler.js`)
-   - Handles Telnyx webhook events
-   - Manages call control via Telnyx API
-   - Implements polling mechanism for IVR actions
 
-2. **Railway WebSocket Server** (`server_telnyx.js`)
-   - Receives audio streams from Telnyx
-   - Implements audio buffering for complete transcriptions
-   - Manages persistent connections
+Vercel Functions
 
-3. **Shared IVR Pipeline** (same as Twilio)
-   - Uses identical `ivr-listener.js` and modules
-   - Maintains compatibility across both platforms
+conference-webhook-bridge.js - Handles conference events, manages VAPI hold/unhold
+voice-api-handler-vapi-bridge.js - Processes call events, manages IVR detection state
 
-## Key Differences from Twilio
 
-### API Approach
-- Uses Telnyx Programmable Voice API (REST) instead of TwiML
-- Direct API calls for call control actions
-- WebSocket-based media streaming
+Railway WebSocket Server (server_telnyx.js)
 
-### Audio Handling
-- Implements audio buffering (160 bytes/20ms chunks)
-- Compensates for smaller audio packets from Telnyx
-- Ensures complete transcriptions like Twilio
+Receives real-time audio stream from Telnyx
+Processes audio through Deepgram for speech-to-text
+Performs IVR detection (automated system vs human)
+Navigates IVR menus using OpenAI
+Executes DTMF tones and speech commands
 
-### Call Flow
-- No TwiML redirects - uses polling mechanism
-- Checks for IVR actions every 2 seconds
-- Direct API calls for DTMF and speech synthesis
 
-## Technical Stack
-- **Telnyx**: Call handling and media streaming
-- **Deepgram**: Real-time speech-to-text (shared)
-- **OpenAI**: IVR classification and navigation (shared)
-- **Supabase**: Session management (shared schema)
-- **WebSocket**: Bidirectional audio streaming
-- **Node.js**: Server runtime
 
-## Database Schema ##
+Call Flow
+Phase 1: Conference Setup
+
+Edge function creates conference and dials VAPI
+VAPI joins conference and is immediately put on hold
+System dials the target medical clinic number
+Clinic call webhooks route to voice-api-handler-vapi-bridge
+
+Phase 2: IVR Detection & Navigation
+
+Audio streams to Railway WebSocket server
+Deepgram converts speech to text
+Fast classifier checks for human/IVR patterns
+If IVR detected:
+
+OpenAI analyzes menu options
+System presses appropriate numbers to reach reception/scheduling
+Actions stored in ivr_events table
+
+
+If human detected:
+
+Classification stored as "human" or "ivr_then_human"
+Triggers VAPI unmute process
+
+
+
+Phase 3: VAPI Bridge
+
+When human is detected or IVR navigation completes
+VAPI is unmuted (taken off hold)
+VAPI conducts the conversation with the human
+
+Database Schema
 call_sessions
-CREATE TABLE call_sessions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  call_id text UNIQUE NOT NULL,
-  stream_started boolean DEFAULT false,
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now(),
-  ivr_detection_state text,
-  ivr_classified_at timestamptz,
-  ivr_detection_latency_ms int4,
-  ivr_confidence_score numeric,
-  conference_created boolean DEFAULT false,
-  vapi_participant_sid text,
-  vapi_joined_at timestamptz,
-  stream_initialized boolean DEFAULT false,
-  call_status varchar(50) DEFAULT 'active'
-);
+
+call_id - Unique identifier (format: clinic-{session_id} for conference calls)
+telnyx_leg_id - Actual Telnyx call leg ID (used by Railway)
+conference_session_id - Links to conference
+ivr_detection_state - Classification result (ivr_only/human/ivr_then_human)
+vapi_on_hold - Whether VAPI is currently muted
+vapi_control_id - For hold/unhold operations
+Plus various timestamps and status fields
+
 ivr_events
-CREATE TABLE ivr_events (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  call_id text NOT NULL,
-  transcript text,
-  ai_reply text,
-  action_type text,
-  action_value text,
-  created_at timestamp DEFAULT now(),
-  executed boolean DEFAULT false,
-  stt_source text,
-  executed_at timestamptz,
-  error text
-);
 
--- Index for faster queries
-CREATE INDEX idx_ivr_events_call_id ON ivr_events(call_id);
-CREATE INDEX idx_ivr_events_executed ON ivr_events(executed);
+call_id - Links to call (uses Telnyx leg ID)
+transcript - What was heard
+action_type - dtmf/speech/wait
+action_value - What to do (e.g., "1" for DTMF)
+executed - Whether action was performed
 
-## Configuration
+Key Technical Details
+Audio Processing
 
-### Environment Variables
-```env
+Telnyx sends μ-law 8kHz audio
+Railway broadcasts to multiple sinks (Deepgram, VAPI)
+Deepgram provides real-time transcription
+VAPI expects PCM 16-bit audio (conversion handled)
+
+IVR Detection Logic
+
+Fast Classification: Pattern matching for instant detection
+OpenAI Classification: More nuanced detection after 3 seconds
+Navigation AI: Only navigates to general reception/scheduling, avoids department-specific options
+
+Conference Management
+
+Uses Telnyx conference API
+VAPI participant held/unheld via conference participant endpoints
+Unmute triggers:
+
+Human detection
+Successful IVR navigation
+Multiple IVR actions completed
+
+
+
+Current Implementation Status
+Working Features ✅
+
+Conference creation with VAPI on hold
+Clinic dialing with proper webhook routing
+Real-time audio streaming to Railway
+IVR transcription and action generation
+Human vs IVR detection
+DTMF tone execution
+Conference participant tracking
+
+Known Issues ❌
+
+IVR State Not Updating in Database
+
+Railway detects human/IVR correctly
+Database update fails because telnyx_leg_id is null
+Railway can't find session to update
+
+
+Hold/Unhold 404 Errors
+
+Initially tried call-level hold (doesn't work in conference)
+Fixed by using conference participant endpoints
+Requires proper conference_id and participant_id tracking
+
+
+
+Debugging Notes
+Why telnyx_leg_id is null
+
+Conference webhook creates session before call exists
+Uses clinic-{session_id} as call_id
+When actual call initiates, should update with real Telnyx leg ID
+Update appears to be failing silently
+
+Railway Lookup Logic
+
+First checks by telnyx_leg_id
+Falls back to call_id
+Both fields null/mismatched = no session found
+
+Next Steps
+
+Deploy enhanced logging in voice-api-handler-vapi-bridge
+Verify telnyx_leg_id is being stored on call initiation
+Confirm Railway can find sessions using either field
+Test full flow: IVR navigation → human detection → VAPI unmute
+
+Environment Variables Required
 # Telnyx
-TELNYX_API_KEY=
-TELNYX_WS_URL=wss://telnyx-server-production.up.railway.app
+TELNYX_API_KEY
+TELNYX_PHONE_NUMBER
+TELNYX_CONNECTION_ID
+TELNYX_WS_URL (Railway WebSocket)
 
-# Shared Services (same as Twilio)
-DEEPGRAM_API_KEY=
-OPENAI_API_KEY=
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
+# Supabase
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
 
-# VAPI Integration
-VAPI_SIP_ADDRESS=
-VAPI_PHONE_NUMBER=
+# VAPI
+VAPI_SIP_ADDRESS
+VAPI_API_KEY (for Railway if using VAPI sink)
 
-# Server
-PORT=3002
-```
+# APIs
+OPENAI_API_KEY
+DEEPGRAM_API_KEY
 
-## Call Flow (Telnyx-Specific)
+# URLs
+WEBHOOK_URL (your Vercel deployment)
+Architecture Benefits
 
-1. **Call Initiated** → Webhook to `/api/telnyx/voice-api-handler`
-2. **Answer Call** → API call to answer (inbound only)
-3. **Start Stream** → WebSocket connection with call metadata
-4. **Audio Buffering** → Accumulate chunks before sending to Deepgram
-5. **IVR Detection** → Shared classification pipeline
-6. **Action Polling** → Check database every 2 seconds
-7. **Execute Actions** → API calls for DTMF/speech
-8. **Human Transfer** → Transfer API to VAPI endpoint
-
-## Telnyx-Specific Features
-
-### Audio Buffering
-```javascript
-const AUDIO_BUFFER_SIZE = 160; // 20ms of audio at 8kHz
-const AUDIO_BUFFER_TIMEOUT = 20; // Flush after 20ms
-```
-
-### Polling Mechanism
-- Polls every 2 seconds for IVR actions
-- Maximum 60 polls (2 minutes)
-- Stops on human detection or call end
-- Unique poller ID for debugging
-
-### API Actions
-```javascript
-// DTMF
-{
-  digits: "1",
-  duration_millis: 500,
-  client_state: base64_encoded_state,
-  command_id: uuid
-}
-
-// Speech
-{
-  payload: "Hello",
-  voice: "female",
-  language: "en-US",
-  client_state: base64_encoded_state,
-  command_id: uuid
-}
-```
-
-## Webhook Events Handled
-
-- `call.initiated` - Setup session, answer if inbound
-- `call.answered` - Start WebSocket stream
-- `streaming.started` - Log stream initiation
-- `streaming.stopped` - Clean up resources
-- `call.hangup` - Update session status
-
-## Key Implementation Details
-
-### WebSocket URL Format
-```
-wss://your-server.com?call_id={call_leg_id}&call_control_id={control_id}
-```
-
-### Stream Configuration
-```javascript
-{
-  stream_url: websocket_url,
-  stream_track: 'both_tracks',
-  enable_dialogflow: false
-}
-```
-
-### Error Handling
-- Comprehensive try-catch blocks
-- Detailed error logging
-- Graceful fallbacks
-- Action failure tracking in database
-
-## Deployment Considerations
-
-### Vercel
-- Single endpoint for all webhooks
-- Ensure body parsing is enabled
-- Configure Telnyx webhook URL
-
-### Railway
-- Different port from Twilio server (3002)
-- WebSocket server with query parameter support
-- Health check endpoint at `/health`
-
-## Monitoring & Debugging
-
-### Logging Prefixes
-- `📞` Call events
-- `✅` Success operations
-- `❌` Errors
-- `🔍` Debugging/search operations
-- `🎯` Action execution
-- `🔄` Polling operations
-- `📡` Stream events
-
-### Key Metrics
-- Audio buffer efficiency
-- Polling frequency and duration
-- Action execution success rate
-- Transcription completeness
-
-## Migration from Twilio
-
-1. **Shared Components**: All IVR logic remains the same
-2. **API Translation**: TwiML actions → Telnyx API calls
-3. **Audio Handling**: Added buffering for consistency
-4. **State Management**: Same Supabase schema
-5. **Classification**: Identical pipeline
-
-## Known Issues & Solutions
-
-### Issue: Incomplete Transcriptions
-**Solution**: Implemented audio buffering to accumulate small chunks
-
-### Issue: DTMF Not Executing
-**Status**: Under investigation - reviewing API payload and timing
-
-### Issue: Polling Overhead
-**Consideration**: 2-second polling interval balances responsiveness vs. API usage
-
-## Performance Optimizations
-
-1. **Audio Buffering**: Reduces Deepgram API calls
-2. **Connection Reuse**: Maintains WebSocket across call lifecycle
-3. **Efficient Polling**: Early termination conditions
-4. **Shared Modules**: No code duplication with Twilio
-
-## Future Enhancements
-1. WebSocket-based action delivery (eliminate polling)
-2. Adaptive buffer sizing based on network conditions
-3. Enhanced error recovery mechanisms
-4. Real-time metrics dashboard
+No VAPI connection delay - VAPI ready instantly when human detected
+Intelligent IVR navigation - Reaches correct department
+Scalable - Separate services for different concerns
+Fault tolerant - Conference persists even if one leg fails
