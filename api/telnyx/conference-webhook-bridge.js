@@ -162,19 +162,16 @@ export default async function handler(req, res) {
           joined_at: new Date().toISOString()
         });
 
-        // Use the conference ACTIONS hold endpoint
-        console.log('🔇 Holding VAPI participant using call_control_id:', callControlId);
+        // Use the CALL hold endpoint (like the working version)
+        console.log('🔇 Holding VAPI using call endpoint:', callControlId);
         const holdResp = await fetch(
-          `${TELNYX_API_URL}/conferences/${conferenceId}/actions/hold`,
+          `${TELNYX_API_URL}/calls/${callControlId}/actions/hold`,
           { 
             method: 'POST', 
             headers: { 
               'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
               'Content-Type':'application/json' 
-            },
-            body: JSON.stringify({
-              call_control_ids: [callControlId]
-            })
+            }
           }
         );
         const holdResult = await holdResp.text();
@@ -188,7 +185,7 @@ export default async function handler(req, res) {
         }
 
         // Update database to track VAPI hold status
-        await supabase
+        const updateResult = await supabase
           .from('call_sessions')
           .update({ 
             vapi_on_hold: holdResp.ok,
@@ -196,6 +193,43 @@ export default async function handler(req, res) {
             conference_id: conferenceId
           })
           .eq('conference_session_id', session_id);
+          
+        console.log('📝 Update VAPI session result:', {
+          session_id,
+          updateResult: updateResult.data,
+          error: updateResult.error
+        });
+        
+        // If update didn't find a record, we might need to create one
+        if (!updateResult.data || updateResult.data.length === 0) {
+          console.log('⚠️ No VAPI session found to update, checking if we need to create one');
+          
+          // Check if a session exists with this conference_session_id
+          const { data: existingSession } = await supabase
+            .from('call_sessions')
+            .select('*')
+            .eq('conference_session_id', session_id)
+            .maybeSingle();
+            
+          if (!existingSession) {
+            console.log('🆕 Creating VAPI session');
+            const { data: newSession, error } = await supabase
+              .from('call_sessions')
+              .insert([{
+                call_id: `vapi-${session_id}`,
+                conference_session_id: session_id,
+                vapi_on_hold: holdResp.ok,
+                vapi_control_id: callControlId,
+                conference_id: conferenceId,
+                call_status: 'active',
+                created_at: new Date().toISOString()
+              }])
+              .select()
+              .single();
+              
+            console.log('VAPI session creation result:', { newSession, error });
+          }
+        }
 
         // Start monitoring for unmute conditions
         console.log('🚀 About to start unhold monitor');
@@ -242,6 +276,13 @@ export default async function handler(req, res) {
 // Monitor for conditions to unmute VAPI
 function startUnmuteMonitor(sessionId, vapiControlId, conferenceId) {
   console.log('👁️ Starting unmute monitor for session:', sessionId);
+  console.log('📊 Monitor params:', {
+    sessionId,
+    vapiControlId,
+    conferenceId,
+    clinicCallId: `clinic-${sessionId}`
+  });
+  
   let checkCount = 0;
   const maxChecks = 240; // 60 seconds at 250ms intervals
 
@@ -288,18 +329,15 @@ function startUnmuteMonitor(sessionId, vapiControlId, conferenceId) {
           return;
         }
         
-        // Unhold VAPI using conference actions endpoint
+        // Unhold VAPI using CALL endpoint (not conference endpoint)
         const unholdResp = await fetch(
-          `${TELNYX_API_URL}/conferences/${participant.conference_id}/actions/unhold`,
+          `${TELNYX_API_URL}/calls/${participant.call_control_id}/actions/unhold`,
           { 
             method: 'POST', 
             headers: { 
               'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
               'Content-Type':'application/json' 
-            },
-            body: JSON.stringify({
-              call_control_ids: [participant.call_control_id]
-            })
+            }
           }
         );
         console.log('Unhold response:', unholdResp.status);
