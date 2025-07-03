@@ -143,6 +143,13 @@ export default async function handler(req, res) {
     if (evt === 'conference.participant.joined') {
       console.log('🎯 Participant joined:', pl.participant_id, 'Call Control:', pl.call_control_id);
       
+      // Add a delayed log to see if participant_id appears later
+      setTimeout(() => {
+        console.log('⏰ DELAYED LOG (5 seconds later):');
+        console.log('  - pl object keys:', Object.keys(pl));
+        console.log('  - pl:', JSON.stringify(pl, null, 2));
+      }, 5000);
+      
       // Check if this is VAPI by looking at the client state
       let isVAPI = false;
       let sessionData = null;
