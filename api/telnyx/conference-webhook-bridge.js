@@ -184,51 +184,49 @@ export default async function handler(req, res) {
           console.error('❌ Failed to hold VAPI:', holdResult);
         }
 
-        // Update database to track VAPI hold status
-        const updateResult = await supabase
+        // Create or update VAPI session
+        // First check if a session exists with this conference_session_id
+        const { data: existingSession } = await supabase
           .from('call_sessions')
-          .update({ 
-            vapi_on_hold: holdResp.ok,
-            vapi_control_id: callControlId,
-            conference_id: conferenceId
-          })
-          .eq('conference_session_id', session_id);
+          .select('*')
+          .eq('conference_session_id', session_id)
+          .maybeSingle();
           
-        console.log('📝 Update VAPI session result:', {
-          session_id,
-          updateResult: updateResult.data,
-          error: updateResult.error
-        });
-        
-        // If update didn't find a record, we might need to create one
-        if (!updateResult.data || updateResult.data.length === 0) {
-          console.log('⚠️ No VAPI session found to update, checking if we need to create one');
-          
-          // Check if a session exists with this conference_session_id
-          const { data: existingSession } = await supabase
+        if (existingSession) {
+          console.log('📝 Updating existing VAPI session');
+          const { data: updated, error } = await supabase
             .from('call_sessions')
-            .select('*')
+            .update({ 
+              vapi_on_hold: holdResp.ok,
+              vapi_control_id: callControlId,
+              conference_id: conferenceId,
+              call_leg_id: pl.call_leg_id,
+              call_session_id: pl.call_session_id
+            })
             .eq('conference_session_id', session_id)
-            .maybeSingle();
+            .select()
+            .single();
             
-          if (!existingSession) {
-            console.log('🆕 Creating VAPI session');
-            const { data: newSession, error } = await supabase
-              .from('call_sessions')
-              .insert([{
-                call_id: `vapi-${session_id}`,
-                conference_session_id: session_id,
-                vapi_on_hold: holdResp.ok,
-                vapi_control_id: callControlId,
-                conference_id: conferenceId,
-                call_status: 'active',
-                created_at: new Date().toISOString()
-              }])
-              .select()
-              .single();
-              
-            console.log('VAPI session creation result:', { newSession, error });
-          }
+          console.log('Update result:', { updated, error });
+        } else {
+          console.log('🆕 Creating new VAPI session');
+          const { data: newSession, error } = await supabase
+            .from('call_sessions')
+            .insert([{
+              call_id: `vapi-${session_id}`,
+              conference_session_id: session_id,
+              vapi_on_hold: holdResp.ok,
+              vapi_control_id: callControlId,
+              conference_id: conferenceId,
+              call_leg_id: pl.call_leg_id,
+              call_session_id: pl.call_session_id,
+              call_status: 'active',
+              created_at: new Date().toISOString()
+            }])
+            .select()
+            .single();
+            
+          console.log('Creation result:', { newSession, error });
         }
 
         // Start monitoring for unmute conditions
