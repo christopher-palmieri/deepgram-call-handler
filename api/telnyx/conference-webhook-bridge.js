@@ -1,5 +1,5 @@
 // api/telnyx/conference-webhook-bridge.js
-// Simplified version with working hold/unhold functionality
+// Single session approach - no duplicate rows
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -56,10 +56,175 @@ async function dialClinicIntoConference(sessionData, room, human) {
   );
   const dialResult = await dialResp.json();
   console.log('Clinic dial response:', dialResp.status, JSON.stringify(dialResult));
+  
+  // NO NEED TO CREATE A NEW SESSION - Just update the existing one
+  console.log('✅ Clinic dial initiated - using existing session');
 }
 
 export default async function handler(req, res) {
   const FROM_NUMBER = process.env.TELNYX_PHONE_NUMBER || '+16092370151';
+  
+  // Test endpoint to check hold status
+  if (req.method === 'GET' && req.url.includes('check-hold')) {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const session_id = url.searchParams.get('session_id');
+    
+    if (!session_id) {
+      // Return all recent sessions
+      const { data: recentSessions } = await supabase
+        .from('call_sessions')
+        .select('*')
+        .gte('created_at', new Date(Date.now() - 300000).toISOString()) // Last 5 minutes
+        .order('created_at', { ascending: false })
+        .limit(10);
+      
+      const activeSessions = [];
+      for (const [sid, participant] of vapiParticipants.entries()) {
+        activeSessions.push({
+          session_id: sid,
+          source: 'memory',
+          on_hold: participant.on_hold,
+          call_control_id: participant.call_control_id,
+          conference_id: participant.conference_id
+        });
+      }
+      
+      return res.status(200).json({ 
+        active_sessions_memory: activeSessions,
+        recent_sessions_db: recentSessions,
+        total_count: recentSessions?.length || 0
+      });
+    }
+    
+    // Check specific session
+    const participant = vapiParticipants.get(session_id);
+    const { data: session } = await supabase
+      .from('call_sessions')
+      .select('*')
+      .eq('conference_session_id', session_id)
+      .maybeSingle();
+    
+    return res.status(200).json({
+      session_id,
+      memory_state: participant || 'not_found',
+      database_session: session || 'not_found',
+      summary: {
+        vapi_on_hold: session?.vapi_on_hold || participant?.on_hold || false,
+        ivr_detection: session?.ivr_detection_state || 'unknown',
+        human_joined: session?.human_joined_conference || false
+      }
+    });
+  }
+  
+  // Test endpoint for manual unhold
+  if (req.method === 'GET' && req.url.includes('test-unhold')) {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const session_id = url.searchParams.get('session_id');
+    
+    if (!session_id) {
+      return res.status(400).json({ 
+        error: 'Missing session_id parameter',
+        usage: '/api/telnyx/conference-webhook-bridge?test-unhold=true&session_id=YOUR_SESSION_ID'
+      });
+    }
+    
+    console.log('🧪 TEST: Manual unhold triggered for session:', session_id);
+    
+    // Get participant info from memory
+    let participant = vapiParticipants.get(session_id);
+    
+    if (!participant) {
+      // If not in memory, try to get from database
+      const { data: session } = await supabase
+        .from('call_sessions')
+        .select('*')
+        .eq('conference_session_id', session_id)
+        .maybeSingle();
+      
+      if (!session) {
+        return res.status(404).json({ 
+          error: 'Session not found',
+          searched_for: session_id,
+          active_participants: Array.from(vapiParticipants.keys())
+        });
+      }
+      
+      // Reconstruct participant info from database
+      participant = {
+        call_control_id: session.vapi_control_id,
+        conference_id: session.conference_id,
+        on_hold: session.vapi_on_hold
+      };
+    }
+    
+    if (!participant.on_hold) {
+      return res.status(200).json({ 
+        message: 'VAPI is already unheld',
+        session_id,
+        participant
+      });
+    }
+    
+    try {
+      // Try conference unhold
+      const unholdResp = await fetch(
+        `${TELNYX_API_URL}/conferences/${participant.conference_id}/actions/unhold`,
+        { 
+          method: 'POST', 
+          headers: { 
+            'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
+            'Content-Type':'application/json' 
+          },
+          body: JSON.stringify({
+            call_control_ids: [participant.call_control_id]
+          })
+        }
+      );
+      
+      const unholdResult = await unholdResp.text();
+      console.log('Conference unhold response:', unholdResp.status, unholdResult);
+      
+      if (unholdResp.ok) {
+        // Update participant state
+        if (vapiParticipants.has(session_id)) {
+          vapiParticipants.get(session_id).on_hold = false;
+        }
+        
+        // Update database
+        await supabase
+          .from('call_sessions')
+          .update({ 
+            vapi_on_hold: false,
+            vapi_unmuted_at: new Date().toISOString(),
+            vapi_unmute_reason: 'manual_test_unhold'
+          })
+          .eq('conference_session_id', session_id);
+        
+        return res.status(200).json({ 
+          success: true,
+          message: 'VAPI successfully unheld',
+          session_id,
+          participant
+        });
+      } else {
+        return res.status(500).json({ 
+          success: false,
+          error: 'Failed to unhold VAPI',
+          response: unholdResult,
+          session_id,
+          participant
+        });
+      }
+      
+    } catch (err) {
+      console.error('❌ Test unhold error:', err);
+      return res.status(500).json({ 
+        error: 'Unhold operation failed',
+        details: err.message,
+        session_id
+      });
+    }
+  }
   
   if (req.method === 'GET') {
     return res.status(200).send('Conference webhook endpoint is live');
@@ -84,7 +249,14 @@ export default async function handler(req, res) {
 
     const evt = (body.data && body.data.event_type) || body.event_type;
     const pl = (body.data && body.data.payload) || body.payload;
-    console.log('🎯 Conference webhook hit:', evt, JSON.stringify(pl));
+    
+    console.log('🎯 Conference webhook hit:', evt);
+    console.log('📋 Payload key fields:', {
+      participant_id: pl.participant_id,
+      conference_id: pl.conference_id,
+      call_control_id: pl.call_control_id,
+      client_state: pl.client_state ? 'present' : 'missing'
+    });
 
     if (['status-update', 'end-of-call-report'].includes(evt)) {
       return res.status(200).json({ received: true });
@@ -112,23 +284,66 @@ export default async function handler(req, res) {
       if (isVAPI && sessionData) {
         const { session_id, human } = sessionData;
         const room = `conf-${session_id}`;
-        const callControlId = pl.call_control_id;
-        const conferenceId = pl.conference_id;
-        
         console.log('🤖 VAPI joined conference:', room);
 
         // Store VAPI participant info
         vapiParticipants.set(session_id, {
-          call_control_id: callControlId,
-          conference_id: conferenceId,
+          call_control_id: pl.call_control_id,
+          participant_id: pl.participant_id,
+          conference_id: pl.conference_id,
           on_hold: false,
           joined_at: new Date().toISOString()
         });
 
-        // Use the conference hold endpoint
-        console.log('🔇 Holding VAPI using conference endpoint:', callControlId);
+        // Create or update THE SINGLE session
+        const { data: existingSession } = await supabase
+          .from('call_sessions')
+          .select('*')
+          .eq('conference_session_id', session_id)
+          .maybeSingle();
+          
+        if (!existingSession) {
+          // Create the session
+          const { data: newSession, error } = await supabase
+            .from('call_sessions')
+            .insert([{
+              call_id: `conf-${session_id}`, // Single ID for the conference
+              conference_session_id: session_id,
+              conference_created: true,
+              vapi_control_id: pl.call_control_id,
+              vapi_participant_id: pl.participant_id,
+              conference_id: pl.conference_id,
+              vapi_on_hold: false, // Will be updated after hold
+              target_number: human,
+              call_status: 'active',
+              bridge_mode: true,
+              created_at: new Date().toISOString()
+            }])
+            .select()
+            .single();
+            
+          if (error) {
+            console.error('❌ Error creating session:', error);
+          } else {
+            console.log('✅ Created single conference session:', newSession.call_id);
+          }
+        } else {
+          // Update existing session
+          await supabase
+            .from('call_sessions')
+            .update({
+              vapi_control_id: pl.call_control_id,
+              vapi_participant_id: pl.participant_id,
+              conference_id: pl.conference_id
+            })
+            .eq('conference_session_id', session_id);
+          console.log('✅ Updated existing session');
+        }
+
+        // Hold VAPI using conference endpoint
+        console.log('🔇 Holding VAPI using conference endpoint');
         const holdResp = await fetch(
-          `${TELNYX_API_URL}/conferences/${conferenceId}/actions/hold`,
+          `${TELNYX_API_URL}/conferences/${pl.conference_id}/actions/hold`,
           { 
             method: 'POST', 
             headers: { 
@@ -136,7 +351,7 @@ export default async function handler(req, res) {
               'Content-Type':'application/json' 
             },
             body: JSON.stringify({
-              call_control_ids: [callControlId]
+              call_control_ids: [pl.call_control_id]
             })
           }
         );
@@ -146,72 +361,37 @@ export default async function handler(req, res) {
         if (holdResp.ok) {
           vapiParticipants.get(session_id).on_hold = true;
           console.log('✅ VAPI successfully placed on hold');
+          
+          // Update hold status in database
+          await supabase
+            .from('call_sessions')
+            .update({ vapi_on_hold: true })
+            .eq('conference_session_id', session_id);
         } else {
           console.error('❌ Failed to hold VAPI:', holdResult);
         }
 
-        // Create or update the main session
-        const { data: existingSession } = await supabase
-          .from('call_sessions')
-          .select('*')
-          .eq('conference_session_id', session_id)
-          .maybeSingle();
-          
-        if (existingSession) {
-          console.log('📝 Updating existing session');
-          const { data: updated, error } = await supabase
-            .from('call_sessions')
-            .update({ 
-              vapi_on_hold: holdResp.ok,
-              vapi_control_id: callControlId,
-              conference_id: conferenceId
-            })
-            .eq('conference_session_id', session_id)
-            .select()
-            .single();
-            
-          console.log('Update result:', { updated, error });
-        } else {
-          console.log('🆕 Creating new session');
-          const { data: newSession, error } = await supabase
-            .from('call_sessions')
-            .insert([{
-              call_id: `vapi-${session_id}`,
-              conference_session_id: session_id,
-              vapi_on_hold: holdResp.ok,
-              vapi_control_id: callControlId,
-              conference_id: conferenceId,
-              call_status: 'active',
-              created_at: new Date().toISOString()
-            }])
-            .select()
-            .single();
-            
-          console.log('Creation result:', { newSession, error });
-        }
-
         // Start monitoring for unmute conditions
-        console.log('🚀 About to start unhold monitor');
-        startUnmuteMonitor(session_id, callControlId, conferenceId);
+        startUnmuteMonitor(session_id, pl.call_control_id, pl.conference_id);
 
         // Dial clinic/human into conference
         await dialClinicIntoConference({
           session_id,
           connection_id: pl.connection_id,
-          vapi_control_id: callControlId,
-          conference_id: conferenceId
+          vapi_control_id: pl.call_control_id,
+          conference_id: pl.conference_id
         }, room, human);
       }
     }
 
-    // When human joins the conference
+    // When human joins the conference (clinic leg)
     if (evt === 'conference.participant.joined' && pl.client_state) {
       try {
         const clientState = JSON.parse(atob(pl.client_state));
         if (clientState.is_conference_leg) {
           console.log('👤 Human/Clinic leg joined conference');
           
-          // Update database
+          // Update THE SINGLE session
           await supabase
             .from('call_sessions')
             .update({ 
@@ -235,55 +415,29 @@ export default async function handler(req, res) {
 // Monitor for conditions to unmute VAPI
 function startUnmuteMonitor(sessionId, vapiControlId, conferenceId) {
   console.log('👁️ Starting unmute monitor for session:', sessionId);
-  console.log('📊 Monitor params:', {
-    sessionId,
-    vapiControlId,
-    conferenceId
-  });
-  
   let checkCount = 0;
   const maxChecks = 240; // 60 seconds at 250ms intervals
 
   const monitor = setInterval(async () => {
     checkCount++;
     
-    // Log every 10th check
-    if (checkCount % 10 === 0) {
-      console.log(`⏱️ Monitor check #${checkCount} for session ${sessionId}`);
-    }
-    
     try {
-      // Get current session state from database - FIXED QUERY
-      const { data: session, error: sessionError } = await supabase
+      // Get current session state from database
+      const { data: session, error } = await supabase
         .from('call_sessions')
         .select('*')
         .eq('conference_session_id', sessionId)
         .maybeSingle();
 
-      if (sessionError) {
-        console.error('❌ Error fetching session:', sessionError);
+      if (error) {
+        console.error('❌ Error fetching session:', error);
+        return;
       }
 
       if (!session) {
         console.log('⚠️ No session found for:', sessionId);
-        console.log('🔍 Checking what sessions exist...');
-        const { data: allSessions } = await supabase
-          .from('call_sessions')
-          .select('call_id, conference_session_id')
-          .limit(5)
-          .order('created_at', { ascending: false });
-        console.log('Recent sessions:', allSessions);
         clearInterval(monitor);
         return;
-      }
-
-      // Log first time we find the session
-      if (checkCount === 1) {
-        console.log('✅ Found session:', {
-          call_id: session.call_id,
-          conference_session_id: session.conference_session_id,
-          vapi_on_hold: session.vapi_on_hold
-        });
       }
 
       // Skip if already unholding
@@ -294,10 +448,10 @@ function startUnmuteMonitor(sessionId, vapiControlId, conferenceId) {
       }
 
       // Check if we should unmute
-      const shouldUnmute = await checkUnmuteConditions(session, sessionId);
+      const shouldUnmute = await checkUnmuteConditions(session);
       
       if (shouldUnmute || checkCount >= maxChecks) {
-        console.log(`🔊 Unholding VAPI (reason: ${shouldUnmute ? shouldUnmute.reason : 'timeout'})`);
+        console.log(`🔊 Unmuting VAPI (reason: ${shouldUnmute ? shouldUnmute.reason : 'timeout'})`);
         
         // Get participant info
         const participant = vapiParticipants.get(sessionId);
@@ -321,7 +475,6 @@ function startUnmuteMonitor(sessionId, vapiControlId, conferenceId) {
             })
           }
         );
-        
         const unholdResult = await unholdResp.text();
         console.log('Unhold response:', unholdResp.status, unholdResult);
 
@@ -330,20 +483,6 @@ function startUnmuteMonitor(sessionId, vapiControlId, conferenceId) {
           participant.on_hold = false;
         } else {
           console.error('❌ Failed to unhold VAPI:', unholdResult);
-          
-          // Try alternative unhold method using calls endpoint
-          console.log('🔄 Trying alternative unhold method...');
-          const altUnholdResp = await fetch(
-            `${TELNYX_API_URL}/calls/${participant.call_control_id}/actions/unhold`,
-            { 
-              method: 'POST', 
-              headers: { 
-                'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
-                'Content-Type':'application/json' 
-              }
-            }
-          );
-          console.log('Alternative unhold response:', altUnholdResp.status);
         }
 
         // Update database
@@ -368,32 +507,22 @@ function startUnmuteMonitor(sessionId, vapiControlId, conferenceId) {
 }
 
 // Check conditions for unmuting VAPI
-async function checkUnmuteConditions(session, sessionId) {
-  // Log only first time we check
-  if (!session._conditionsChecked) {
-    console.log('🏥 Session state:', {
-      ivr_detection_state: session.ivr_detection_state,
-      human_joined: session.human_joined_conference
-    });
-    // Mark that we've logged this
-    await supabase
-      .from('call_sessions')
-      .update({ _conditionsChecked: true })
-      .eq('conference_session_id', sessionId);
-  }
-  
-  // Check if human detected
+async function checkUnmuteConditions(session) {
+  // 1. Human detected via IVR classification
   if (['human', 'ivr_then_human'].includes(session.ivr_detection_state)) {
-    console.log('✅ Human detected!', session.ivr_detection_state);
-    return { reason: `human_detected_${session.ivr_detection_state}` };
+    console.log('✅ Human detected via IVR classification:', session.ivr_detection_state);
+    return { reason: `ivr_detected_${session.ivr_detection_state}` };
   }
-  
-  // Check if human joined conference
+
+  // 2. Human joined conference (fallback)
   if (session.human_joined_conference) {
-    console.log('✅ Human joined conference!');
-    return { reason: 'human_joined_conference' };
+    const timeSinceJoin = Date.now() - new Date(session.human_joined_at).getTime();
+    if (timeSinceJoin > 2000) { // 2 seconds after human joined
+      console.log('✅ Human joined conference');
+      return { reason: 'human_joined_conference' };
+    }
   }
-  
+
   return null;
 }
 
