@@ -193,14 +193,17 @@ export default async function handler(req, res) {
         console.log('🤖 VAPI joined conference:', room);
 
         // Store VAPI participant info
-        vapiParticipants.set(session_id, {
+        const participantInfo = {
           call_control_id: callControlId,
           call_leg_id: pl.call_leg_id,
           call_session_id: pl.call_session_id,
           conference_id: conferenceId,
           on_hold: false, // Will be set to true after hold
           joined_at: new Date().toISOString()
-        });
+        };
+        
+        console.log('💾 Storing VAPI participant info:', participantInfo);
+        vapiParticipants.set(session_id, participantInfo);
 
         // Use the conference ACTIONS hold endpoint with call_control_ids in body
         console.log('🔇 Holding VAPI participant using call_control_id:', callControlId);
@@ -289,6 +292,11 @@ async function startUnmuteMonitor(sessionId, vapiControlId) {
     checkCount++;
     const now = Date.now();
     
+    // Log first check and every 10th check
+    if (checkCount === 1 || checkCount % 10 === 0) {
+      console.log(`🔄 Monitor check #${checkCount} for session ${sessionId}`);
+    }
+    
     try {
       // Get current session state from database
       const { data: session } = await supabase
@@ -336,6 +344,12 @@ async function startUnmuteMonitor(sessionId, vapiControlId) {
           clearInterval(monitor);
           return;
         }
+        
+        console.log('📤 Retrieved participant info for unhold:', {
+          call_control_id: participant.call_control_id,
+          conference_id: participant.conference_id,
+          on_hold: participant.on_hold
+        });
         
         // First check if conference is still active by getting conference details
         const confCheckResp = await fetch(
@@ -416,6 +430,16 @@ async function checkUnmuteConditions(session) {
     conference_session_id: session.conference_session_id,
     vapi_on_hold: session.vapi_on_hold,
   });
+
+  // Debug: Let's see ALL call sessions to understand the data
+  const { data: allSessions } = await supabase
+    .from('call_sessions')
+    .select('call_id, conference_session_id, ivr_detection_state, call_status, bridge_mode')
+    .or(`conference_session_id.eq.${session.conference_session_id},call_id.like.clinic-${session.conference_session_id}%`)
+    .order('created_at', { ascending: false })
+    .limit(5);
+    
+  console.log('📊 All related sessions:', JSON.stringify(allSessions, null, 2));
 
   // CRITICAL: We need to check the CLINIC leg's IVR detection, not the VAPI session's
   const clinicCallId = `clinic-${session.conference_session_id}`;
