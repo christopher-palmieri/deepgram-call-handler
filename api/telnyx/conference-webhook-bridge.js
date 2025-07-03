@@ -127,7 +127,37 @@ export default async function handler(req, res) {
     console.log('📋 Payload structure:', JSON.stringify(pl, null, 2));
 
     if (['status-update', 'end-of-call-report'].includes(evt)) {
-      return res.status(200).json({ received: true });
+      // When conference ends
+    if (evt === 'conference.ended') {
+      console.log('🏁 Conference ended:', pl.conference_id, 'Reason:', pl.reason);
+      
+      // Find and clean up any monitors for this conference
+      for (const [sessionId, participant] of vapiParticipants.entries()) {
+        if (participant.conference_id === pl.conference_id) {
+          console.log('🧹 Cleaning up participant for ended conference:', sessionId);
+          vapiParticipants.delete(sessionId);
+        }
+      }
+      
+      // Update database
+      if (pl.client_state) {
+        try {
+          const { session_id } = JSON.parse(atob(pl.client_state));
+          await supabase
+            .from('call_sessions')
+            .update({ 
+              conference_ended: true,
+              conference_ended_at: new Date().toISOString(),
+              conference_end_reason: pl.reason
+            })
+            .eq('conference_session_id', session_id);
+        } catch (e) {
+          console.error('Failed to parse client_state:', e);
+        }
+      }
+    }
+
+    return res.status(200).json({ received: true });
     }
 
     // When VAPI joins the conference
@@ -252,10 +282,12 @@ export default async function handler(req, res) {
 async function startUnmuteMonitor(sessionId, vapiControlId) {
   console.log('👁️ Starting unmute monitor for session:', sessionId);
   let checkCount = 0;
-  const maxChecks = 120; // 60 seconds at 500ms intervals
+  const maxChecks = 240; // 60 seconds at 250ms intervals
+  let lastCheckTime = Date.now();
 
   const monitor = setInterval(async () => {
     checkCount++;
+    const now = Date.now();
     
     try {
       // Get current session state from database
@@ -271,17 +303,66 @@ async function startUnmuteMonitor(sessionId, vapiControlId) {
         return;
       }
 
+      // Check if conference is still active
+      if (session.call_status === 'completed' || session.conference_ended) {
+        console.log('🛑 Conference ended, stopping unhold monitor');
+        clearInterval(monitor);
+        vapiParticipants.delete(sessionId);
+        return;
+      }
+
+      // Skip if already unholding
+      if (!session.vapi_on_hold) {
+        console.log('✅ VAPI already unheld');
+        clearInterval(monitor);
+        return;
+      }
+
       // Check if we should unmute
       const shouldUnmute = await checkUnmuteConditions(session);
       
+      // Log check frequency
+      if (checkCount % 10 === 0) {
+        console.log(`⏱️ Unhold monitor check #${checkCount} (${Math.round((now - lastCheckTime)/1000)}s since start)`);
+      }
+      
       if (shouldUnmute || checkCount >= maxChecks) {
-        console.log(`🔊 Unmuting VAPI (reason: ${shouldUnmute ? shouldUnmute.reason : 'timeout'})`);
+        console.log(`🔊 Unholding VAPI (reason: ${shouldUnmute ? shouldUnmute.reason : 'timeout'})`);
         
         // Get participant info
         const participant = vapiParticipants.get(sessionId);
         if (!participant) {
           console.error('❌ No participant info found');
           clearInterval(monitor);
+          return;
+        }
+        
+        // First check if conference is still active by getting conference details
+        const confCheckResp = await fetch(
+          `${TELNYX_API_URL}/conferences/${participant.conference_id}`,
+          { 
+            method: 'GET', 
+            headers: { 
+              'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
+              'Accept': 'application/json' 
+            }
+          }
+        );
+        
+        if (!confCheckResp.ok) {
+          const confError = await confCheckResp.text();
+          console.error('❌ Conference no longer active:', confError);
+          clearInterval(monitor);
+          vapiParticipants.delete(sessionId);
+          
+          // Update database to reflect conference ended
+          await supabase
+            .from('call_sessions')
+            .update({ 
+              conference_ended: true,
+              conference_ended_at: new Date().toISOString()
+            })
+            .eq('conference_session_id', sessionId);
           return;
         }
         
@@ -308,7 +389,7 @@ async function startUnmuteMonitor(sessionId, vapiControlId) {
           console.error('❌ Failed to unhold VAPI:', error);
         }
 
-        // Update database
+        // Update database regardless of result
         await supabase
           .from('call_sessions')
           .update({ 
@@ -326,105 +407,85 @@ async function startUnmuteMonitor(sessionId, vapiControlId) {
     } catch (err) {
       console.error('❌ Unmute monitor error:', err);
     }
-  }, 500); // Check every 500ms
+  }, 250); // Check every 250ms for faster response
 }
 
 // Check conditions for unmuting VAPI
 async function checkUnmuteConditions(session) {
-  console.log('🔍 Checking unmute conditions for session:', {
+  console.log('🔍 Checking unmute conditions for VAPI session:', {
     conference_session_id: session.conference_session_id,
-    ivr_detection_state: session.ivr_detection_state,
-    human_joined_conference: session.human_joined_conference,
     vapi_on_hold: session.vapi_on_hold,
-    telnyx_leg_id: session.telnyx_leg_id,
-    call_id: session.call_id
   });
 
-  // 1. Human detected by IVR classification
-  if (['human', 'ivr_then_human'].includes(session.ivr_detection_state)) {
-    console.log('✅ Human detected via IVR classification:', session.ivr_detection_state);
-    
-    // For direct human detection, unmute immediately
-    if (session.ivr_detection_state === 'human') {
-      return { reason: 'human_detected_direct' };
-    }
-    
-    // For ivr_then_human, wait for human to actually join
-    if (session.human_joined_conference) {
-      return { reason: 'human_detected_and_joined' };
-    } else {
-      console.log('⏳ Waiting for human to join conference...');
-    }
-  }
-
-  // 2. Check recent IVR actions (for clinic leg)
-  // We need to check the clinic leg ID, not the VAPI session ID
+  // CRITICAL: We need to check the CLINIC leg's IVR detection, not the VAPI session's
   const clinicCallId = `clinic-${session.conference_session_id}`;
   const { data: clinicSession } = await supabase
     .from('call_sessions')
-    .select('telnyx_leg_id, ivr_detection_state')
+    .select('*')
     .eq('call_id', clinicCallId)
     .maybeSingle();
     
-  if (clinicSession) {
-    console.log('🏥 Clinic session found:', {
-      telnyx_leg_id: clinicSession.telnyx_leg_id,
-      ivr_detection_state: clinicSession.ivr_detection_state
-    });
-    
-    // Check if clinic leg detected human
-    if (['human', 'ivr_then_human'].includes(clinicSession.ivr_detection_state)) {
-      console.log('✅ Human detected on clinic leg!');
-      return { reason: 'human_detected_clinic_leg' };
-    }
-    
-    // Check IVR actions on clinic leg
-    if (clinicSession.telnyx_leg_id) {
-      const { data: recentActions } = await supabase
-        .from('ivr_events')
-        .select('*')
-        .eq('call_id', clinicSession.telnyx_leg_id)
-        .eq('executed', true)
-        .gte('executed_at', new Date(Date.now() - 30000).toISOString()) // Last 30 seconds
-        .order('executed_at', { ascending: false });
-
-      console.log('📋 Recent IVR actions on clinic leg:', recentActions?.length || 0);
-
-      if (recentActions && recentActions.length > 0) {
-        // Check if we navigated to reception/scheduling
-        const navigationComplete = recentActions.some(action => {
-          const transcript = (action.transcript || '').toLowerCase();
-          return (
-            transcript.includes('reception') ||
-            transcript.includes('scheduling') ||
-            transcript.includes('front desk') ||
-            transcript.includes('speak to someone') ||
-            transcript.includes('representative')
-          ) && action.action_type === 'dtmf';
-        });
-
-        if (navigationComplete) {
-          console.log('✅ Navigation to reception/front desk complete');
-          return { reason: 'ivr_navigation_complete' };
-        }
-
-        // Multiple successful actions
-        if (recentActions.length >= 2) {
-          console.log('✅ Multiple IVR actions executed');
-          return { reason: 'multiple_ivr_actions' };
-        }
-      }
-    }
-  } else {
-    console.log('⚠️ No clinic session found for conference');
+  if (!clinicSession) {
+    console.log('⚠️ No clinic session found yet for:', clinicCallId);
+    return null;
   }
 
-  // 3. Human joined but no IVR detection (direct human answer)
-  if (session.human_joined_conference && !session.ivr_detection_state) {
-    const timeSinceJoin = Date.now() - new Date(session.human_joined_at).getTime();
-    console.log(`⏱️ Human joined ${Math.round(timeSinceJoin/1000)}s ago without IVR detection`);
-    if (timeSinceJoin > 3000) { // 3 seconds after human joined
-      return { reason: 'human_joined_no_ivr' };
+  console.log('🏥 Clinic session state:', {
+    call_id: clinicSession.call_id,
+    telnyx_leg_id: clinicSession.telnyx_leg_id,
+    ivr_detection_state: clinicSession.ivr_detection_state,
+    stream_started: clinicSession.stream_started,
+    websocket_connected: clinicSession.websocket_connected
+  });
+  
+  // Check if clinic leg detected human
+  if (['human', 'ivr_then_human'].includes(clinicSession.ivr_detection_state)) {
+    console.log('✅ Human detected on clinic leg!', clinicSession.ivr_detection_state);
+    return { reason: `human_detected_clinic_leg_${clinicSession.ivr_detection_state}` };
+  }
+  
+  // Check IVR actions on clinic leg
+  if (clinicSession.telnyx_leg_id) {
+    const { data: recentActions } = await supabase
+      .from('ivr_events')
+      .select('*')
+      .eq('call_id', clinicSession.telnyx_leg_id)
+      .eq('executed', true)
+      .gte('executed_at', new Date(Date.now() - 30000).toISOString()) // Last 30 seconds
+      .order('executed_at', { ascending: false })
+      .limit(5);
+
+    console.log('📋 Recent IVR actions on clinic leg:', recentActions?.length || 0);
+    
+    if (recentActions && recentActions.length > 0) {
+      console.log('Recent actions:', recentActions.map(a => ({
+        action_type: a.action_type,
+        action_value: a.action_value,
+        transcript: a.transcript?.substring(0, 50) + '...'
+      })));
+      
+      // Check if we navigated to reception/scheduling
+      const navigationComplete = recentActions.some(action => {
+        const transcript = (action.transcript || '').toLowerCase();
+        return (
+          transcript.includes('reception') ||
+          transcript.includes('scheduling') ||
+          transcript.includes('front desk') ||
+          transcript.includes('speak to someone') ||
+          transcript.includes('representative')
+        ) && action.action_type === 'dtmf';
+      });
+
+      if (navigationComplete) {
+        console.log('✅ Navigation to reception/front desk complete');
+        return { reason: 'ivr_navigation_complete' };
+      }
+
+      // Multiple successful actions
+      if (recentActions.length >= 2) {
+        console.log('✅ Multiple IVR actions executed');
+        return { reason: 'multiple_ivr_actions' };
+      }
     }
   }
 
