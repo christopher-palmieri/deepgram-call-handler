@@ -36,6 +36,7 @@ async function dialClinicIntoConference(sessionData, room, human) {
       session_id: sessionData.session_id,
       conference_name: room,
       vapi_control_id: sessionData.vapi_control_id,
+      conference_id: sessionData.conference_id,  // ADD THIS
       is_conference_leg: true
     }))
   };
@@ -77,6 +78,7 @@ async function dialClinicIntoConference(sessionData, room, human) {
         target_number: human,
         call_status: 'active',
         bridge_mode: true,
+        conference_id: sessionData.conference_id,  // ADD THIS
         created_at: new Date().toISOString()
       }]);
     console.log('✅ Created call session for clinic leg');
@@ -85,7 +87,8 @@ async function dialClinicIntoConference(sessionData, room, human) {
       .from('call_sessions')
       .update({
         vapi_control_id: sessionData.vapi_control_id,
-        vapi_on_hold: true
+        vapi_on_hold: true,
+        conference_id: sessionData.conference_id  // ADD THIS
       })
       .eq('call_id', clinicCallId);
     console.log('✅ Updated existing call session');
@@ -202,7 +205,8 @@ export default async function handler(req, res) {
         await dialClinicIntoConference({
           session_id,
           connection_id: pl.connection_id,
-          vapi_control_id: callControlId
+          vapi_control_id: callControlId,
+          conference_id: conferenceId  // ADD THIS
         }, room, human);
       }
     }
