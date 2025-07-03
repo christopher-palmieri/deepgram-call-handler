@@ -162,16 +162,19 @@ export default async function handler(req, res) {
           joined_at: new Date().toISOString()
         });
 
-        // Use the CALL hold endpoint (like the working version)
-        console.log('🔇 Holding VAPI using call endpoint:', callControlId);
+        // Use the conference hold endpoint (which was working before)
+        console.log('🔇 Holding VAPI using conference endpoint:', callControlId);
         const holdResp = await fetch(
-          `${TELNYX_API_URL}/calls/${callControlId}/actions/hold`,
+          `${TELNYX_API_URL}/conferences/${conferenceId}/actions/hold`,
           { 
             method: 'POST', 
             headers: { 
               'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
               'Content-Type':'application/json' 
-            }
+            },
+            body: JSON.stringify({
+              call_control_ids: [callControlId]
+            })
           }
         );
         const holdResult = await holdResp.text();
@@ -199,9 +202,7 @@ export default async function handler(req, res) {
             .update({ 
               vapi_on_hold: holdResp.ok,
               vapi_control_id: callControlId,
-              conference_id: conferenceId,
-              call_leg_id: pl.call_leg_id,
-              call_session_id: pl.call_session_id
+              conference_id: conferenceId
             })
             .eq('conference_session_id', session_id)
             .select()
@@ -218,8 +219,6 @@ export default async function handler(req, res) {
               vapi_on_hold: holdResp.ok,
               vapi_control_id: callControlId,
               conference_id: conferenceId,
-              call_leg_id: pl.call_leg_id,
-              call_session_id: pl.call_session_id,
               call_status: 'active',
               created_at: new Date().toISOString()
             }])
