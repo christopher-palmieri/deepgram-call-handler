@@ -293,16 +293,36 @@ function startUnmuteMonitor(sessionId, vapiControlId, conferenceId) {
     
     try {
       // Get current session state from database
-      const { data: session } = await supabase
+      const { data: session, error: sessionError } = await supabase
         .from('call_sessions')
         .select('*')
         .eq('conference_session_id', sessionId)
         .maybeSingle();
 
+      if (sessionError) {
+        console.error('❌ Error fetching session:', sessionError);
+      }
+
       if (!session) {
         console.log('⚠️ No session found for:', sessionId);
+        console.log('🔍 Checking what sessions exist...');
+        const { data: allSessions } = await supabase
+          .from('call_sessions')
+          .select('call_id, conference_session_id')
+          .limit(5)
+          .order('created_at', { ascending: false });
+        console.log('Recent sessions:', allSessions);
         clearInterval(monitor);
         return;
+      }
+
+      // Log first time we find the session
+      if (checkCount === 1) {
+        console.log('✅ Found VAPI session:', {
+          call_id: session.call_id,
+          conference_session_id: session.conference_session_id,
+          vapi_on_hold: session.vapi_on_hold
+        });
       }
 
       // Skip if already unholding
