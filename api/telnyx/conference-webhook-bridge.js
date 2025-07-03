@@ -1,5 +1,6 @@
 // api/telnyx/conference-webhook-bridge.js
 // Enhanced conference webhook that unmutes VAPI based on IVR events
+// LOGGING VERSION - Just adds console.logs to see webhook structure
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -119,7 +120,20 @@ export default async function handler(req, res) {
 
     const evt = (body.data && body.data.event_type) || body.event_type;
     const pl = (body.data && body.data.payload) || body.payload;
-    console.log('🎯 Conference webhook hit:', evt, JSON.stringify(pl));
+    
+    // ADD COMPREHENSIVE LOGGING HERE
+    console.log('🎯 Conference webhook hit:', evt);
+    console.log('📦 Full body structure:', JSON.stringify(body, null, 2));
+    console.log('📋 Payload structure:', JSON.stringify(pl, null, 2));
+    
+    // Log specific fields we're looking for
+    console.log('🔍 Looking for participant ID in:');
+    console.log('  - pl.participant_id:', pl.participant_id);
+    console.log('  - pl.id:', pl.id);
+    console.log('  - pl.participant?.id:', pl.participant?.id);
+    console.log('  - pl.conference_id:', pl.conference_id);
+    console.log('  - pl.conference?.id:', pl.conference?.id);
+    console.log('  - pl.call_control_id:', pl.call_control_id);
 
     if (['status-update', 'end-of-call-report'].includes(evt)) {
       return res.status(200).json({ received: true });
