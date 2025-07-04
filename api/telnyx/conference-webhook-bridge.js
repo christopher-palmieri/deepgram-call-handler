@@ -121,6 +121,14 @@ function initializeClassificationListener() {
           if (vapiInfo) {
             console.log('🔊 Found VAPI to unhold:', vapiInfo);
             
+            // Check if vapi_on_hold is false (already unholded somehow)
+            if (updatedSession.vapi_on_hold === false) {
+              console.log('⚠️ VAPI appears to already be off hold in database');
+              
+              // Still try to unhold in case database is out of sync
+              console.log('🔄 Attempting unhold anyway in case database is out of sync');
+            }
+            
             try {
               // Unhold the VAPI participant
               const unholdResp = await fetch(
@@ -140,8 +148,8 @@ function initializeClassificationListener() {
               const responseText = await unholdResp.text();
               console.log('Unhold response:', unholdResp.status, responseText);
               
-              if (unholdResp.ok) {
-                console.log('✅ VAPI unhold successful');
+              if (unholdResp.ok || unholdResp.status === 404) {
+                console.log('✅ VAPI unhold completed (or already unholded)');
                 
                 // Update the ORIGINAL session row (with conference_session_id)
                 await supabase
@@ -154,6 +162,8 @@ function initializeClassificationListener() {
                   .eq('conference_session_id', sessionId);
                 
                 vapiParticipantsWaiting.delete(sessionId);
+              } else {
+                console.error('❌ Unhold failed:', unholdResp.status, responseText);
               }
             } catch (error) {
               console.error('❌ Error during unhold:', error);
@@ -161,16 +171,56 @@ function initializeClassificationListener() {
           } else {
             console.log('⚠️ No VAPI info in waiting map for session:', sessionId);
             console.log('Current waiting map keys:', Array.from(vapiParticipantsWaiting.keys()));
+            
+            // Even if not in waiting map, try to unhold if we have the info in the database
+            if (updatedSession.vapi_control_id && updatedSession.conference_id) {
+              console.log('🔄 Attempting unhold using database info');
+              console.log('   Conference ID:', updatedSession.conference_id);
+              console.log('   VAPI Control ID:', updatedSession.vapi_control_id);
+              
+              try {
+                const unholdResp = await fetch(
+                  `${TELNYX_API_URL}/conferences/${updatedSession.conference_id}/actions/unhold`,
+                  { 
+                    method: 'POST', 
+                    headers: { 
+                      'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
+                      'Content-Type': 'application/json' 
+                    },
+                    body: JSON.stringify({
+                      call_control_ids: [updatedSession.vapi_control_id]
+                    })
+                  }
+                );
+                
+                const responseText = await unholdResp.text();
+                console.log('Database-based unhold response:', unholdResp.status, responseText);
+                
+                if (unholdResp.ok || unholdResp.status === 404) {
+                  console.log('✅ Successfully unholded using database info');
+                  
+                  await supabase
+                    .from('call_sessions')
+                    .update({ 
+                      vapi_on_hold: false,
+                      vapi_unmuted_at: new Date().toISOString(),
+                      vapi_unmute_reason: 'human_detected_database_info'
+                    })
+                    .eq('conference_session_id', sessionId);
+                }
+              } catch (error) {
+                console.error('❌ Error during database-based unhold:', error);
+              }
+            }
           }
         }
         
         // ALSO check if classification changed to human on the main session row
         if (updatedSession.conference_session_id &&
             updatedSession.ivr_detection_state === 'human' && 
-            previousSession.ivr_detection_state !== 'human' &&
-            updatedSession.vapi_on_hold === true) {
+            previousSession.ivr_detection_state !== 'human') {
           
-          console.log('🎉 Human classification detected for session:', updatedSession.conference_session_id);
+          console.log('🎉 Human classification detected for main session:', updatedSession.conference_session_id);
           
           // Check if we have VAPI info in our waiting map
           const vapiInfo = vapiParticipantsWaiting.get(updatedSession.conference_session_id);
@@ -201,7 +251,7 @@ function initializeClassificationListener() {
               const responseText = await unholdResp.text();
               console.log('Unhold response:', unholdResp.status, responseText);
               
-              if (unholdResp.ok) {
+              if (unholdResp.ok || unholdResp.status === 404) {
                 console.log('✅ VAPI unhold successful via real-time');
                 
                 // Update database to reflect unhold
@@ -319,6 +369,12 @@ export default async function handler(req, res) {
       timestamp: new Date().toISOString(),
       vapiWaitingCount: vapiParticipantsWaiting.size,
       vapiWaitingKeys: Array.from(vapiParticipantsWaiting.keys()),
+      vapiWaitingDetails: Array.from(vapiParticipantsWaiting.entries()).map(([key, value]) => ({
+        sessionId: key,
+        conferenceId: value.conference_id,
+        callControlId: value.call_control_id,
+        joinedAt: value.joined_at
+      })),
       subscriptionActive: !!classificationSubscription,
       activeChannels: supabase.getChannels().map(ch => ({
         topic: ch.topic,
@@ -443,7 +499,7 @@ export default async function handler(req, res) {
           }
         } else {
           // Update existing session
-          await supabase
+          const { data: updateResult } = await supabase
             .from('call_sessions')
             .update({ 
               vapi_on_hold: holdResp.ok,
@@ -451,8 +507,9 @@ export default async function handler(req, res) {
               vapi_participant_id: pl.participant_id,
               conference_id: pl.conference_id
             })
-            .eq('conference_session_id', session_id);
-          console.log('✅ Updated existing call session');
+            .eq('conference_session_id', session_id)
+            .select();
+          console.log('✅ Updated existing call session:', updateResult?.[0]?.id);
         }
 
         // Dial clinic/human into conference
@@ -537,17 +594,19 @@ setInterval(async () => {
       // Check the session for human detection (check both main session and clinic leg)
       const { data: sessions } = await supabase
         .from('call_sessions')
-        .select('ivr_detection_state, vapi_on_hold, call_id')
+        .select('ivr_detection_state, vapi_on_hold, call_id, conference_id, vapi_control_id')
         .or(`conference_session_id.eq.${sessionId},call_id.eq.clinic-${sessionId}`);
       
       // Check if any of the related sessions show human detected
       const humanDetected = sessions?.some(s => s.ivr_detection_state === 'human');
-      const vapiStillOnHold = sessions?.some(s => s.conference_session_id === sessionId && s.vapi_on_hold === true);
+      const mainSession = sessions?.find(s => s.conference_session_id === sessionId);
       
-      if (humanDetected && vapiStillOnHold) {
+      if (humanDetected && mainSession) {
         console.log('🔧 Safety net: Found VAPI that should be unholded:', sessionId);
+        console.log('   Human detected in:', sessions.find(s => s.ivr_detection_state === 'human')?.call_id);
+        console.log('   VAPI on hold:', mainSession.vapi_on_hold);
         
-        // Trigger unhold
+        // Always try to unhold if human detected, regardless of database state
         const unholdResp = await fetch(
           `${TELNYX_API_URL}/conferences/${vapiInfo.conference_id}/actions/unhold`,
           { 
@@ -565,8 +624,8 @@ setInterval(async () => {
         const responseText = await unholdResp.text();
         console.log('Safety net unhold response:', unholdResp.status, responseText);
         
-        if (unholdResp.ok) {
-          console.log('✅ Safety net: Successfully unholded VAPI');
+        if (unholdResp.ok || unholdResp.status === 404) {
+          console.log('✅ Safety net: Successfully unholded VAPI (or already unholded)');
           
           await supabase
             .from('call_sessions')
