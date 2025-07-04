@@ -1,5 +1,5 @@
 // api/telnyx/conference-webhook-bridge.js
-// Enhanced conference webhook that unmutes VAPI based on IVR events
+// Enhanced conference webhook with real-time VAPI unhold based on IVR classification
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -12,8 +12,129 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Track VAPI participants and their hold status
-const vapiParticipants = new Map();
+// Map to track active VAPI participants waiting to be unholded
+const vapiParticipantsWaiting = new Map();
+let classificationSubscription = null;
+let subscriptionRetryCount = 0;
+
+// Initialize real-time listener for classification changes
+function initializeClassificationListener() {
+  console.log('🎧 Initializing real-time classification listener');
+  
+  // Clean up existing subscription if any
+  if (classificationSubscription) {
+    supabase.removeChannel(classificationSubscription);
+  }
+  
+  classificationSubscription = supabase
+    .channel('ivr_classification_changes')
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'call_sessions',
+        filter: 'ivr_detection_state=neq.null'
+      },
+      async (payload) => {
+        const { new: updatedSession, old: previousSession } = payload;
+        
+        console.log('📡 Classification change detected:', {
+          session_id: updatedSession.conference_session_id,
+          old_state: previousSession.ivr_detection_state,
+          new_state: updatedSession.ivr_detection_state,
+          vapi_on_hold: updatedSession.vapi_on_hold
+        });
+        
+        // Check if classification changed to human
+        if (updatedSession.ivr_detection_state === 'human' && 
+            previousSession.ivr_detection_state !== 'human') {
+          
+          console.log('🎉 Human classification detected for session:', updatedSession.conference_session_id);
+          
+          // Check if we have a waiting VAPI for this session
+          const vapiInfo = vapiParticipantsWaiting.get(updatedSession.conference_session_id);
+          
+          if (vapiInfo && updatedSession.vapi_on_hold) {
+            console.log('🔊 Unholding VAPI for session:', updatedSession.conference_session_id);
+            
+            try {
+              // Unhold the VAPI participant
+              const unholdResp = await fetch(
+                `${TELNYX_API_URL}/conferences/${vapiInfo.conferenceId}/participants/${vapiInfo.participantId}/unhold`,
+                { 
+                  method: 'PUT', 
+                  headers: { 
+                    'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
+                    'Content-Type': 'application/json' 
+                  },
+                  body: JSON.stringify({})
+                }
+              );
+              
+              const responseText = await unholdResp.text();
+              console.log('Unhold response:', unholdResp.status, responseText);
+              
+              if (unholdResp.ok) {
+                console.log('✅ VAPI unhold successful via real-time');
+                
+                // Update database
+                await supabase
+                  .from('call_sessions')
+                  .update({ 
+                    vapi_on_hold: false,
+                    vapi_unmuted_at: new Date().toISOString(),
+                    vapi_unmute_reason: 'human_detected_realtime'
+                  })
+                  .eq('conference_session_id', updatedSession.conference_session_id);
+                
+                // Remove from waiting map
+                vapiParticipantsWaiting.delete(updatedSession.conference_session_id);
+                console.log('✅ Removed session from waiting map');
+              } else {
+                console.error('❌ Unhold failed:', unholdResp.status, responseText);
+              }
+            } catch (error) {
+              console.error('❌ Error during unhold process:', error);
+            }
+          } else if (!vapiInfo) {
+            console.log('⚠️ No VAPI info found for session:', updatedSession.conference_session_id);
+          } else if (!updatedSession.vapi_on_hold) {
+            console.log('ℹ️ VAPI already off hold for session:', updatedSession.conference_session_id);
+          }
+        }
+        
+        // Also handle ivr_then_human if you want immediate unhold
+        if (updatedSession.ivr_detection_state === 'ivr_then_human' && 
+            previousSession.ivr_detection_state !== 'ivr_then_human' &&
+            updatedSession.vapi_on_hold) {
+          console.log('📞 IVR-then-human detected, considering unhold...');
+          // You could add logic here if you want to unhold on ivr_then_human
+        }
+      }
+    )
+    .subscribe((status) => {
+      console.log('📡 Classification listener subscription status:', status);
+      if (status === 'SUBSCRIBED') {
+        subscriptionRetryCount = 0;
+        console.log('✅ Successfully subscribed to classification changes');
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.error('❌ Subscription error, will retry...');
+        handleSubscriptionError();
+      }
+    });
+}
+
+// Handle subscription errors with exponential backoff
+function handleSubscriptionError() {
+  subscriptionRetryCount++;
+  const retryDelay = Math.min(1000 * Math.pow(2, subscriptionRetryCount), 30000);
+  console.log(`⏳ Retrying subscription in ${retryDelay}ms (attempt ${subscriptionRetryCount})`);
+  setTimeout(initializeClassificationListener, retryDelay);
+}
+
+// Initialize the listener when this module loads
+initializeClassificationListener();
 
 // Helper function to dial clinic into conference
 async function dialClinicIntoConference(sessionData, room, human) {
@@ -149,13 +270,14 @@ export default async function handler(req, res) {
         const room = `conf-${session_id}`;
         console.log('🤖 VAPI joined conference:', room);
 
-        // Store VAPI participant info
-        vapiParticipants.set(session_id, {
-          call_control_id: pl.call_control_id,
-          participant_id: pl.participant_id,
-          on_hold: false, // Will be set to true after hold
-          joined_at: new Date().toISOString()
+        // Store VAPI participant info for real-time unhold
+        vapiParticipantsWaiting.set(session_id, {
+          conferenceId: pl.conference_id,
+          participantId: pl.participant_id,
+          callControlId: pl.call_control_id,
+          joinedAt: new Date().toISOString()
         });
+        console.log('📝 Added VAPI to waiting map:', session_id);
 
         // Use the conference hold endpoint instead of call hold
         console.log('🔇 Holding VAPI participant:', pl.participant_id);
@@ -174,7 +296,9 @@ export default async function handler(req, res) {
         console.log('Hold response:', holdResp.status, holdResult);
         
         if (holdResp.ok) {
-          vapiParticipants.get(session_id).on_hold = true;
+          console.log('✅ VAPI successfully placed on hold');
+        } else {
+          console.error('❌ Failed to hold VAPI');
         }
 
         // Update database to track VAPI hold status
@@ -188,15 +312,12 @@ export default async function handler(req, res) {
           })
           .eq('conference_session_id', session_id);
 
-              // Dial clinic/human into conference
+        // Dial clinic/human into conference
         await dialClinicIntoConference({
           session_id,
           connection_id: pl.connection_id,
           vapi_control_id: pl.call_control_id
         }, room, human);
-
-        // Start monitoring for unmute conditions
-        startUnmuteMonitor(session_id, pl.call_control_id);
       }
     }
 
@@ -231,152 +352,61 @@ export default async function handler(req, res) {
   }
 }
 
-// Monitor for conditions to unmute VAPI
-async function startUnmuteMonitor(sessionId, vapiControlId) {
-  console.log('👁️ Starting unmute monitor for session:', sessionId);
-  let checkCount = 0;
-  const maxChecks = 120; // 60 seconds at 500ms intervals
-
-  const monitor = setInterval(async () => {
-    checkCount++;
-    
+// Safety net: Periodic check for missed real-time events
+setInterval(async () => {
+  if (vapiParticipantsWaiting.size === 0) return;
+  
+  console.log('🔍 Running safety net check for', vapiParticipantsWaiting.size, 'waiting VAPI participants');
+  
+  for (const [sessionId, vapiInfo] of vapiParticipantsWaiting.entries()) {
     try {
-      // Get current session state from database
+      // Check if this session should be unholded
       const { data: session } = await supabase
         .from('call_sessions')
-        .select('*')
+        .select('ivr_detection_state, vapi_on_hold')
         .eq('conference_session_id', sessionId)
-        .maybeSingle();
-
-      if (!session) {
-        console.log('⚠️ No session found for:', sessionId);
-        clearInterval(monitor);
-        return;
-      }
-
-      // Check if we should unmute
-      const shouldUnmute = await checkUnmuteConditions(session);
+        .single();
       
-      if (shouldUnmute || checkCount >= maxChecks) {
-        console.log(`🔊 Unmuting VAPI (reason: ${shouldUnmute ? shouldUnmute.reason : 'timeout'})`);
+      if (session?.ivr_detection_state === 'human' && session.vapi_on_hold) {
+        console.log('🔧 Safety net: Found VAPI that should be unholded:', sessionId);
         
-        // Get participant info
-        const participant = vapiParticipants.get(sessionId);
-        if (!participant) {
-          console.error('❌ No participant info found');
-          clearInterval(monitor);
-          return;
-        }
-        
-        // Get conference ID from session
-        const { data: sessionData } = await supabase
-          .from('call_sessions')
-          .select('conference_id')
-          .eq('conference_session_id', sessionId)
-          .single();
-        
-        if (!sessionData?.conference_id) {
-          console.error('❌ No conference ID found');
-          clearInterval(monitor);
-          return;
-        }
-        
-        // Unhold VAPI using conference participant endpoint
+        // Trigger unhold
         const unholdResp = await fetch(
-          `${TELNYX_API_URL}/conferences/${sessionData.conference_id}/participants/${participant.participant_id}/unhold`,
+          `${TELNYX_API_URL}/conferences/${vapiInfo.conferenceId}/participants/${vapiInfo.participantId}/unhold`,
           { 
             method: 'PUT', 
             headers: { 
               'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
-              'Content-Type':'application/json' 
+              'Content-Type': 'application/json' 
             },
             body: JSON.stringify({})
           }
         );
-        console.log('Unhold response:', unholdResp.status);
-
-        // Update database
-        await supabase
-          .from('call_sessions')
-          .update({ 
-            vapi_on_hold: false,
-            vapi_unmuted_at: new Date().toISOString(),
-            vapi_unmute_reason: shouldUnmute ? shouldUnmute.reason : 'timeout'
-          })
-          .eq('conference_session_id', sessionId);
-
-        // Clean up
-        vapiParticipants.delete(sessionId);
-        clearInterval(monitor);
+        
+        if (unholdResp.ok) {
+          console.log('✅ Safety net: Successfully unholded VAPI');
+          
+          await supabase
+            .from('call_sessions')
+            .update({ 
+              vapi_on_hold: false,
+              vapi_unmuted_at: new Date().toISOString(),
+              vapi_unmute_reason: 'human_detected_safety_net'
+            })
+            .eq('conference_session_id', sessionId);
+          
+          vapiParticipantsWaiting.delete(sessionId);
+        }
       }
-
-    } catch (err) {
-      console.error('❌ Unmute monitor error:', err);
-    }
-  }, 500); // Check every 500ms
-}
-
-// Check conditions for unmuting VAPI
-async function checkUnmuteConditions(session) {
-  // 1. Human detected
-  if (['human', 'ivr_then_human'].includes(session.ivr_detection_state)) {
-    // Wait for human to actually join the conference
-    if (session.human_joined_conference) {
-      return { reason: 'human_detected_and_joined' };
+      
+      // Clean up old entries (over 5 minutes)
+      const age = Date.now() - new Date(vapiInfo.joinedAt).getTime();
+      if (age > 300000) {
+        console.log('🧹 Removing stale entry from waiting map:', sessionId);
+        vapiParticipantsWaiting.delete(sessionId);
+      }
+    } catch (error) {
+      console.error('❌ Safety net error for session', sessionId, ':', error);
     }
   }
-
-  // 2. Check recent IVR actions
-  const { data: recentActions } = await supabase
-    .from('ivr_events')
-    .select('*')
-    .eq('call_id', session.call_id)
-    .eq('executed', true)
-    .gte('executed_at', new Date(Date.now() - 30000).toISOString()) // Last 30 seconds
-    .order('executed_at', { ascending: false });
-
-  if (recentActions && recentActions.length > 0) {
-    // Check if we navigated to reception/scheduling
-    const navigationComplete = recentActions.some(action => {
-      const transcript = (action.transcript || '').toLowerCase();
-      return (
-        transcript.includes('reception') ||
-        transcript.includes('scheduling') ||
-        transcript.includes('front desk') ||
-        transcript.includes('speak to someone') ||
-        transcript.includes('representative')
-      ) && action.action_type === 'dtmf';
-    });
-
-    if (navigationComplete) {
-      return { reason: 'ivr_navigation_complete' };
-    }
-
-    // Multiple successful actions
-    if (recentActions.length >= 2) {
-      return { reason: 'multiple_ivr_actions' };
-    }
-  }
-
-  // 3. Human joined but no IVR detection (direct human answer)
-  if (session.human_joined_conference && !session.ivr_detection_state) {
-    const timeSinceJoin = Date.now() - new Date(session.human_joined_at).getTime();
-    if (timeSinceJoin > 3000) { // 3 seconds after human joined
-      return { reason: 'human_joined_no_ivr' };
-    }
-  }
-
-  return null;
-}
-
-// Clean up old participants periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [sessionId, participant] of vapiParticipants.entries()) {
-    const age = now - new Date(participant.joined_at).getTime();
-    if (age > 300000) { // 5 minutes
-      console.log('🧹 Cleaning up old participant:', sessionId);
-      vapiParticipants.delete(sessionId);
-    }
-  }
-}, 60000); // Every minute
+}, 30000); // Run every 30 seconds
