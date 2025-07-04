@@ -34,36 +34,36 @@ function initializeClassificationListener() {
         event: 'UPDATE',
         schema: 'public',
         table: 'call_sessions'
-        // Removed filter to catch ALL updates for debugging
       },
       async (payload) => {
         const { new: updatedSession, old: previousSession } = payload;
         
-        // Debug log ALL updates
+        // Log all updates to understand what's happening
         console.log('📡 Database update detected:', {
           conference_session_id: updatedSession.conference_session_id,
           old_ivr_state: previousSession.ivr_detection_state,
           new_ivr_state: updatedSession.ivr_detection_state,
           vapi_on_hold: updatedSession.vapi_on_hold,
-          call_id: updatedSession.call_id
+          vapi_control_id: updatedSession.vapi_control_id
         });
         
-        // Skip if no conference_session_id
-        if (!updatedSession.conference_session_id) {
-          return;
-        }
-        
-        // Check if classification changed to human
-        if (updatedSession.ivr_detection_state === 'human' && 
-            previousSession.ivr_detection_state !== 'human') {
+        // Check if classification changed to human AND we have a conference session
+        if (updatedSession.conference_session_id &&
+            updatedSession.ivr_detection_state === 'human' && 
+            previousSession.ivr_detection_state !== 'human' &&
+            updatedSession.vapi_on_hold === true) {
           
           console.log('🎉 Human classification detected for session:', updatedSession.conference_session_id);
           
-          // Check if we have a waiting VAPI for this session
+          // Check if we have VAPI info in our waiting map
           const vapiInfo = vapiParticipantsWaiting.get(updatedSession.conference_session_id);
           
-          if (vapiInfo && updatedSession.vapi_on_hold) {
-            console.log('🔊 Unholding VAPI for session:', updatedSession.conference_session_id);
+          if (vapiInfo) {
+            console.log('🔊 Found VAPI in waiting map, unholding:', {
+              session_id: updatedSession.conference_session_id,
+              conference_id: vapiInfo.conference_id,
+              call_control_id: vapiInfo.call_control_id
+            });
             
             try {
               // Unhold the VAPI participant
@@ -87,7 +87,7 @@ function initializeClassificationListener() {
               if (unholdResp.ok) {
                 console.log('✅ VAPI unhold successful via real-time');
                 
-                // Update database
+                // Update database to reflect unhold
                 await supabase
                   .from('call_sessions')
                   .update({ 
@@ -106,19 +106,10 @@ function initializeClassificationListener() {
             } catch (error) {
               console.error('❌ Error during unhold process:', error);
             }
-          } else if (!vapiInfo) {
-            console.log('⚠️ No VAPI info found for session:', updatedSession.conference_session_id);
-          } else if (!updatedSession.vapi_on_hold) {
-            console.log('ℹ️ VAPI already off hold for session:', updatedSession.conference_session_id);
+          } else {
+            console.log('⚠️ No VAPI info found in waiting map for session:', updatedSession.conference_session_id);
+            console.log('Current waiting map keys:', Array.from(vapiParticipantsWaiting.keys()));
           }
-        }
-        
-        // Also handle ivr_then_human if you want immediate unhold
-        if (updatedSession.ivr_detection_state === 'ivr_then_human' && 
-            previousSession.ivr_detection_state !== 'ivr_then_human' &&
-            updatedSession.vapi_on_hold) {
-          console.log('📞 IVR-then-human detected, considering unhold...');
-          // You could add logic here if you want to unhold on ivr_then_human
         }
       }
     )
@@ -186,41 +177,18 @@ async function dialClinicIntoConference(sessionData, room, human) {
   const dialResult = await dialResp.json();
   console.log('Clinic dial response:', dialResp.status, JSON.stringify(dialResult));
   
-  // Store the conference info in database
-  const clinicCallId = `clinic-${sessionData.session_id}`;
-  
-  const { data: existingSession } = await supabase
+  // Update the existing session with clinic leg info
+  // Note: There's only ONE row per conference session
+  await supabase
     .from('call_sessions')
-    .select('*')
-    .eq('call_id', clinicCallId)
-    .maybeSingle();
+    .update({
+      target_number: human,
+      clinic_dial_initiated: true,
+      clinic_dial_initiated_at: new Date().toISOString()
+    })
+    .eq('conference_session_id', sessionData.session_id);
   
-  if (!existingSession) {
-    await supabase
-      .from('call_sessions')
-      .insert([{
-        call_id: clinicCallId,
-        conference_session_id: sessionData.session_id,
-        conference_created: true,
-        vapi_control_id: sessionData.vapi_control_id,
-        vapi_on_hold: true,
-        target_number: human,
-        call_status: 'active',
-        bridge_mode: true,
-        created_at: new Date().toISOString()
-        // Note: telnyx_leg_id will be filled in when the call is initiated
-      }]);
-    console.log('✅ Created call session for clinic leg');
-  } else {
-    await supabase
-      .from('call_sessions')
-      .update({
-        vapi_control_id: sessionData.vapi_control_id,
-        vapi_on_hold: true
-      })
-      .eq('call_id', clinicCallId);
-    console.log('✅ Updated existing call session');
-  }
+  console.log('✅ Updated session with clinic dial info');
 }
 
 export default async function handler(req, res) {
@@ -249,7 +217,7 @@ export default async function handler(req, res) {
 
     const evt = (body.data && body.data.event_type) || body.event_type;
     const pl = (body.data && body.data.payload) || body.payload;
-    console.log('🎯 Conference webhook hit:', evt, JSON.stringify(pl));
+    console.log('🎯 Conference webhook hit:', evt);
 
     if (['status-update', 'end-of-call-report'].includes(evt)) {
       return res.status(200).json({ received: true });
@@ -257,7 +225,7 @@ export default async function handler(req, res) {
 
     // When VAPI joins the conference
     if (evt === 'conference.participant.joined') {
-      console.log('🎯 Participant joined:', pl.participant_id, 'Call Control:', pl.call_control_id);
+      console.log('🎯 Participant joined - Call Control:', pl.call_control_id);
       
       // Check if this is VAPI by looking at the client state
       let isVAPI = false;
@@ -281,15 +249,15 @@ export default async function handler(req, res) {
 
         // Store VAPI participant info for real-time unhold
         vapiParticipantsWaiting.set(session_id, {
-          conference_id: pl.conference_id,  // Fixed: use snake_case to match
+          conference_id: pl.conference_id,
           participant_id: pl.participant_id,
           call_control_id: pl.call_control_id,
           joined_at: new Date().toISOString()
         });
-        console.log('📝 Added VAPI to waiting map:', session_id);
+        console.log('📝 Added VAPI to waiting map with session_id:', session_id);
 
         // Use the conference hold endpoint
-        console.log('🔇 Holding VAPI participant:', pl.participant_id);
+        console.log('🔇 Holding VAPI participant');
         const holdResp = await fetch(
           `${TELNYX_API_URL}/conferences/${pl.conference_id}/actions/hold`,
           { 
@@ -312,16 +280,42 @@ export default async function handler(req, res) {
           console.error('❌ Failed to hold VAPI');
         }
 
-        // Update database to track VAPI hold status
-        await supabase
+        // Create or update the session record
+        const { data: existingSession } = await supabase
           .from('call_sessions')
-          .update({ 
-            vapi_on_hold: holdResp.ok,
-            vapi_control_id: pl.call_control_id,
-            vapi_participant_id: pl.participant_id,
-            conference_id: pl.conference_id
-          })
-          .eq('conference_session_id', session_id);
+          .select('*')
+          .eq('conference_session_id', session_id)
+          .maybeSingle();
+        
+        if (!existingSession) {
+          // Create new session
+          await supabase
+            .from('call_sessions')
+            .insert([{
+              conference_session_id: session_id,
+              conference_id: pl.conference_id,
+              vapi_control_id: pl.call_control_id,
+              vapi_participant_id: pl.participant_id,
+              vapi_on_hold: holdResp.ok,
+              conference_created: true,
+              call_status: 'active',
+              bridge_mode: true,
+              created_at: new Date().toISOString()
+            }]);
+          console.log('✅ Created new call session');
+        } else {
+          // Update existing session
+          await supabase
+            .from('call_sessions')
+            .update({ 
+              vapi_on_hold: holdResp.ok,
+              vapi_control_id: pl.call_control_id,
+              vapi_participant_id: pl.participant_id,
+              conference_id: pl.conference_id
+            })
+            .eq('conference_session_id', session_id);
+          console.log('✅ Updated existing call session');
+        }
 
         // Dial clinic/human into conference
         await dialClinicIntoConference({
@@ -332,24 +326,28 @@ export default async function handler(req, res) {
       }
     }
 
-    // When human joins the conference
+    // When clinic/human joins the conference
     if (evt === 'conference.participant.joined' && pl.call_control_id !== pl.creator_call_control_id) {
-      console.log('👤 Human joined conference');
+      console.log('👤 Another participant joined conference (likely clinic)');
       
       // Try to find session by parsing client_state
       if (pl.client_state) {
         try {
-          const { session_id } = JSON.parse(atob(pl.client_state));
+          const { session_id, is_conference_leg } = JSON.parse(atob(pl.client_state));
           
-          // Update database
-          await supabase
-            .from('call_sessions')
-            .update({ 
-              human_joined_conference: true,
-              human_joined_at: new Date().toISOString() 
-            })
-            .eq('conference_session_id', session_id);
+          if (is_conference_leg && session_id) {
+            // Update database to track clinic joined
+            await supabase
+              .from('call_sessions')
+              .update({ 
+                clinic_joined_conference: true,
+                clinic_joined_at: new Date().toISOString(),
+                clinic_control_id: pl.call_control_id
+              })
+              .eq('conference_session_id', session_id);
             
+            console.log('✅ Clinic joined conference for session:', session_id);
+          }
         } catch (e) {
           console.error('Failed to parse client_state:', e);
         }
@@ -371,14 +369,15 @@ setInterval(async () => {
   
   for (const [sessionId, vapiInfo] of vapiParticipantsWaiting.entries()) {
     try {
-      // Check if this session should be unholded
+      // Check the session for human detection
       const { data: session } = await supabase
         .from('call_sessions')
         .select('ivr_detection_state, vapi_on_hold')
         .eq('conference_session_id', sessionId)
         .single();
       
-      if (session?.ivr_detection_state === 'human' && session.vapi_on_hold) {
+      // If human detected and VAPI is still on hold
+      if (session?.ivr_detection_state === 'human' && session.vapi_on_hold === true) {
         console.log('🔧 Safety net: Found VAPI that should be unholded:', sessionId);
         
         // Trigger unhold
@@ -395,6 +394,9 @@ setInterval(async () => {
             })
           }
         );
+        
+        const responseText = await unholdResp.text();
+        console.log('Safety net unhold response:', unholdResp.status, responseText);
         
         if (unholdResp.ok) {
           console.log('✅ Safety net: Successfully unholded VAPI');
