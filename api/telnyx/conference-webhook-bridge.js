@@ -61,14 +61,16 @@ function initializeClassificationListener() {
             try {
               // Unhold the VAPI participant
               const unholdResp = await fetch(
-                `${TELNYX_API_URL}/conferences/${vapiInfo.conferenceId}/participants/${vapiInfo.participantId}/unhold`,
+                `${TELNYX_API_URL}/conferences/${vapiInfo.conferenceId}/actions/unhold`,
                 { 
-                  method: 'PUT', 
+                  method: 'POST', 
                   headers: { 
                     'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
                     'Content-Type': 'application/json' 
                   },
-                  body: JSON.stringify({})
+                  body: JSON.stringify({
+                    call_control_ids: [vapiInfo.callControlId]
+                  })
                 }
               );
               
@@ -279,17 +281,19 @@ export default async function handler(req, res) {
         });
         console.log('📝 Added VAPI to waiting map:', session_id);
 
-        // Use the conference hold endpoint instead of call hold
+        // Use the conference hold endpoint
         console.log('🔇 Holding VAPI participant:', pl.participant_id);
         const holdResp = await fetch(
-          `${TELNYX_API_URL}/conferences/${pl.conference_id}/participants/${pl.participant_id}/hold`,
+          `${TELNYX_API_URL}/conferences/${pl.conference_id}/actions/hold`,
           { 
-            method: 'PUT', 
+            method: 'POST', 
             headers: { 
               'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
               'Content-Type':'application/json' 
             },
-            body: JSON.stringify({})
+            body: JSON.stringify({
+              call_control_ids: [pl.call_control_id]
+            })
           }
         );
         const holdResult = await holdResp.text();
@@ -372,14 +376,16 @@ setInterval(async () => {
         
         // Trigger unhold
         const unholdResp = await fetch(
-          `${TELNYX_API_URL}/conferences/${vapiInfo.conferenceId}/participants/${vapiInfo.participantId}/unhold`,
+          `${TELNYX_API_URL}/conferences/${vapiInfo.conferenceId}/actions/unhold`,
           { 
-            method: 'PUT', 
+            method: 'POST', 
             headers: { 
               'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`, 
               'Content-Type': 'application/json' 
             },
-            body: JSON.stringify({})
+            body: JSON.stringify({
+              call_control_ids: [vapiInfo.callControlId]
+            })
           }
         );
         
