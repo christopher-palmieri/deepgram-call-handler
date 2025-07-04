@@ -33,18 +33,25 @@ function initializeClassificationListener() {
       {
         event: 'UPDATE',
         schema: 'public',
-        table: 'call_sessions',
-        filter: 'ivr_detection_state=neq.null'
+        table: 'call_sessions'
+        // Removed filter to catch ALL updates for debugging
       },
       async (payload) => {
         const { new: updatedSession, old: previousSession } = payload;
         
-        console.log('📡 Classification change detected:', {
-          session_id: updatedSession.conference_session_id,
-          old_state: previousSession.ivr_detection_state,
-          new_state: updatedSession.ivr_detection_state,
-          vapi_on_hold: updatedSession.vapi_on_hold
+        // Debug log ALL updates
+        console.log('📡 Database update detected:', {
+          conference_session_id: updatedSession.conference_session_id,
+          old_ivr_state: previousSession.ivr_detection_state,
+          new_ivr_state: updatedSession.ivr_detection_state,
+          vapi_on_hold: updatedSession.vapi_on_hold,
+          call_id: updatedSession.call_id
         });
+        
+        // Skip if no conference_session_id
+        if (!updatedSession.conference_session_id) {
+          return;
+        }
         
         // Check if classification changed to human
         if (updatedSession.ivr_detection_state === 'human' && 
@@ -61,7 +68,7 @@ function initializeClassificationListener() {
             try {
               // Unhold the VAPI participant
               const unholdResp = await fetch(
-                `${TELNYX_API_URL}/conferences/${vapiInfo.conferenceId}/actions/unhold`,
+                `${TELNYX_API_URL}/conferences/${vapiInfo.conference_id}/actions/unhold`,
                 { 
                   method: 'POST', 
                   headers: { 
@@ -69,7 +76,7 @@ function initializeClassificationListener() {
                     'Content-Type': 'application/json' 
                   },
                   body: JSON.stringify({
-                    call_control_ids: [vapiInfo.callControlId]
+                    call_control_ids: [vapiInfo.call_control_id]
                   })
                 }
               );
@@ -274,10 +281,10 @@ export default async function handler(req, res) {
 
         // Store VAPI participant info for real-time unhold
         vapiParticipantsWaiting.set(session_id, {
-          conferenceId: pl.conference_id,
-          participantId: pl.participant_id,
-          callControlId: pl.call_control_id,
-          joinedAt: new Date().toISOString()
+          conference_id: pl.conference_id,  // Fixed: use snake_case to match
+          participant_id: pl.participant_id,
+          call_control_id: pl.call_control_id,
+          joined_at: new Date().toISOString()
         });
         console.log('📝 Added VAPI to waiting map:', session_id);
 
@@ -376,7 +383,7 @@ setInterval(async () => {
         
         // Trigger unhold
         const unholdResp = await fetch(
-          `${TELNYX_API_URL}/conferences/${vapiInfo.conferenceId}/actions/unhold`,
+          `${TELNYX_API_URL}/conferences/${vapiInfo.conference_id}/actions/unhold`,
           { 
             method: 'POST', 
             headers: { 
@@ -384,7 +391,7 @@ setInterval(async () => {
               'Content-Type': 'application/json' 
             },
             body: JSON.stringify({
-              call_control_ids: [vapiInfo.callControlId]
+              call_control_ids: [vapiInfo.call_control_id]
             })
           }
         );
@@ -406,7 +413,7 @@ setInterval(async () => {
       }
       
       // Clean up old entries (over 5 minutes)
-      const age = Date.now() - new Date(vapiInfo.joinedAt).getTime();
+      const age = Date.now() - new Date(vapiInfo.joined_at).getTime();
       if (age > 300000) {
         console.log('🧹 Removing stale entry from waiting map:', sessionId);
         vapiParticipantsWaiting.delete(sessionId);
