@@ -160,7 +160,7 @@ export default async function handler(req, res) {
         // Use the conference hold endpoint instead of call hold
         console.log('🔇 Holding VAPI participant:', pl.participant_id);
         const holdResp = await fetch(
-          `${TELNYX_API_URL}/conferences/${pl.conference_id}/participants/${pl.participant_id}/hold`,
+          `${TELNYX_API_URL}/conferences/${pl.conference_id}/actions/hold`,
           { 
             method: 'PUT', 
             headers: { 
@@ -283,7 +283,7 @@ async function startUnmuteMonitor(sessionId, vapiControlId) {
         
         // Unhold VAPI using conference participant endpoint
         const unholdResp = await fetch(
-          `${TELNYX_API_URL}/conferences/${sessionData.conference_id}/participants/${participant.participant_id}/unhold`,
+          `${TELNYX_API_URL}/conferences/${sessionData.conference_id}/actions/unhold`,
           { 
             method: 'PUT', 
             headers: { 
