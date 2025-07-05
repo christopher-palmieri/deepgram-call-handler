@@ -311,53 +311,75 @@ async function startIVRMonitorBridgeMode(ctl, leg) {
         return;
       }
 
-      // Check if human detected
-      if (['human', 'ivr_then_human'].includes(session.ivr_detection_state)) {
-        console.log(`👤 [${monitorId}] Human detected - initiating conference bridge via edge function`);
-        
-        conferenceInitiated = true;
+     // Check if human detected
+    if (['human', 'ivr_then_human'].includes(session.ivr_detection_state)) {
+      console.log(`👤 [${monitorId}] Human detected - initiating conference bridge via edge function`);
+    
+      // 1) Mark transfer initiated in Supabase
+      conferenceInitiated = true;
+      await supabase
+        .from('call_sessions')
+        .update({
+          transfer_initiated: true,
+          human_detected_at: new Date().toISOString()
+        })
+        .eq('call_id', leg);
+    
+      // 2) Tear down any existing action poller
+      if (global.actionPollers && global.actionPollers[leg]) {
+        clearInterval(global.actionPollers[leg]);
+        delete global.actionPollers[leg];
+      }
+    
+      // 3) Fire-and-forget our “human_detected” webhook
+      //    (this will hit your conference-webhook-bridge.js and unhold VAPI)
+      fetch(
+        `${process.env.WEBHOOK_URL}/api/telnyx/conference-webhook-bridge`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            data: {
+              event_type: 'human_detected',
+              payload: { session_id: session.conference_session_id }
+            }
+          })
+        }
+      )
+        .then(r => console.log('➡️ human_detected webhook status:', r.status))
+        .catch(err => console.error('❌ human_detected webhook error:', err));
+    
+      // 4) Now call your edge function to spin up the conference
+      try {
+        const conferenceResult = await initiateConferenceBridge(leg);
+    
+        // Store the new conference ID
         await supabase
           .from('call_sessions')
-          .update({ transfer_initiated: true })
+          .update({
+            conference_session_id: conferenceResult.session_id,
+            conference_created_at: new Date().toISOString()
+          })
           .eq('call_id', leg);
-        
-        if (global.actionPollers && global.actionPollers[leg]) {
-          clearInterval(global.actionPollers[leg]);
-          delete global.actionPollers[leg];
-        }
-        
-        // Call edge function to create conference
-        try {
-          const conferenceResult = await initiateConferenceBridge(leg);
-          
-          // Store conference session ID
-          await supabase
-            .from('call_sessions')
-            .update({ 
-              conference_session_id: conferenceResult.session_id,
-              conference_created_at: new Date().toISOString()
-            })
-            .eq('call_id', leg);
-            
-          console.log('✅ Conference bridge created:', conferenceResult.session_id);
-            
-        } catch (err) {
-          console.error('❌ Conference bridge creation error:', err);
-          
-          // Update error state
-          await supabase
-            .from('call_sessions')
-            .update({ 
-              conference_error: err.message,
-              conference_error_at: new Date().toISOString()
-            })
-            .eq('call_id', leg);
-        }
-        
-        clearInterval(monitor);
-        return;
+    
+        console.log('✅ Conference bridge created:', conferenceResult.session_id);
+      } catch (err) {
+        console.error('❌ Conference bridge creation error:', err);
+    
+        // Persist the error
+        await supabase
+          .from('call_sessions')
+          .update({
+            conference_error: err.message,
+            conference_error_at: new Date().toISOString()
+          })
+          .eq('call_id', leg);
       }
-
+    
+      // 5) Stop this monitor
+      clearInterval(monitor);
+      return;
+    }
       // If IVR detected and no action poller running, start one
       if (session.ivr_detection_state === 'ivr_only' && 
           (!global.actionPollers || !global.actionPollers[leg])) {
