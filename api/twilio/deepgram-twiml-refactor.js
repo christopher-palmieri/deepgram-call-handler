@@ -113,7 +113,7 @@ export default async function handler(req, res) {
   if (!streamAlreadyStarted) {
     responseXml += `
       <Start>
-        <Stream url="${process.env.TWILIO_WS_URL || 'wss://twilio-ws-server-production-81ba.up.railway.app'}">
+        <Stream url="${process.env.DEEPGRAM_WS_URL || 'wss://twilio-ws-server-production-81ba.up.railway.app'}">
           <Parameter name="streamSid" value="${callId}" />
         </Stream>
       </Start>`;
@@ -143,7 +143,7 @@ export default async function handler(req, res) {
     // Restart stream
     responseXml += `
       <Start>
-        <Stream url="${process.env.TWILIO_WS_URL || 'wss://twilio-ws-server-production-81ba.up.railway.app'}">
+        <Stream url="${process.env.DEEPGRAM_WS_URL || 'wss://twilio-ws-server-production-81ba.up.railway.app'}">
           <Parameter name="streamSid" value="${callId}" />
         </Stream>
       </Start>`;
@@ -301,23 +301,24 @@ export async function vapiHoldHandler(req, res) {
   
   console.log('📞 VAPI Hold endpoint called for:', callId);
   
-  // VAPI enters a hold queue - muted and waiting
+  // VAPI enters a hold queue - silent waiting
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
     <Response>
-      <Enqueue waitUrl="${process.env.WEBHOOK_URL}/api/twilio/hold-music">vapi-hold-${callId}</Enqueue>
+      <Pause length="1"/>
+      <Enqueue>vapi-hold-${callId}</Enqueue>
     </Response>`;
   
   res.setHeader('Content-Type', 'text/xml');
   res.status(200).send(twiml);
 }
 
-// === /api/twilio/hold-music.js ===
+// === /api/twilio/hold-music.js === (Optional - can be removed if not needed)
+// This endpoint is not currently referenced but could be used later
 export async function holdMusicHandler(req, res) {
-  // Simple hold experience - can be customized
+  // Simple silence for now
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
     <Response>
-      <Say>Please wait while we connect your call.</Say>
-      <Play loop="0">http://com.twilio.sounds.music.s3.amazonaws.com/ClockworkWaltz.mp3</Play>
+      <Pause length="30"/>
     </Response>`;
   
   res.setHeader('Content-Type', 'text/xml');
@@ -370,8 +371,8 @@ ADD COLUMN vapi_call_status text;
 TWILIO_ACCOUNT_SID=your_account_sid
 TWILIO_AUTH_TOKEN=your_auth_token
 TWILIO_PHONE_NUMBER=+1234567890
-TWILIO_WS_URL=wss://your-ws-server.railway.app
-WEBHOOK_URL=https://your-app.vercel.app
+DEEPGRAM_WS_URL=wss://your-ws-server.railway.app
+WEBHOOK_URL=https://v0-new-project-qykgboija9j.vercel.app
 VAPI_SIP_ADDRESS=your-vapi@sip.vapi.ai
 SUPABASE_URL=your_supabase_url
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
