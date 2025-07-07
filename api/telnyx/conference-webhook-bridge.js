@@ -267,6 +267,7 @@ export default async function handler(req, res) {
         const { data: newSession, error } = await supabase
           .from('call_sessions')
           .insert([{
+            call_id: `conf-${session_id}`,
             conference_session_id: session_id,
             conference_id: pl.conference_id,
             vapi_control_id: pl.call_control_id,
