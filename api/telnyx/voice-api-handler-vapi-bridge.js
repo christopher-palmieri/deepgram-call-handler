@@ -246,16 +246,21 @@ async function startClassificationMonitor(ctl, leg) {
       if (wsClassification?.ivr_detection_state) {
         console.log(`🎯 [${monitorId}] Classification detected:`, wsClassification.ivr_detection_state);
         
-        // Update the conference session with classification
-        await supabase
-          .from('call_sessions')
-          .update({ 
-            ivr_detection_state: wsClassification.ivr_detection_state,
-            ivr_classified_at: new Date().toISOString()
-          })
-          .eq('conference_session_id', sessionId);
-        
-        console.log('✅ Updated conference session with classification');
+        // Only update if classification is different to trigger real-time event
+        if (session.ivr_detection_state !== wsClassification.ivr_detection_state) {
+          // Update the conference session with classification
+          await supabase
+            .from('call_sessions')
+            .update({ 
+              ivr_detection_state: wsClassification.ivr_detection_state,
+              ivr_classified_at: new Date().toISOString()
+            })
+            .eq('conference_session_id', sessionId);
+          
+          console.log('✅ Updated conference session with classification');
+        } else {
+          console.log('ℹ️ Classification already set, skipping update');
+        }
         
         // Clean up
         clearInterval(monitor);
