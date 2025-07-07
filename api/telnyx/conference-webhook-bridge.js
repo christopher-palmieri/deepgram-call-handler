@@ -16,6 +16,8 @@ const supabase = createClient(
 const vapiParticipantsWaiting = new Map();
 let classificationSubscription = null;
 
+
+
 // Initialize real-time listener for classification changes
 function initializeClassificationListener() {
   console.log('🎧 Initializing real-time classification listener');
