@@ -23,7 +23,7 @@ export default async function handler(req, res) {
   const callId = parsed.CallSid || 'unknown';
   const callStatus = parsed.CallStatus;
   
-  console.log('📞 Webhook:', callId, 'status:', callStatus);
+  console.log('📞 TwiML webhook:', callId, 'status:', callStatus);
 
   // Handle call completion
   if (callStatus === 'completed') {
@@ -31,45 +31,23 @@ export default async function handler(req, res) {
     return res.status(200).send('<Response></Response>');
   }
 
-  // Get session (don't create - edge function should have done this)
-  const { data: session } = await supabase
-    .from('call_sessions')
-    .select('*')
-    .eq('call_id', callId)
-    .single();
+  // Get or create session
+  let session = await getOrCreateCallSession(callId);
 
-  if (!session) {
-    console.error('❌ No session found for', callId);
-    return res.status(200).send('<Response><Hangup/></Response>');
-  }
-
-  // === FAST PATH: Already classified as human ===
-  if ((session.ivr_detection_state === 'human' || session.ivr_detection_state === 'ivr_then_human')) {
-    console.log('✅ Human already detected, handling VAPI');
+  // === Check if already classified as human ===
+  if (session.ivr_detection_state === 'human' || session.ivr_detection_state === 'ivr_then_human') {
+    console.log('✅ Human already detected');
     
-    // If VAPI is pre-dialed and on hold, bridge it
+    // This shouldn't happen if the logger is working correctly, but as a safety net:
     if (session.vapi_participant_sid && session.vapi_on_hold) {
       await bridgeVAPICall(session.vapi_participant_sid, callId);
-      
-      const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-        <Response>
-          <Stop><Stream /></Stop>
-          <Say>Connecting you now.</Say>
-          <Dial>
-            <Queue>bridge-queue-${callId}</Queue>
-          </Dial>
-        </Response>`;
-      
-      res.setHeader('Content-Type', 'text/xml');
-      return res.status(200).send(twiml);
     }
     
-    // Otherwise, direct dial VAPI
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
       <Response>
         <Stop><Stream /></Stop>
         <Dial>
-          <Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip>
+          <Queue>bridge-queue-${callId}</Queue>
         </Dial>
       </Response>`;
     
@@ -77,9 +55,9 @@ export default async function handler(req, res) {
     return res.status(200).send(twiml);
   }
 
-  // === Pre-dial VAPI if not done by edge function ===
+  // === Pre-dial VAPI if not done ===
   if (!session.vapi_participant_sid) {
-    console.log('🚀 Pre-dialing VAPI...');
+    console.log('🚀 Pre-dialing VAPI into hold queue...');
     const vapiCallSid = await predialVAPI(callId);
     
     if (vapiCallSid) {
@@ -91,10 +69,13 @@ export default async function handler(req, res) {
           vapi_joined_at: new Date().toISOString()
         })
         .eq('call_id', callId);
+      
+      session.vapi_participant_sid = vapiCallSid;
+      session.vapi_on_hold = true;
     }
   }
 
-  // === Start WebSocket stream once ===
+  // === Start or continue WebSocket stream ===
   let responseXml = `<Response>`;
   
   if (!session.stream_started) {
@@ -111,7 +92,7 @@ export default async function handler(req, res) {
       .eq('call_id', callId);
   }
 
-  // === Execute pending IVR actions ===
+  // === Execute any pending IVR actions ===
   const ivrAction = await getNextIVRAction(callId);
   
   if (ivrAction) {
@@ -127,7 +108,7 @@ export default async function handler(req, res) {
 
     responseXml += `<Pause length="1" />`;
     
-    // Restart stream
+    // Restart stream after action
     responseXml += `
       <Start>
         <Stream url="${process.env.DEEPGRAM_WS_URL}">
@@ -141,8 +122,8 @@ export default async function handler(req, res) {
       .eq('id', ivrAction.id);
   }
 
-  // === Continue with short pause and redirect ===
-  responseXml += `<Pause length="1" />`;
+  // === Continue with pause and redirect ===
+  responseXml += `<Pause length="30" />`;
   responseXml += `<Redirect>/api/twilio/deepgram-twiml-refactor</Redirect></Response>`;
   
   res.setHeader('Content-Type', 'text/xml');
@@ -151,17 +132,32 @@ export default async function handler(req, res) {
 
 // === Helper Functions ===
 
+async function getOrCreateCallSession(callId) {
+  const { data: session } = await supabase
+    .from('call_sessions')
+    .select('*')
+    .eq('call_id', callId)
+    .single();
+
+  if (!session) {
+    console.log('⚠️ No session found, this should have been created by edge function');
+    // Return minimal session object
+    return { call_id: callId };
+  }
+  
+  return session;
+}
+
 async function predialVAPI(callId) {
   try {
-    const baseUrl = process.env.WEBHOOK_URL || 'https://v0-new-project-qykgboija9j.vercel.app';
+    const baseUrl = process.env.WEBHOOK_URL || 
+                   process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 
+                   'http://localhost:3000';
     
     const call = await twilioClient.calls.create({
       url: `${baseUrl}/api/twilio/vapi-hold?callId=${callId}`,
       to: `sip:${process.env.VAPI_SIP_ADDRESS}`,
       from: process.env.TWILIO_PHONE_NUMBER,
-      statusCallback: `${baseUrl}/api/twilio/vapi-status`,
-      statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-      statusCallbackMethod: 'POST',
       timeout: 60,
       record: false
     });
@@ -176,6 +172,7 @@ async function predialVAPI(callId) {
 
 async function bridgeVAPICall(vapiCallSid, originalCallId) {
   try {
+    // Update VAPI to dial into bridge queue
     await twilioClient.calls(vapiCallSid).update({
       twiml: `<Response>
         <Dial>
@@ -184,6 +181,7 @@ async function bridgeVAPICall(vapiCallSid, originalCallId) {
       </Response>`
     });
     
+    // Update database
     await supabase
       .from('call_sessions')
       .update({ 
@@ -212,6 +210,8 @@ async function getNextIVRAction(callId) {
 }
 
 async function cleanupCall(callId) {
+  console.log('🧹 Cleaning up call:', callId);
+  
   const { data: session } = await supabase
     .from('call_sessions')
     .select('vapi_participant_sid')
@@ -242,69 +242,3 @@ export const config = {
     bodyParser: false
   }
 };
-
-// === /api/twilio/vapi-hold.js ===
-export async function vapiHoldHandler(req, res) {
-  const { callId } = req.query;
-  
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-    <Response>
-      <Pause length="1"/>
-      <Enqueue>vapi-hold-${callId}</Enqueue>
-    </Response>`;
-  
-  res.setHeader('Content-Type', 'text/xml');
-  res.status(200).send(twiml);
-}
-
-// === /api/twilio/vapi-status.js ===
-export async function vapiStatusHandler(req, res) {
-  let body = '';
-  for await (const chunk of req) {
-    body += chunk;
-  }
-
-  const parsed = querystring.parse(body);
-  const callSid = parsed.CallSid;
-  const callStatus = parsed.CallStatus;
-  
-  console.log('📊 VAPI Status:', callSid, callStatus);
-  
-  if (callStatus === 'completed' || callStatus === 'failed') {
-    await supabase
-      .from('call_sessions')
-      .update({ 
-        vapi_call_status: callStatus
-      })
-      .eq('vapi_participant_sid', callSid);
-  }
-  
-  res.status(200).send('');
-}
-
-// === REAL-TIME MONITORING ===
-// Create a separate monitoring service that watches for classification changes
-// This can be a Vercel cron job or edge function that runs every second
-export async function monitorClassifications() {
-  // Get all active calls waiting for classification
-  const { data: pendingCalls } = await supabase
-    .from('call_sessions')
-    .select('*')
-    .eq('call_status', 'active')
-    .is('ivr_detection_state', null)
-    .eq('vapi_on_hold', true);
-  
-  for (const call of pendingCalls || []) {
-    // Check if now classified
-    const { data: updated } = await supabase
-      .from('call_sessions')
-      .select('ivr_detection_state')
-      .eq('call_id', call.call_id)
-      .single();
-    
-    if (updated?.ivr_detection_state === 'human' || updated?.ivr_detection_state === 'ivr_then_human') {
-      console.log('🎯 Human detected via monitor for', call.call_id);
-      await bridgeVAPICall(call.vapi_participant_sid, call.call_id);
-    }
-  }
-}
