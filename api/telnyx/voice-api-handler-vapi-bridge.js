@@ -244,7 +244,7 @@ async function startClassificationMonitor(ctl, leg) {
         .single();
       
       if (wsClassification?.ivr_detection_state) {
-        console.log(`🎯 [${monitorId}] Classification detected:`, wsClassification.ivr_detection_state);
+        console.log(`🎯 [${monitorId}] WebSocket classification found:`, wsClassification.ivr_detection_state);
         
         // Only update if classification is different to trigger real-time event
         if (session.ivr_detection_state !== wsClassification.ivr_detection_state) {
