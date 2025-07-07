@@ -120,8 +120,7 @@ async function handleCallInitiated(event, res) {
         const { error } = await supabase
           .from('call_sessions')
           .update({
-            clinic_leg_id: callLegId,
-            telnyx_leg_id: callLegId,
+            telnyx_leg_id: callLegId, // Using correct column name
             call_control_id: callControlId,
             call_initiated_at: new Date().toISOString()
           })
