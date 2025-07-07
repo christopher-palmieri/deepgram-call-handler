@@ -13,43 +13,6 @@ const twilioClient = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-// Real-time subscription to IVR classification changes
-let classificationSubscription = null;
-
-// Initialize real-time listener for classification updates
-function initializeRealtimeListener() {
-  if (classificationSubscription) return;
-  
-  classificationSubscription = supabase
-    .channel('ivr_classification_updates')
-    .on(
-      'postgres_changes',
-      {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'call_sessions',
-        filter: 'ivr_detection_state=neq.null'
-      },
-      async (payload) => {
-        const session = payload.new;
-        console.log('🎯 Real-time classification detected:', session.call_id, session.ivr_detection_state);
-        
-        // If human detected and VAPI is on hold, trigger immediate bridge
-        if ((session.ivr_detection_state === 'human' || session.ivr_detection_state === 'ivr_then_human') 
-            && session.vapi_participant_sid 
-            && session.vapi_on_hold) {
-          
-          console.log('⚡ FAST BRIDGE: Human detected, bridging VAPI immediately');
-          await bridgeVAPICall(session.vapi_participant_sid, session.call_id);
-        }
-      }
-    )
-    .subscribe();
-}
-
-// Initialize on module load
-initializeRealtimeListener();
-
 export default async function handler(req, res) {
   let body = '';
   for await (const chunk of req) {
@@ -68,18 +31,45 @@ export default async function handler(req, res) {
     return res.status(200).send('<Response></Response>');
   }
 
-  // === Fast Path: Check if already classified ===
-  const session = await getOrCreateCallSession(callId);
-  
-  // If already classified as human and VAPI ready, bridge immediately
-  if ((session.ivr_detection_state === 'human' || session.ivr_detection_state === 'ivr_then_human') 
-      && session.vapi_participant_sid 
-      && !session.vapi_on_hold) {
+  // Get session (don't create - edge function should have done this)
+  const { data: session } = await supabase
+    .from('call_sessions')
+    .select('*')
+    .eq('call_id', callId)
+    .single();
+
+  if (!session) {
+    console.error('❌ No session found for', callId);
+    return res.status(200).send('<Response><Hangup/></Response>');
+  }
+
+  // === FAST PATH: Already classified as human ===
+  if ((session.ivr_detection_state === 'human' || session.ivr_detection_state === 'ivr_then_human')) {
+    console.log('✅ Human already detected, handling VAPI');
     
+    // If VAPI is pre-dialed and on hold, bridge it
+    if (session.vapi_participant_sid && session.vapi_on_hold) {
+      await bridgeVAPICall(session.vapi_participant_sid, callId);
+      
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+        <Response>
+          <Stop><Stream /></Stop>
+          <Say>Connecting you now.</Say>
+          <Dial>
+            <Queue>bridge-queue-${callId}</Queue>
+          </Dial>
+        </Response>`;
+      
+      res.setHeader('Content-Type', 'text/xml');
+      return res.status(200).send(twiml);
+    }
+    
+    // Otherwise, direct dial VAPI
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
       <Response>
+        <Stop><Stream /></Stop>
         <Dial>
-          <Queue>bridge-queue-${callId}</Queue>
+          <Sip>sip:${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callId}</Sip>
         </Dial>
       </Response>`;
     
@@ -87,8 +77,8 @@ export default async function handler(req, res) {
     return res.status(200).send(twiml);
   }
 
-  // === Pre-dial VAPI if not done ===
-  if (!session.vapi_participant_sid && !session.ivr_detection_state) {
+  // === Pre-dial VAPI if not done by edge function ===
+  if (!session.vapi_participant_sid) {
     console.log('🚀 Pre-dialing VAPI...');
     const vapiCallSid = await predialVAPI(callId);
     
@@ -104,7 +94,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // === Start WebSocket stream for classification ===
+  // === Start WebSocket stream once ===
   let responseXml = `<Response>`;
   
   if (!session.stream_started) {
@@ -121,13 +111,12 @@ export default async function handler(req, res) {
       .eq('call_id', callId);
   }
 
-  // === Execute IVR actions if needed ===
+  // === Execute pending IVR actions ===
   const ivrAction = await getNextIVRAction(callId);
   
   if (ivrAction) {
     console.log('🎮 Executing IVR action:', ivrAction);
     
-    // Stop stream briefly
     responseXml += `<Stop><Stream /></Stop>`;
 
     if (ivrAction.action_type === 'dtmf') {
@@ -137,7 +126,7 @@ export default async function handler(req, res) {
     }
 
     responseXml += `<Pause length="1" />`;
-
+    
     // Restart stream
     responseXml += `
       <Start>
@@ -152,7 +141,7 @@ export default async function handler(req, res) {
       .eq('id', ivrAction.id);
   }
 
-  // === Fast polling - 1 second ===
+  // === Continue with short pause and redirect ===
   responseXml += `<Pause length="1" />`;
   responseXml += `<Redirect>/api/twilio/deepgram-twiml-refactor</Redirect></Response>`;
   
@@ -162,35 +151,9 @@ export default async function handler(req, res) {
 
 // === Helper Functions ===
 
-async function getOrCreateCallSession(callId) {
-  const { data: session } = await supabase
-    .from('call_sessions')
-    .select('*')
-    .eq('call_id', callId)
-    .single();
-
-  if (!session) {
-    const { data: newSession } = await supabase
-      .from('call_sessions')
-      .insert([{ 
-        call_id: callId, 
-        stream_started: false,
-        created_at: new Date().toISOString()
-      }])
-      .select()
-      .single();
-    
-    return newSession || { call_id: callId };
-  }
-  
-  return session;
-}
-
 async function predialVAPI(callId) {
   try {
-    const baseUrl = process.env.WEBHOOK_URL || 
-                   process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 
-                   'http://localhost:3000';
+    const baseUrl = process.env.WEBHOOK_URL || 'https://v0-new-project-qykgboija9j.vercel.app';
     
     const call = await twilioClient.calls.create({
       url: `${baseUrl}/api/twilio/vapi-hold?callId=${callId}`,
@@ -213,7 +176,6 @@ async function predialVAPI(callId) {
 
 async function bridgeVAPICall(vapiCallSid, originalCallId) {
   try {
-    // Update the VAPI call to leave hold and connect
     await twilioClient.calls(vapiCallSid).update({
       twiml: `<Response>
         <Dial>
@@ -222,7 +184,6 @@ async function bridgeVAPICall(vapiCallSid, originalCallId) {
       </Response>`
     });
     
-    // Update database
     await supabase
       .from('call_sessions')
       .update({ 
@@ -231,7 +192,7 @@ async function bridgeVAPICall(vapiCallSid, originalCallId) {
       })
       .eq('call_id', originalCallId);
     
-    console.log('✅ VAPI bridged instantly');
+    console.log('✅ VAPI bridged');
   } catch (error) {
     console.error('❌ Error bridging VAPI:', error);
   }
@@ -282,12 +243,6 @@ export const config = {
   }
 };
 
-// === CRITICAL: WebSocket Server Enhancement ===
-// Your server_deepgram.js needs these modules from Telnyx:
-// 1. IVRProcessor from modules/processors/ivr-processor.js
-// 2. fastClassify from modules/classifiers/fast-classifier.js
-// 3. Real-time database updates when classification happens
-
 // === /api/twilio/vapi-hold.js ===
 export async function vapiHoldHandler(req, res) {
   const { callId } = req.query;
@@ -325,4 +280,31 @@ export async function vapiStatusHandler(req, res) {
   }
   
   res.status(200).send('');
+}
+
+// === REAL-TIME MONITORING ===
+// Create a separate monitoring service that watches for classification changes
+// This can be a Vercel cron job or edge function that runs every second
+export async function monitorClassifications() {
+  // Get all active calls waiting for classification
+  const { data: pendingCalls } = await supabase
+    .from('call_sessions')
+    .select('*')
+    .eq('call_status', 'active')
+    .is('ivr_detection_state', null)
+    .eq('vapi_on_hold', true);
+  
+  for (const call of pendingCalls || []) {
+    // Check if now classified
+    const { data: updated } = await supabase
+      .from('call_sessions')
+      .select('ivr_detection_state')
+      .eq('call_id', call.call_id)
+      .single();
+    
+    if (updated?.ivr_detection_state === 'human' || updated?.ivr_detection_state === 'ivr_then_human') {
+      console.log('🎯 Human detected via monitor for', call.call_id);
+      await bridgeVAPICall(call.vapi_participant_sid, call.call_id);
+    }
+  }
 }
