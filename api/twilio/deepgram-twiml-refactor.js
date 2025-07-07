@@ -1,4 +1,4 @@
-// /api/twilio/deepgram-twiml.js
+// /api/twilio/deepgram-twiml-refactor.js
 import { createClient } from '@supabase/supabase-js';
 import querystring from 'querystring';
 import twilio from 'twilio';
@@ -36,7 +36,7 @@ export default async function handler(req, res) {
 
   // === Step 2: Check if VAPI needs to be pre-dialed ===
   // Skip if already pre-dialed by edge function or if classification exists
-  if (!session.vapi_call_sid && !session.ivr_detection_state) {
+  if (!session.vapi_participant_sid && !session.ivr_detection_state) {
     console.log('🚀 VAPI not pre-dialed by edge function, dialing now...');
     const vapiCallSid = await predialVAPI(callId);
     
@@ -44,17 +44,17 @@ export default async function handler(req, res) {
       await supabase
         .from('call_sessions')
         .update({ 
-          vapi_call_sid: vapiCallSid,
+          vapi_participant_sid: vapiCallSid,
           vapi_on_hold: true,
-          vapi_pre_dialed_at: new Date().toISOString()
+          vapi_joined_at: new Date().toISOString()
         })
         .eq('call_id', callId);
       
-      session.vapi_call_sid = vapiCallSid;
+      session.vapi_participant_sid = vapiCallSid;
       session.vapi_on_hold = true;
     }
-  } else if (session.vapi_call_sid && session.vapi_on_hold) {
-    console.log('✅ VAPI already pre-dialed by edge function:', session.vapi_call_sid);
+  } else if (session.vapi_participant_sid && session.vapi_on_hold) {
+    console.log('✅ VAPI already pre-dialed by edge function:', session.vapi_participant_sid);
   }
 
   // === Step 3: Check IVR Classification ===
@@ -64,9 +64,9 @@ export default async function handler(req, res) {
     console.log('🎯 Human detected! Bridging to VAPI...');
     
     // If VAPI is on hold, dequeue it
-    if (session.vapi_call_sid && session.vapi_on_hold) {
+    if (session.vapi_participant_sid && session.vapi_on_hold) {
       // Update VAPI call to leave queue and dial back
-      await bridgeVAPICall(session.vapi_call_sid, callId);
+      await bridgeVAPICall(session.vapi_participant_sid, callId);
       
       // Update session
       await supabase
@@ -159,7 +159,7 @@ export default async function handler(req, res) {
   }
 
   // Continue polling
-  responseXml += `<Redirect>/api/twilio/deepgram-twiml</Redirect></Response>`;
+  responseXml += `<Redirect>/api/twilio/deepgram-twiml-refactor</Redirect></Response>`;
 
   console.log('📋 TwiML Response:', responseXml);
   
@@ -264,14 +264,14 @@ async function cleanupCall(callId) {
   // Get session to find VAPI call
   const { data: session } = await supabase
     .from('call_sessions')
-    .select('vapi_call_sid')
+    .select('vapi_participant_sid')
     .eq('call_id', callId)
     .single();
   
   // Hang up VAPI if still active
-  if (session?.vapi_call_sid) {
+  if (session?.vapi_participant_sid) {
     try {
-      await twilioClient.calls(session.vapi_call_sid).update({
+      await twilioClient.calls(session.vapi_participant_sid).update({
         status: 'completed'
       });
     } catch (error) {
@@ -342,10 +342,9 @@ export async function vapiStatusHandler(req, res) {
     await supabase
       .from('call_sessions')
       .update({ 
-        vapi_call_status: callStatus,
-        vapi_call_ended_at: new Date().toISOString()
+        vapi_call_status: callStatus
       })
-      .eq('vapi_call_sid', callSid);
+      .eq('vapi_participant_sid', callSid);
   }
   
   res.status(200).send('');
@@ -353,20 +352,17 @@ export async function vapiStatusHandler(req, res) {
 
 // === Database Schema Updates ===
 /*
-Add these columns to your call_sessions table:
+Your existing columns that we'll use:
+- vapi_participant_sid: text (instead of vapi_call_sid)
+- vapi_on_hold: boolean
+- vapi_joined_at: timestamptz (instead of vapi_pre_dialed_at)
 
-- vapi_call_sid: text
-- vapi_on_hold: boolean (default: false)
+Additional column if you don't have it:
 - vapi_call_status: text
-- vapi_call_ended_at: timestamp
 
-Example SQL:
+Example SQL if needed:
 ALTER TABLE call_sessions 
-ADD COLUMN vapi_call_sid text,
-ADD COLUMN vapi_on_hold boolean DEFAULT false,
-ADD COLUMN vapi_call_status text,
-ADD COLUMN vapi_call_ended_at timestamp,
-ADD COLUMN vapi_pre_dialed_at timestamp;
+ADD COLUMN vapi_call_status text;
 */
 
 // === Environment Variables Needed ===
