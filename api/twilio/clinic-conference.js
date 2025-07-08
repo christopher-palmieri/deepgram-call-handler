@@ -14,7 +14,7 @@ export default async function handler(req, res) {
       </Start>
       <Dial>
         <Conference 
-          startConferenceOnEnter="false"
+          startConferenceOnEnter="true"
           endConferenceOnExit="true"
           beep="false">
           ${conferenceId}
