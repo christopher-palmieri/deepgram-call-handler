@@ -2,14 +2,13 @@
 export default async function handler(req, res) {
   const { conferenceId } = req.query;
   
-  console.log('🎤 VAPI joining conference (muted):', conferenceId);
+  console.log('🎤 VAPI joining conference:', conferenceId);
   
-  // VAPI joins conference muted and waiting
+  // VAPI joins conference NOT muted
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
     <Response>
       <Dial>
         <Conference 
-          muted="true"
           startConferenceOnEnter="true"
           endConferenceOnExit="false"
           beep="false">
