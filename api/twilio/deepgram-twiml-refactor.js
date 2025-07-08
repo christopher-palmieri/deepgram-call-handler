@@ -172,7 +172,16 @@ async function predialVAPI(callId) {
 
 async function bridgeVAPICall(vapiCallSid, originalCallId) {
   try {
-    // Update VAPI to dial into bridge queue
+    // First check the call status
+    const vapiCall = await twilioClient.calls(vapiCallSid).fetch();
+    console.log(`📞 VAPI call status: ${vapiCall.status}`);
+    
+    if (vapiCall.status !== 'in-progress') {
+      console.log(`⚠️ VAPI call not in-progress: ${vapiCall.status}`);
+      return;
+    }
+    
+    // Only update if still in progress
     await twilioClient.calls(vapiCallSid).update({
       twiml: `<Response>
         <Dial>
@@ -181,16 +190,7 @@ async function bridgeVAPICall(vapiCallSid, originalCallId) {
       </Response>`
     });
     
-    // Update database
-    await supabase
-      .from('call_sessions')
-      .update({ 
-        vapi_on_hold: false,
-        vapi_bridged_at: new Date().toISOString()
-      })
-      .eq('call_id', originalCallId);
-    
-    console.log('✅ VAPI bridged');
+    // ... rest of the function
   } catch (error) {
     console.error('❌ Error bridging VAPI:', error);
   }
