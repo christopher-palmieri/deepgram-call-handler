@@ -1,4 +1,6 @@
 // /api/twilio/conference-participant-status.js
+// FIXED VERSION - Proper participant hold implementation
+
 import { createClient } from '@supabase/supabase-js';
 import querystring from 'querystring';
 import twilio from 'twilio';
@@ -22,44 +24,57 @@ export default async function handler(req, res) {
   const parsed = querystring.parse(body);
   const { conferenceId } = req.query;
   
-  console.log('🎯 Participant joined conference:', conferenceId);
-  console.log('Call SID:', parsed.CallSid);
-  console.log('Conference SID:', parsed.ConferenceSid);
+  // These are the key fields from the conference status callback
+  const callSid = parsed.CallSid;
+  const conferenceSid = parsed.ConferenceSid;
+  const statusCallbackEvent = parsed.StatusCallbackEvent;
   
-  // Check if this is VAPI joining
-  const { data: session } = await supabase
-    .from('call_sessions')
-    .select('*')
-    .eq('conference_id', conferenceId)
-    .eq('vapi_participant_sid', parsed.CallSid)
-    .single();
+  console.log('🎯 Conference Event:', statusCallbackEvent);
+  console.log('Conference ID:', conferenceId);
+  console.log('Conference SID:', conferenceSid);
+  console.log('Call SID:', callSid);
   
-  if (session) {
-    console.log('📞 VAPI joined conference, putting on hold...');
+  // Only process 'participant-join' events
+  if (statusCallbackEvent === 'participant-join') {
+    // Check if this is VAPI joining
+    const { data: session } = await supabase
+      .from('call_sessions')
+      .select('*')
+      .eq('conference_id', conferenceId)
+      .eq('vapi_participant_sid', callSid)
+      .single();
     
-    try {
-      // Put VAPI on hold using the conference SID and call SID
-      const participant = await twilioClient
-        .conferences(parsed.ConferenceSid)
-        .participants(parsed.CallSid)
-        .update({
-          hold: true,
-          holdUrl: 'http://twimlets.com/holdmusic?Bucket=com.twilio.music.classical'
-        });
+    if (session) {
+      console.log('📞 VAPI joined conference, putting on hold...');
       
-      console.log('✅ VAPI put on hold successfully');
-      
-      // Update database
-      await supabase
-        .from('call_sessions')
-        .update({ 
-          vapi_on_hold: true,
-          conference_sid: parsed.ConferenceSid // Store the actual conference SID
-        })
-        .eq('conference_id', conferenceId);
+      try {
+        // This is the correct way to put a participant on hold
+        const participant = await twilioClient
+          .conferences(conferenceSid)
+          .participants(callSid)
+          .update({
+            hold: true,
+            holdUrl: 'http://twimlets.com/holdmusic?Bucket=com.twilio.music.classical'
+          });
         
-    } catch (error) {
-      console.error('❌ Error putting VAPI on hold:', error);
+        console.log('✅ VAPI put on hold successfully:', participant.hold);
+        
+        // Update database
+        await supabase
+          .from('call_sessions')
+          .update({ 
+            vapi_on_hold: true,
+            conference_sid: conferenceSid, // Store the conference SID for later use
+            vapi_joined_at: new Date().toISOString()
+          })
+          .eq('conference_id', conferenceId);
+          
+      } catch (error) {
+        console.error('❌ Error putting VAPI on hold:', error);
+        console.error('Error details:', error.message);
+      }
+    } else {
+      console.log('👤 Non-VAPI participant joined conference');
     }
   }
   
