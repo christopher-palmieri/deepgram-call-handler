@@ -28,7 +28,6 @@ export default async function handler(req, res) {
     .insert({
       call_id: callSid,
       stream_started: true,
-      target_number: phoneNumber || null,
       created_at: new Date().toISOString()
     });
   
