@@ -16,11 +16,11 @@ export default async function handler(req, res) {
   const twilioData = querystring.parse(body);
   const callSid = twilioData.CallSid;
   
-  // Get query params
-  const { clinicName, phoneNumber } = req.query;
+  // Get phone number from query params
+  const { phoneNumber } = req.query;
   
   console.log('📞 Pre-classification call answered:', callSid);
-  console.log('🏥 Clinic:', clinicName, phoneNumber);
+  console.log('📱 Phone:', phoneNumber);
   
   // Create or update call session
   await supabase
@@ -28,7 +28,6 @@ export default async function handler(req, res) {
     .insert({
       call_id: callSid,
       stream_started: true,
-      clinic_name: clinicName || null,
       target_number: phoneNumber || null,
       created_at: new Date().toISOString()
     });
