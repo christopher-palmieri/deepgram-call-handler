@@ -16,18 +16,18 @@ export default async function handler(req, res) {
   const twilioData = querystring.parse(body);
   const callSid = twilioData.CallSid;
   
-  // Get phone number from query params
-  const { phoneNumber } = req.query;
-  
   console.log('📞 Pre-classification call answered:', callSid);
-  console.log('📱 Phone:', phoneNumber);
   
-  // Create or update call session
+  // For now, use TO_NUMBER from env since we're hardcoding it in the edge function
+  const clinicPhone = process.env.TO_NUMBER;
+  
+  // Create or update call session with phone number
   await supabase
     .from('call_sessions')
     .insert({
       call_id: callSid,
       stream_started: true,
+      clinic_phone: clinicPhone,
       created_at: new Date().toISOString()
     });
   
