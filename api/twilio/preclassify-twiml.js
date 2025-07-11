@@ -16,58 +16,39 @@ export default async function handler(req, res) {
   const twilioData = querystring.parse(body);
   const callSid = twilioData.CallSid;
   
-  // Get session ID from query parameter
-  const { sessionId } = req.query;
+  // Twilio sends the called number as 'To' and the calling number as 'From'
+  const phoneNumber = twilioData.To; // This is the number we called (the clinic)
+  const fromNumber = twilioData.From; // This is our Twilio number
   
   console.log('📞 Pre-classification call answered:', callSid);
-  console.log('🆔 Session ID:', sessionId);
+  console.log('📱 Called number (To):', phoneNumber);
+  console.log('📱 From number:', fromNumber);
+  console.log('📋 All Twilio data:', twilioData);
   
-  let phoneNumber = null;
-  
-  // Look up the session to get the phone number
-  if (sessionId) {
-    const { data: session, error } = await supabase
-      .from('call_sessions')
-      .select('clinic_phone')
-      .eq('id', sessionId)
-      .single();
-      
-    if (session && session.clinic_phone) {
-      phoneNumber = session.clinic_phone;
-      console.log('📱 Phone number from session:', phoneNumber);
-      
-      // Update the session with the real CallSid
-      await supabase
-        .from('call_sessions')
-        .update({
-          call_id: callSid,
-          call_status: 'active'
-        })
-        .eq('id', sessionId);
-    } else {
-      console.error('❌ Could not find session or phone number');
-    }
-  }
-  
-  // If no session/phone found, create a basic session
-  if (!phoneNumber) {
-    console.log('⚠️  No phone number found, creating basic session');
-    await supabase
-      .from('call_sessions')
-      .insert({
-        call_id: callSid,
-        stream_started: true,
-        created_at: new Date().toISOString()
-      });
+  // Create or update call session with phone number
+  const { error: insertError } = await supabase
+    .from('call_sessions')
+    .insert({
+      call_id: callSid,
+      stream_started: true,
+      clinic_phone: phoneNumber, // Store the number we called
+      created_at: new Date().toISOString()
+    });
+    
+  if (insertError) {
+    console.error('❌ Error creating session:', insertError);
+  } else {
+    console.log('✅ Created session with phone:', phoneNumber);
   }
   
   // TwiML: Stream to WebSocket AND dial VAPI via SIP
+  // Pass phone number as a parameter in the WebSocket stream
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
     <Response>
       <Start>
         <Stream url="${process.env.DEEPGRAM_WS_URL}">
           <Parameter name="streamSid" value="${callSid}" />
-          <Parameter name="phoneNumber" value="${phoneNumber || ''}" />
+          <Parameter name="phoneNumber" value="${phoneNumber}" />
         </Stream>
       </Start>
       <Dial>
@@ -77,7 +58,7 @@ export default async function handler(req, res) {
       </Dial>
     </Response>`;
   
-  console.log('🎯 TwiML Response with phone:', phoneNumber || 'none');
+  console.log('🎯 TwiML Response with phone:', phoneNumber);
   
   res.setHeader('Content-Type', 'text/xml');
   res.status(200).send(twiml);
