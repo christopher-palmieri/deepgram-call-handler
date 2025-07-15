@@ -5,9 +5,8 @@ export default async function handler(req, res) {
   // Try multiple header formats
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
     <Response>
-      <Say>Testing VAPI connection with variables. Connecting now.</Say>
       <Dial>
-        <Sip>sip:brandon-call-for-kits@sip.vapi.ai?x-customerName=Indiana%20Jones</Sip>
+        <Sip>sip:brandon-call-for-kits@sip.vapi.ai?x-customerName=Indiana</Sip>
       </Dial>
     </Response>`;
   
