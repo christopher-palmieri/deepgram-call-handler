@@ -7,7 +7,7 @@ export default async function handler(req, res) {
     <Response>
       <Say>Testing VAPI connection with variables. Connecting now.</Say>
       <Dial>
-        <Sip>sip:brandon-call-for-kits@sip.vapi.ai?x-customerName=Indiana%20Jones</Sip>
+        <Sip>sip:brandon-call-for-kits@sip.vapi.ai?x-customer-Name=Indiana%20Jones</Sip>
       </Dial>
     </Response>`;
   
