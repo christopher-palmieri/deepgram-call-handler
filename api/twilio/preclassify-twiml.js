@@ -49,7 +49,10 @@ function buildSipUriWithHeaders(baseUri, headers) {
     params.append(`X-${key}`, value);
   }
   
-  return `${baseUri}?${params.toString()}`;
+  // Get the query string and replace & with &amp; for XML
+  const queryString = params.toString().replace(/&/g, '&amp;');
+  
+  return `${baseUri}?${queryString}`;
 }
 
 export default async function handler(req, res) {
