@@ -50,13 +50,18 @@ export default async function handler(req, res) {
   const callSid = twilioData.CallSid;
   const phoneNumber = twilioData.To;
   
-  // Get query parameters including customer and clinic names
-  const { sessionId, hasClassification, customerName, clinicName } = req.query;
+  // Get query parameters
+  const { sessionId, hasClassification } = req.query;
   
   console.log('📞 Call answered:', callSid);
   console.log('📱 Phone:', phoneNumber);
   console.log('🆔 Session ID:', sessionId);
   console.log('📋 Has classification:', hasClassification);
+  
+  // Hardcode names for now (eventually from database)
+  const customerName = "Indiana Jones";
+  const clinicName = "Madison Occupational Health";
+  
   console.log('👤 Customer:', customerName);
   console.log('🏥 Clinic:', clinicName);
   
@@ -70,17 +75,26 @@ export default async function handler(req, res) {
       .eq('id', sessionId)
       .single();
     
-    if (session && session.classification_id) {
-      // Look up the classification details
-      const { data: classData } = await supabase
-        .from('call_classifications')
-        .select('*')
-        .eq('id', session.classification_id)
-        .single();
+    if (session) {
+      // Get customer and clinic names from session
+      customerName = session.customer_name;
+      clinicName = session.clinic_name;
       
-      if (classData) {
-        classification = classData;
-        console.log('📊 Classification found:', classification.classification_type);
+      console.log('👤 Customer from session:', customerName);
+      console.log('🏥 Clinic from session:', clinicName);
+      
+      if (session.classification_id) {
+        // Look up the classification details
+        const { data: classData } = await supabase
+          .from('call_classifications')
+          .select('*')
+          .eq('id', session.classification_id)
+          .single();
+        
+        if (classData) {
+          classification = classData;
+          console.log('📊 Classification found:', classification.classification_type);
+        }
       }
     }
     
@@ -115,8 +129,9 @@ export default async function handler(req, res) {
       console.log('👤 Human classification - direct VAPI connection');
       twiml += `
         <Dial>
-          <Sip>
-            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}&amp;X-Customer-Name=${encodeURIComponent(customerName || '')}&amp;X-Clinic-Name=${encodeURIComponent(clinicName || '')}
+          <Sip>${process.env.VAPI_SIP_ADDRESS}
+            <Header name="X-Customer-Name" value="${customerName || ''}" />
+            <Header name="X-Clinic-Name" value="${clinicName || ''}" />
           </Sip>
         </Dial>`;
         
