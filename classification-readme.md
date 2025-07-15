@@ -1,210 +1,265 @@
-Pre-Classification Call System
-Overview
+# Pre-Classification Call System
+
+## Overview
 This system pre-classifies clinic phone systems (human vs IVR) and caches the results for 30 days, enabling instant routing for subsequent calls. Instead of classifying during every call (adding 3-6 seconds), we classify once and reuse the results.
-Benefits
 
-⚡ Speed: Reduce call connection time from ~10s to ~5s
-💰 Cost: One classification per clinic per month instead of every call
-🎯 Reliability: Predictable routing behavior
-📊 Scalability: Handle high call volumes without classification bottleneck
+## Benefits
+- ⚡ **Speed**: Reduce call connection time from ~10s to ~5s
+- 💰 **Cost**: One classification per clinic per month instead of every call
+- 🎯 **Reliability**: Predictable routing behavior
+- 📊 **Scalability**: Handle high call volumes without classification bottleneck
 
-Architecture Flow
-1. PRE-CLASSIFICATION (Once per clinic/month)
-   ├─> Call clinic
-   ├─> Detect if human or IVR
-   ├─> If IVR, record navigation steps
-   └─> Cache for 30 days
+## Architecture Flow
 
-2. ACTUAL CALLS (Unlimited for 30 days)
-   ├─> Look up cached classification
-   ├─> If human → Connect VAPI directly
-   └─> If IVR → Navigate automatically → Connect VAPI
-Database Schema
-1. call_classifications Table
-Stores pre-classified phone system types and IVR navigation paths.
-sqlCREATE TABLE call_classifications (
+### 1. PRE-CLASSIFICATION (Once per clinic/month)
+```
+├─> Call clinic
+├─> Detect if human or IVR
+├─> If IVR, record navigation steps with timing
+├─> Store classification with IVR actions
+└─> Cache for 30 days
+```
+
+### 2. ACTUAL CALLS (Unlimited for 30 days)
+```
+├─> Look up cached classification
+├─> If human → Connect VAPI directly
+├─> If IVR → Execute stored actions with timing → Connect VAPI
+└─> If no classification → VAPI + WebSocket for classification
+```
+
+## Database Schema
+
+### 1. call_classifications Table
+Stores pre-classified phone system types and IVR navigation paths with timing.
+```sql
+CREATE TABLE call_classifications (
   id UUID PRIMARY KEY,
   phone_number TEXT NOT NULL,
   clinic_name TEXT,
   classification_type TEXT, -- 'human', 'ivr_only', 'ivr_then_human'
-  ivr_actions JSONB, -- [{"action_type": "dtmf", "action_value": "2"}]
+  classification_confidence FLOAT8,
+  ivr_actions JSONB, -- [{"action_type": "dtmf", "action_value": "3", "timing_ms": 17000}]
+  classification_duration_ms INT4,
+  pre_call_sid TEXT,
   classification_expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '30 days',
   is_active BOOLEAN DEFAULT true,
+  last_verified_at TIMESTAMPTZ,
+  verification_count INT4 DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ,
+  eps_id TEXT DEFAULT '0'
+);
+```
+
+### 2. call_sessions Table Updates
+```sql
+ALTER TABLE call_sessions 
+ADD COLUMN clinic_phone TEXT,
+ADD COLUMN classification_id UUID REFERENCES call_classifications(id);
+```
+
+### 3. ivr_events Table
+Tracks IVR interactions during pre-classification calls.
+```sql
+CREATE TABLE ivr_events (
+  id UUID PRIMARY KEY,
+  call_id TEXT,
+  transcript TEXT,
+  action_type TEXT, -- 'dtmf', 'speech', 'wait', 'skip'
+  action_value TEXT,
+  executed BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
-2. pending_calls Table Updates
-Add classification support to existing table:
-sqlALTER TABLE pending_calls 
-ADD COLUMN classification_id UUID REFERENCES call_classifications(id),
-ADD COLUMN classification_checked_at TIMESTAMPTZ;
-3. call_sessions Table
-Already exists - tracks individual call attempts and IVR events.
-Edge Functions
-1. Pre-Classification Function
-Endpoint: POST /functions/v1/pre-classify
-Purpose: Classify a clinic's phone system and cache results
-Request:
-json{
+```
+
+## Edge Functions
+
+### 1. Pre-Classification Function
+**Endpoint**: `POST /functions/v1/pre-classify-call`
+
+**Purpose**: Classify a clinic's phone system and cache results
+
+**Request**:
+```json
+{
+  "phone_number": "+16093694379"
+}
+```
+
+**Response**:
+```json
+{
+  "result": {
+    "sid": "CA123...",
+    "status": "queued"
+  },
   "phone_number": "+16093694379",
-  "clinic_name": "Adventure Health Clinic",
-  "force_refresh": false
+  "classification_found": false,
+  "classification_type": null
 }
-Response:
-json{
-  "success": true,
-  "cached": false,
-  "classification": {
-    "id": "uuid",
-    "classification_type": "ivr_then_human",
-    "ivr_actions": [
-      {"action_type": "dtmf", "action_value": "2"}
-    ]
-  }
+```
+
+**Process**:
+1. Check for existing valid classification
+2. If none/expired, make classification call
+3. Connect VAPI + WebSocket stream for classification
+4. Railway server detects type and stores IVR navigation with timing
+5. Classification stored when call ends (with IVR actions if applicable)
+
+## Classification Storage
+
+### Human Classification
+Stored immediately when detected:
+```json
+{
+  "classification_type": "human",
+  "ivr_actions": null
 }
-Process:
+```
 
-Check for existing valid classification
-If none/expired, make classification call
-Use WebSocket/Deepgram to detect type
-Store IVR navigation steps from ivr_events
-Cache for 30 days
-
-2. Main Call Function
-Endpoint: POST /functions/v1/main-call
-Purpose: Make actual calls using cached classification
-Request:
-json{
-  "phone_number": "+16093694379",
-  "customer_name": "Indiana Jones",
-  "appointment_time": "3:00 PM"
+### IVR Classification
+Stored at call end with navigation actions and timing:
+```json
+{
+  "classification_type": "ivr_only",
+  "ivr_actions": [
+    {
+      "action_type": "dtmf",
+      "action_value": "3",
+      "timing_ms": 17000
+    }
+  ]
 }
-Response:
-json{
-  "success": true,
-  "call_sid": "CA123...",
-  "classification_type": "ivr_then_human",
-  "message": "Navigating IVR then connecting VAPI"
-}
-Process:
+```
 
-Look up classification for phone number
-Route based on type:
+## Routing Logic
 
-Human: Direct VAPI connection with SIP headers
-IVR: Execute stored actions → Connect VAPI
+### With Classification
+1. **Human**: Direct VAPI connection (no WebSocket)
+2. **IVR Only**: 
+   - Execute stored actions with proper timing
+   - Use `<Pause>` elements based on `timing_ms`
+   - Then connect VAPI
+3. **IVR Then Human**: (To be implemented)
 
+### Without Classification
+- Dual stream approach: VAPI + WebSocket
+- If human: VAPI already connected
+- If IVR: Classify and store for future calls
 
+## TwiML Examples
 
-Webhooks (Vercel)
-1. /api/twilio/pre-classify-twiml
-Handles pre-classification calls - starts WebSocket stream for 15 seconds.
-2. /api/twilio/direct-vapi-bridge
-Human path - connects VAPI directly with variables in SIP headers.
-3. /api/twilio/ivr-navigate-then-vapi
-IVR path - executes stored DTMF/actions, then connects VAPI.
-Implementation Steps
-Phase 1: Setup Infrastructure
-bash# 1. Create call_classifications table
-psql -d your_database -f create_classifications_table.sql
+### Human Classification
+```xml
+<Response>
+  <Dial>
+    <Sip>sip:assistant@vapi.ai?X-Call-ID=CA123</Sip>
+  </Dial>
+</Response>
+```
 
-# 2. Update pending_calls table
-psql -d your_database -f update_pending_calls.sql
+### IVR Classification with Timing
+```xml
+<Response>
+  <Pause length="17" />
+  <Play digits="3" />
+  <Pause length="1" />
+  <Dial>
+    <Sip>sip:assistant@vapi.ai?X-Call-ID=CA123</Sip>
+  </Dial>
+</Response>
+```
 
-# 3. Deploy edge functions
-supabase functions deploy pre-classify
-supabase functions deploy main-call
+### No Classification (Dual Stream)
+```xml
+<Response>
+  <Start>
+    <Stream url="wss://railway.app">
+      <Parameter name="streamSid" value="CA123" />
+      <Parameter name="phoneNumber" value="+16093694379" />
+    </Stream>
+  </Start>
+  <Dial>
+    <Sip>sip:assistant@vapi.ai?X-Call-ID=CA123</Sip>
+  </Dial>
+</Response>
+```
 
-# 4. Deploy webhooks to Vercel
-vercel deploy
-Phase 2: Pre-Classify Clinics
-javascript// Pre-classify all unique clinics
-const clinics = await getUniqueClinics();
+## Implementation Components
 
-for (const clinic of clinics) {
-  await fetch('/pre-classify', {
-    method: 'POST',
-    body: JSON.stringify({
-      phone_number: clinic.phone,
-      clinic_name: clinic.name
-    })
-  });
-  
-  // Wait between calls to avoid rate limits
-  await sleep(5000);
-}
-Phase 3: Update Call Logic
-javascript// In your call processor
-async function processKitConfirmation(pendingCall) {
-  // Ensure classification exists
-  const hasClassification = await checkClassification(pendingCall.phone);
-  
-  if (!hasClassification) {
-    await preClassify(pendingCall.phone, pendingCall.clinic_name);
-  }
-  
-  // Make the actual call
-  const result = await makeCall({
-    phone_number: pendingCall.phone,
-    customer_name: pendingCall.employee_name,
-    appointment_time: pendingCall.appointment_time
-  });
-  
-  // Update pending_call status
-  await updatePendingCall(pendingCall.id, {
-    triggered: true,
-    trigger_response: result
-  });
-}
-Monitoring & Maintenance
-Check Classification Status
-sql-- View all active classifications
-SELECT phone_number, clinic_name, classification_type, 
-       classification_expires_at,
-       EXTRACT(DAY FROM (classification_expires_at - NOW())) as days_remaining
+### Supabase Edge Functions
+- `pre-classify-call`: Initiates calls and checks for existing classifications
+
+### Vercel Webhooks
+- `preclassify-twiml.js`: Routes calls based on classification status
+
+### Railway WebSocket Server
+- `server_deepgram.js`: Performs real-time classification
+- `supabase-logger-twilio.js`: Stores classifications
+- `storeFinalClassification()`: Captures IVR actions with timing at call end
+
+## Monitoring & Maintenance
+
+### Check Classification Status
+```sql
+-- View all active classifications with timing info
+SELECT 
+  phone_number, 
+  clinic_name, 
+  classification_type,
+  jsonb_array_length(ivr_actions) as action_count,
+  classification_expires_at,
+  EXTRACT(DAY FROM (classification_expires_at - NOW())) as days_remaining
 FROM call_classifications
 WHERE is_active = true
 ORDER BY classification_expires_at;
 
--- Find clinics needing re-classification soon
-SELECT * FROM call_classifications
-WHERE is_active = true
-  AND classification_expires_at < NOW() + INTERVAL '7 days';
-Force Refresh Classification
-javascript// If clinic changes their phone system
-await fetch('/pre-classify', {
+-- View IVR action details
+SELECT 
+  phone_number,
+  jsonb_pretty(ivr_actions) as actions
+FROM call_classifications
+WHERE classification_type = 'ivr_only'
+  AND is_active = true;
+```
+
+### Force Refresh Classification
+```javascript
+await fetch('/pre-classify-call', {
   method: 'POST',
   body: JSON.stringify({
     phone_number: '+16093694379',
-    force_refresh: true
+    force_refresh: true // Bypasses cache
   })
 });
-Cost Analysis
-Without Pre-Classification:
+```
 
-100 calls/day × 30 days = 3,000 classification attempts
-3,000 × 5 seconds = 4.2 hours of classification time
+## Performance Metrics
 
-With Pre-Classification:
+### Classification Timing
+- Human detection: 1-3 seconds
+- IVR detection: 3-6 seconds
+- Full IVR mapping: 15-30 seconds (depends on menu depth)
 
-50 unique clinics × 1 classification = 50 classification attempts
-50 × 30 seconds = 25 minutes of classification time
-94% reduction in classification overhead!
+### Cost Savings
+- Without pre-classification: 3,000 classifications/month
+- With pre-classification: 50 classifications/month
+- **94% reduction** in classification overhead
 
-Troubleshooting
-Classification Not Found
+## Troubleshooting
 
-Check phone number format (must include country code)
-Verify classification hasn't expired
-Check is_active flag
+### Classification Not Working
+1. Check `clinic_phone` is stored in `call_sessions`
+2. Verify Railway server has `storeFinalClassification()` function
+3. Ensure `timing_ms` is calculated from `created_at` timestamps
 
-IVR Navigation Failing
+### IVR Navigation Timing Issues
+- Review `timing_ms` values in stored actions
+- Add buffer time if needed (round up seconds)
+- Check if IVR menu has changed
 
-Force refresh classification
-Check if clinic changed their phone menu
-Review ivr_events for the pre-classification call
-
-Performance Issues
-
-Add index on phone_number if not exists
-Implement classification warm-up for new clinics
-Consider shorter TTL for frequently changing clinics
+### No Classification Stored
+- Verify phone number is passed through TwiML chain
+- Check Railway logs for classification events
+- Ensure call completes (not terminated early)
