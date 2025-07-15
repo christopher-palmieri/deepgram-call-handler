@@ -40,6 +40,18 @@ function generateIvrNavigationTwiml(ivrActions) {
   return twiml;
 }
 
+// Helper to build SIP URI with custom headers as query parameters
+function buildSipUriWithHeaders(baseUri, headers) {
+  const params = new URLSearchParams();
+  
+  // Add X- prefix to all custom headers as required by Twilio
+  for (const [key, value] of Object.entries(headers)) {
+    params.append(`X-${key}`, value);
+  }
+  
+  return `${baseUri}?${params.toString()}`;
+}
+
 export default async function handler(req, res) {
   // Parse POST body from Twilio
   let body = '';
@@ -117,8 +129,18 @@ export default async function handler(req, res) {
       });
   }
   
-  // Build the base SIP URI (no query parameters)
-  const sipUri = process.env.VAPI_SIP_ADDRESS; // Should be like: sip:assistant@sip.vapi.ai
+  // Base SIP URI from environment
+  const baseSipUri = process.env.VAPI_SIP_ADDRESS; // e.g., sip:assistant@sip.vapi.ai
+  
+  // Custom headers to pass to VAPI
+  const customHeaders = {
+    'Customer-Name': customerName,
+    'Clinic-Name': clinicName,
+    'Session-Id': sessionId || 'none',
+    'Call-Sid': callSid,
+    'Phone-Number': phoneNumber,
+    'Timestamp': new Date().toISOString()
+  };
   
   let twiml = '<?xml version="1.0" encoding="UTF-8"?><Response>';
   
@@ -126,22 +148,15 @@ export default async function handler(req, res) {
   if (classification) {
     console.log('🎯 Using cached classification:', classification.classification_type);
     
+    // Add classification type to headers
+    customHeaders['Classification'] = classification.classification_type;
+    
     if (classification.classification_type === 'human') {
       // Direct VAPI connection - no WebSocket needed
       console.log('👤 Human classification - direct VAPI connection');
-      twiml += `
-      <Dial>
-        <Sip>
-          <Uri>${sipUri}</Uri>
-          <Header name="X-Customer-Name" value="${customerName}" />
-          <Header name="X-Clinic-Name" value="${clinicName}" />
-          <Header name="X-Session-Id" value="${sessionId}" />
-          <Header name="X-Call-Sid" value="${callSid}" />
-          <Header name="X-Phone-Number" value="${phoneNumber}" />
-          <Header name="X-Classification" value="human" />
-          <Header name="X-Timestamp" value="${new Date().toISOString()}" />
-        </Sip>
-      </Dial>`;
+      
+      const sipUri = buildSipUriWithHeaders(baseSipUri, customHeaders);
+      twiml += `<Dial><Sip>${sipUri}</Sip></Dial>`;
         
     } else if (classification.classification_type === 'ivr_only') {
       // Execute IVR actions then connect VAPI
@@ -152,19 +167,8 @@ export default async function handler(req, res) {
       }
       
       // After IVR navigation, connect to VAPI
-      twiml += `
-      <Dial>
-        <Sip>
-          <Uri>${sipUri}</Uri>
-          <Header name="X-Customer-Name" value="${customerName}" />
-          <Header name="X-Clinic-Name" value="${clinicName}" />
-          <Header name="X-Session-Id" value="${sessionId}" />
-          <Header name="X-Call-Sid" value="${callSid}" />
-          <Header name="X-Phone-Number" value="${phoneNumber}" />
-          <Header name="X-Classification" value="ivr_only" />
-          <Header name="X-Timestamp" value="${new Date().toISOString()}" />
-        </Sip>
-      </Dial>`;
+      const sipUri = buildSipUriWithHeaders(baseSipUri, customHeaders);
+      twiml += `<Dial><Sip>${sipUri}</Sip></Dial>`;
         
     } else if (classification.classification_type === 'ivr_then_human') {
       // TODO: Implement IVR then human logic
@@ -175,24 +179,16 @@ export default async function handler(req, res) {
         twiml += generateIvrNavigationTwiml(classification.ivr_actions);
       }
       
-      twiml += `
-      <Dial>
-        <Sip>
-          <Uri>${sipUri}</Uri>
-          <Header name="X-Customer-Name" value="${customerName}" />
-          <Header name="X-Clinic-Name" value="${clinicName}" />
-          <Header name="X-Session-Id" value="${sessionId}" />
-          <Header name="X-Call-Sid" value="${callSid}" />
-          <Header name="X-Phone-Number" value="${phoneNumber}" />
-          <Header name="X-Classification" value="ivr_then_human" />
-          <Header name="X-Timestamp" value="${new Date().toISOString()}" />
-        </Sip>
-      </Dial>`;
+      const sipUri = buildSipUriWithHeaders(baseSipUri, customHeaders);
+      twiml += `<Dial><Sip>${sipUri}</Sip></Dial>`;
     }
     
   } else {
     // No classification - use dual approach (VAPI + WebSocket for classification)
     console.log('❓ No classification - using dual stream approach');
+    
+    customHeaders['Classification'] = 'unknown';
+    const sipUri = buildSipUriWithHeaders(baseSipUri, customHeaders);
     
     twiml += `
       <Start>
@@ -201,18 +197,7 @@ export default async function handler(req, res) {
           <Parameter name="phoneNumber" value="${phoneNumber}" />
         </Stream>
       </Start>
-      <Dial>
-        <Sip>
-          <Uri>${sipUri}</Uri>
-          <Header name="X-Customer-Name" value="${customerName}" />
-          <Header name="X-Clinic-Name" value="${clinicName}" />
-          <Header name="X-Session-Id" value="${sessionId}" />
-          <Header name="X-Call-Sid" value="${callSid}" />
-          <Header name="X-Phone-Number" value="${phoneNumber}" />
-          <Header name="X-Classification" value="unknown" />
-          <Header name="X-Timestamp" value="${new Date().toISOString()}" />
-        </Sip>
-      </Dial>`;
+      <Dial><Sip>${sipUri}</Sip></Dial>`;
   }
   
   twiml += '</Response>';
