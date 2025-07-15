@@ -7,6 +7,39 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// Helper function to generate IVR navigation TwiML
+function generateIvrNavigationTwiml(ivrActions) {
+  let twiml = '';
+  let lastTimingMs = 0;
+  
+  // Sort actions by timing to ensure correct order
+  const sortedActions = [...ivrActions].sort((a, b) => a.timing_ms - b.timing_ms);
+  
+  for (const action of sortedActions) {
+    // Calculate pause needed since last action (or start)
+    const pauseMs = action.timing_ms - lastTimingMs;
+    const pauseSeconds = Math.ceil(pauseMs / 1000); // Round up for safety
+    
+    if (pauseSeconds > 0) {
+      twiml += `<Pause length="${pauseSeconds}" />`;
+    }
+    
+    // Execute the action
+    if (action.action_type === 'dtmf') {
+      twiml += `<Play digits="${action.action_value}" />`;
+    } else if (action.action_type === 'speech') {
+      twiml += `<Say>${action.action_value}</Say>`;
+    }
+    
+    lastTimingMs = action.timing_ms;
+  }
+  
+  // Add a small pause after last action before connecting VAPI
+  twiml += '<Pause length="1" />';
+  
+  return twiml;
+}
+
 export default async function handler(req, res) {
   // Parse POST body from Twilio
   let body = '';
@@ -15,36 +48,114 @@ export default async function handler(req, res) {
   }
   const twilioData = querystring.parse(body);
   const callSid = twilioData.CallSid;
+  const phoneNumber = twilioData.To;
   
-  // Twilio sends the called number as 'To' and the calling number as 'From'
-  const phoneNumber = twilioData.To; // This is the number we called (the clinic)
-  const fromNumber = twilioData.From; // This is our Twilio number
+  // Get query parameters
+  const { sessionId, hasClassification } = req.query;
   
-  console.log('📞 Pre-classification call answered:', callSid);
-  console.log('📱 Called number (To):', phoneNumber);
-  console.log('📱 From number:', fromNumber);
-  console.log('📋 All Twilio data:', twilioData);
+  console.log('📞 Call answered:', callSid);
+  console.log('📱 Phone:', phoneNumber);
+  console.log('🆔 Session ID:', sessionId);
+  console.log('📋 Has classification:', hasClassification);
   
-  // Create or update call session with phone number
-  const { error: insertError } = await supabase
-    .from('call_sessions')
-    .insert({
-      call_id: callSid,
-      stream_started: true,
-      clinic_phone: phoneNumber, // Store the number we called
-      created_at: new Date().toISOString()
-    });
+  let classification = null;
+  
+  // Look up session and classification if sessionId provided
+  if (sessionId) {
+    const { data: session } = await supabase
+      .from('call_sessions')
+      .select('*')
+      .eq('id', sessionId)
+      .single();
     
-  if (insertError) {
-    console.error('❌ Error creating session:', insertError);
+    if (session && session.classification_id) {
+      // Look up the classification details
+      const { data: classData } = await supabase
+        .from('call_classifications')
+        .select('*')
+        .eq('id', session.classification_id)
+        .single();
+      
+      if (classData) {
+        classification = classData;
+        console.log('📊 Classification found:', classification.classification_type);
+      }
+    }
+    
+    // Update session with actual call ID
+    await supabase
+      .from('call_sessions')
+      .update({
+        call_id: callSid,
+        call_status: 'active'
+      })
+      .eq('id', sessionId);
   } else {
-    console.log('✅ Created session with phone:', phoneNumber);
+    // No session ID - create new session
+    await supabase
+      .from('call_sessions')
+      .insert({
+        call_id: callSid,
+        stream_started: true,
+        clinic_phone: phoneNumber,
+        created_at: new Date().toISOString()
+      });
   }
   
-  // TwiML: Stream to WebSocket AND dial VAPI via SIP
-  // Pass phone number as a parameter in the WebSocket stream
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-    <Response>
+  let twiml = '<?xml version="1.0" encoding="UTF-8"?><Response>';
+  
+  // Route based on classification
+  if (classification) {
+    console.log('🎯 Using cached classification:', classification.classification_type);
+    
+    if (classification.classification_type === 'human') {
+      // Direct VAPI connection - no WebSocket needed
+      console.log('👤 Human classification - direct VAPI connection');
+      twiml += `
+        <Dial>
+          <Sip>
+            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}
+          </Sip>
+        </Dial>`;
+        
+    } else if (classification.classification_type === 'ivr_only') {
+      // Execute IVR actions then connect VAPI
+      console.log('🤖 IVR classification - executing stored actions');
+      
+      if (classification.ivr_actions && classification.ivr_actions.length > 0) {
+        twiml += generateIvrNavigationTwiml(classification.ivr_actions);
+      }
+      
+      // After IVR navigation, connect to VAPI
+      twiml += `
+        <Dial>
+          <Sip>
+            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}
+          </Sip>
+        </Dial>`;
+        
+    } else if (classification.classification_type === 'ivr_then_human') {
+      // TODO: Implement IVR then human logic
+      console.log('🤖➡️👤 IVR then human - to be implemented');
+      
+      // For now, treat like IVR only
+      if (classification.ivr_actions && classification.ivr_actions.length > 0) {
+        twiml += generateIvrNavigationTwiml(classification.ivr_actions);
+      }
+      
+      twiml += `
+        <Dial>
+          <Sip>
+            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}
+          </Sip>
+        </Dial>`;
+    }
+    
+  } else {
+    // No classification - use dual approach (VAPI + WebSocket for classification)
+    console.log('❓ No classification - using dual stream approach');
+    
+    twiml += `
       <Start>
         <Stream url="${process.env.DEEPGRAM_WS_URL}">
           <Parameter name="streamSid" value="${callSid}" />
@@ -55,10 +166,12 @@ export default async function handler(req, res) {
         <Sip>
           ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}
         </Sip>
-      </Dial>
-    </Response>`;
+      </Dial>`;
+  }
   
-  console.log('🎯 TwiML Response with phone:', phoneNumber);
+  twiml += '</Response>';
+  
+  console.log('📄 TwiML Response:', twiml);
   
   res.setHeader('Content-Type', 'text/xml');
   res.status(200).send(twiml);
