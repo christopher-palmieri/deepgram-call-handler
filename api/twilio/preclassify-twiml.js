@@ -48,13 +48,19 @@ export default async function handler(req, res) {
   }
   const twilioData = querystring.parse(body);
   const callSid = twilioData.CallSid;
-  const phoneNumber = twilioData.To;
+  
+  // Twilio sends the called number as 'To' and the calling number as 'From'
+  const phoneNumber = twilioData.To; // This is the number we called (the clinic)
+  const fromNumber = twilioData.From; // This is our Twilio number
+  
+  console.log('📞 Call answered:', callSid);
+  console.log('📱 Called number (To):', phoneNumber);
+  console.log('📱 From number:', fromNumber);
+  console.log('📋 All Twilio data:', twilioData);
   
   // Get query parameters
   const { sessionId, hasClassification } = req.query;
   
-  console.log('📞 Call answered:', callSid);
-  console.log('📱 Phone:', phoneNumber);
   console.log('🆔 Session ID:', sessionId);
   console.log('📋 Has classification:', hasClassification);
   
@@ -76,13 +82,6 @@ export default async function handler(req, res) {
       .single();
     
     if (session) {
-      // Get customer and clinic names from session
-      customerName = session.customer_name;
-      clinicName = session.clinic_name;
-      
-      console.log('👤 Customer from session:', customerName);
-      console.log('🏥 Clinic from session:', clinicName);
-      
       if (session.classification_id) {
         // Look up the classification details
         const { data: classData } = await supabase
@@ -118,6 +117,9 @@ export default async function handler(req, res) {
       });
   }
   
+  // Build the SIP URI with custom headers
+  const sipUri = `${process.env.VAPI_SIP_ADDRESS}?X-Customer-Name=${encodeURIComponent(customerName)}&amp;X-Clinic-Name=${encodeURIComponent(clinicName)}`;
+  
   let twiml = '<?xml version="1.0" encoding="UTF-8"?><Response>';
   
   // Route based on classification
@@ -127,13 +129,7 @@ export default async function handler(req, res) {
     if (classification.classification_type === 'human') {
       // Direct VAPI connection - no WebSocket needed
       console.log('👤 Human classification - direct VAPI connection');
-      twiml += `
-        <Dial>
-          <Sip>${process.env.VAPI_SIP_ADDRESS}
-            <Header name="X-Customer-Name" value="${customerName || ''}" />
-            <Header name="X-Clinic-Name" value="${clinicName || ''}" />
-          </Sip>
-        </Dial>`;
+      twiml += `<Dial><Sip>${sipUri}</Sip></Dial>`;
         
     } else if (classification.classification_type === 'ivr_only') {
       // Execute IVR actions then connect VAPI
@@ -144,12 +140,7 @@ export default async function handler(req, res) {
       }
       
       // After IVR navigation, connect to VAPI
-      twiml += `
-        <Dial>
-          <Sip>
-            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}&X-Customer-Name=${encodeURIComponent(customerName || '')}&X-Clinic-Name=${encodeURIComponent(clinicName || '')}
-          </Sip>
-        </Dial>`;
+      twiml += `<Dial><Sip>${sipUri}</Sip></Dial>`;
         
     } else if (classification.classification_type === 'ivr_then_human') {
       // TODO: Implement IVR then human logic
@@ -160,12 +151,7 @@ export default async function handler(req, res) {
         twiml += generateIvrNavigationTwiml(classification.ivr_actions);
       }
       
-      twiml += `
-        <Dial>
-          <Sip>
-            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}&X-Customer-Name=${encodeURIComponent(customerName || '')}&X-Clinic-Name=${encodeURIComponent(clinicName || '')}
-          </Sip>
-        </Dial>`;
+      twiml += `<Dial><Sip>${sipUri}</Sip></Dial>`;
     }
     
   } else {
@@ -179,11 +165,7 @@ export default async function handler(req, res) {
           <Parameter name="phoneNumber" value="${phoneNumber}" />
         </Stream>
       </Start>
-      <Dial>
-        <Sip>
-          ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}&X-Customer-Name=${encodeURIComponent(customerName || '')}&X-Clinic-Name=${encodeURIComponent(clinicName || '')}
-        </Sip>
-      </Dial>`;
+      <Dial><Sip>${sipUri}</Sip></Dial>`;
   }
   
   twiml += '</Response>';
