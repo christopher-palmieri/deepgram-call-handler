@@ -116,7 +116,7 @@ export default async function handler(req, res) {
       twiml += `
         <Dial>
           <Sip>
-            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}&X-Customer-Name=${encodeURIComponent(customerName || '')}&X-Clinic-Name=${encodeURIComponent(clinicName || '')}
+            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}&amp;X-Customer-Name=${encodeURIComponent(customerName || '')}&amp;X-Clinic-Name=${encodeURIComponent(clinicName || '')}
           </Sip>
         </Dial>`;
         
