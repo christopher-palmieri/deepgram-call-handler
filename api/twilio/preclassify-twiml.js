@@ -50,13 +50,15 @@ export default async function handler(req, res) {
   const callSid = twilioData.CallSid;
   const phoneNumber = twilioData.To;
   
-  // Get query parameters
-  const { sessionId, hasClassification } = req.query;
+  // Get query parameters including customer and clinic names
+  const { sessionId, hasClassification, customerName, clinicName } = req.query;
   
   console.log('📞 Call answered:', callSid);
   console.log('📱 Phone:', phoneNumber);
   console.log('🆔 Session ID:', sessionId);
   console.log('📋 Has classification:', hasClassification);
+  console.log('👤 Customer:', customerName);
+  console.log('🏥 Clinic:', clinicName);
   
   let classification = null;
   
@@ -114,7 +116,7 @@ export default async function handler(req, res) {
       twiml += `
         <Dial>
           <Sip>
-            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}
+            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}&X-Customer-Name=${encodeURIComponent(customerName || '')}&X-Clinic-Name=${encodeURIComponent(clinicName || '')}
           </Sip>
         </Dial>`;
         
@@ -130,7 +132,7 @@ export default async function handler(req, res) {
       twiml += `
         <Dial>
           <Sip>
-            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}
+            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}&X-Customer-Name=${encodeURIComponent(customerName || '')}&X-Clinic-Name=${encodeURIComponent(clinicName || '')}
           </Sip>
         </Dial>`;
         
@@ -146,7 +148,7 @@ export default async function handler(req, res) {
       twiml += `
         <Dial>
           <Sip>
-            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}
+            ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}&X-Customer-Name=${encodeURIComponent(customerName || '')}&X-Clinic-Name=${encodeURIComponent(clinicName || '')}
           </Sip>
         </Dial>`;
     }
@@ -164,7 +166,7 @@ export default async function handler(req, res) {
       </Start>
       <Dial>
         <Sip>
-          ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}
+          ${process.env.VAPI_SIP_ADDRESS}?X-Call-ID=${callSid}&X-Customer-Name=${encodeURIComponent(customerName || '')}&X-Clinic-Name=${encodeURIComponent(clinicName || '')}
         </Sip>
       </Dial>`;
   }
