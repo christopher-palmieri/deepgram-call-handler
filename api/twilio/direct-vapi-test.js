@@ -7,12 +7,12 @@ export default async function handler(req, res) {
     <Response>
       <Say>Testing VAPI connection with variables. Connecting now.</Say>
       <Dial>
-        <Sip>sip:brandon-call-for-kits@sip.vapi.ai?x-customerName=Indiana</Sip>
+        <Sip>sip:brandon-call-for-kits@sip.vapi.ai</Sip>
       </Dial>
     </Response>`;
   
   res.setHeader('Content-Type', 'text/xml');
-  res.setHeader('customerName', 'Chris Cool Company');
+  res.setHeader('x-customerName', 'Chris Cool Company');
   res.status(200).send(twiml);
 }
 
