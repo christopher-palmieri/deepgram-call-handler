@@ -12,7 +12,6 @@ export default async function handler(req, res) {
     </Response>`;
   
   res.setHeader('Content-Type', 'text/xml');
-  res.setHeader('x-customerName', 'Chris Cool Company');
   res.status(200).send(twiml);
 }
 
