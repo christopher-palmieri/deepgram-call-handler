@@ -45,6 +45,7 @@ function buildSipUriWithHeaders(baseUri, headers) {
   const params = new URLSearchParams();
   
   // Add X- prefix to all custom headers as required by Twilio
+  // Using lowercase keys without hyphens for VAPI compatibility
   for (const [key, value] of Object.entries(headers)) {
     params.append(`X-${key}`, value);
   }
@@ -135,14 +136,14 @@ export default async function handler(req, res) {
   // Base SIP URI from environment
   const baseSipUri = process.env.VAPI_SIP_ADDRESS; // e.g., sip:assistant@sip.vapi.ai
   
-  // Custom headers to pass to VAPI
+  // Custom headers to pass to VAPI - using lowercase without hyphens for VAPI
   const customHeaders = {
-    'Customer-Name': customerName,
-    'Clinic-Name': clinicName,
-    'Session-Id': sessionId || 'none',
-    'Call-Sid': callSid,
-    'Phone-Number': phoneNumber,
-    'Timestamp': new Date().toISOString()
+    'customername': customerName,      // Changed from 'Customer-Name'
+    'clinicname': clinicName,          // Changed from 'Clinic-Name'
+    'sessionid': sessionId || 'none', // Changed from 'Session-Id'
+    'callsid': callSid,               // Changed from 'Call-Sid'
+    'phonenumber': phoneNumber,       // Changed from 'Phone-Number'
+    'timestamp': new Date().toISOString() // Already lowercase
   };
   
   let twiml = '<?xml version="1.0" encoding="UTF-8"?><Response>';
@@ -152,7 +153,7 @@ export default async function handler(req, res) {
     console.log('🎯 Using cached classification:', classification.classification_type);
     
     // Add classification type to headers
-    customHeaders['Classification'] = classification.classification_type;
+    customHeaders['classification'] = classification.classification_type; // Changed from 'Classification'
     
     if (classification.classification_type === 'human') {
       // Direct VAPI connection - no WebSocket needed
@@ -190,7 +191,7 @@ export default async function handler(req, res) {
     // No classification - use dual approach (VAPI + WebSocket for classification)
     console.log('❓ No classification - using dual stream approach');
     
-    customHeaders['Classification'] = 'unknown';
+    customHeaders['classification'] = 'unknown'; // Changed from 'Classification'
     const sipUri = buildSipUriWithHeaders(baseSipUri, customHeaders);
     
     twiml += `
