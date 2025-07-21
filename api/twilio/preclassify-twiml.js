@@ -45,7 +45,6 @@ function buildSipUriWithHeaders(baseUri, headers) {
   const params = new URLSearchParams();
   
   // Add X- prefix to all custom headers as required by Twilio
-  // Using lowercase keys without hyphens for VAPI compatibility
   for (const [key, value] of Object.entries(headers)) {
     params.append(`X-${key}`, value);
   }
@@ -72,20 +71,13 @@ export default async function handler(req, res) {
   console.log('📞 Call answered:', callSid);
   console.log('📱 Called number (To):', phoneNumber);
   console.log('📱 From number:', fromNumber);
-  console.log('📋 All Twilio data:', twilioData);
   
-  // Get query parameters
-  const { sessionId, hasClassification } = req.query;
+  // Get query parameters including the new pendingCallId
+  const { sessionId, pendingCallId, hasClassification } = req.query;
   
   console.log('🆔 Session ID:', sessionId);
-  console.log('📋 Has classification:', hasClassification);
-  
-  // Hardcode names for now (eventually from database)
-  const customerName = "Indiana Jones";
-  const clinicName = "Madison Occupational Health";
-  
-  console.log('👤 Customer:', customerName);
-  console.log('🏥 Clinic:', clinicName);
+  console.log('📋 Pending Call ID:', pendingCallId);
+  console.log('📊 Has classification:', hasClassification);
   
   let classification = null;
   
@@ -121,39 +113,25 @@ export default async function handler(req, res) {
         call_status: 'active'
       })
       .eq('id', sessionId);
-  } else {
-    // No session ID - create new session
-    await supabase
-      .from('call_sessions')
-      .insert({
-        call_id: callSid,
-        stream_started: true,
-        clinic_phone: phoneNumber,
-        created_at: new Date().toISOString()
-      });
   }
   
   // Base SIP URI from environment
   const baseSipUri = process.env.VAPI_SIP_ADDRESS; // e.g., sip:assistant@sip.vapi.ai
   
-  // Custom headers to pass to VAPI - using lowercase without hyphens for VAPI
+  // Custom headers to pass to VAPI - ONLY the pending call ID
   const customHeaders = {
-    'customername': customerName,      // Changed from 'Customer-Name'
-    'clinicname': clinicName,          // Changed from 'Clinic-Name'
-    'sessionid': sessionId || 'none', // Changed from 'Session-Id'
-    'callsid': callSid,               // Changed from 'Call-Sid'
-    'phonenumber': phoneNumber,       // Changed from 'Phone-Number'
-    'timestamp': new Date().toISOString() // Already lowercase
+    'pendingcallid': pendingCallId || 'none',  // VAPI will use this to fetch all data
+    'sessionid': sessionId || 'none'           // For tracking this specific attempt
   };
   
   let twiml = '<?xml version="1.0" encoding="UTF-8"?><Response>';
   
-  // Route based on classification
+  // Route based on classification (same logic as before)
   if (classification) {
     console.log('🎯 Using cached classification:', classification.classification_type);
     
     // Add classification type to headers
-    customHeaders['classification'] = classification.classification_type; // Changed from 'Classification'
+    customHeaders['classification'] = classification.classification_type;
     
     if (classification.classification_type === 'human') {
       // Direct VAPI connection - no WebSocket needed
@@ -191,7 +169,7 @@ export default async function handler(req, res) {
     // No classification - use dual approach (VAPI + WebSocket for classification)
     console.log('❓ No classification - using dual stream approach');
     
-    customHeaders['classification'] = 'unknown'; // Changed from 'Classification'
+    customHeaders['classification'] = 'unknown';
     const sipUri = buildSipUriWithHeaders(baseSipUri, customHeaders);
     
     twiml += `
