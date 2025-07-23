@@ -3,6 +3,13 @@ export const config = {
 };
 
 export default async function handler(req) {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders(),
+    });
+  }
+
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   const providedSecret = req.headers.get('x-vapi-shared-secret');
@@ -48,8 +55,8 @@ export default async function handler(req) {
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, x-vapi-shared-secret',
-    'Access-Control-Allow-Methods': 'GET',
+    'Access-Control-Allow-Headers': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
     'Content-Type': 'application/json',
   };
 }
