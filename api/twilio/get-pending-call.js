@@ -25,7 +25,7 @@ export default async function handler(req) {
   }
 
   // Supabase fetch (edit URL and key accordingly)
-  const supabaseRes = await fetch(`https://YOUR_PROJECT_ID.supabase.co/rest/v1/pending_calls?id=eq.${id}&select=id,employee_name`, {
+  const supabaseRes = await fetch(`https://ixbuuvggqzscdsfkzrri.supabase.co/rest/v1/pending_calls?id=eq.${id}&select=id,employee_name`, {
     headers: {
       apikey: process.env.SUPABASE_ANON_KEY,
       Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
