@@ -31,12 +31,12 @@ export default async function handler(req) {
   const supabaseUrl = 'https://ixbuuvggqzscdsfkzrri.supabase.co/rest/v1/pending_calls';
   const supabaseApiKey = process.env.SUPABASE_ANON_KEY;
 
-  const supabaseRes = await fetch(`${supabaseUrl}?id=eq.${id}&select=id,employee_name`, {
-    headers: {
-      apikey: supabaseApiKey,
-      Authorization: `Bearer ${supabaseApiKey}`,
-    },
-  });
+  const supabaseRes = await fetch(`${supabaseUrl}?id=eq.${id}&select=id,employee_name,exam_id,exam_dob,client_name,appointment_time,type_of_visit,clinic_name,clinic_provider_address,clinic_scheduling_rep,procedures`, {
+  headers: {
+    apikey: supabaseApiKey,
+    Authorization: `Bearer ${supabaseApiKey}`,
+  },
+});
 
   const data = await supabaseRes.json();
   if (!Array.isArray(data) || data.length === 0) {
