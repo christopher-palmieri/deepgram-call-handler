@@ -109,20 +109,22 @@ export default async function handler(req, res) {
     }
     if (pendingCallData.employee_dob) {
       const readableDob = new Intl.DateTimeFormat('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-      }    
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      }).format(new Date(pendingCallData.employee_dob));
+      customHeaders['employee_dob'] = readableDob;
+    }
     if (pendingCallData.appointment_time) {
       const readableAppt = new Intl.DateTimeFormat('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true     
-    }).format(new Date(pendingCallData.employee_dob));
-    customHeaders['employee_dob'] = readableDob;
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      }).format(new Date(pendingCallData.appointment_time));
+      customHeaders['appointment_time'] = readableAppt;
     }
   }
 
