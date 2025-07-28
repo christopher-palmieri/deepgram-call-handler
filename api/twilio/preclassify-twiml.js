@@ -108,8 +108,12 @@ export default async function handler(req, res) {
       customHeaders['employee_name'] = pendingCallData.employee_name;
     }
     if (pendingCallData.employee_dob) {
-      customHeaders['employee_dob'] = pendingCallData.employee_dob;
-    }
+      const readableDob = new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    }).format(new Date(pendingCallData.employee_dob));
+    customHeaders['employee_dob'] = readableDob;
   }
 
   let twiml = '<?xml version="1.0" encoding="UTF-8"?><Response>';
