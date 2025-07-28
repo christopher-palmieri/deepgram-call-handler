@@ -6,6 +6,15 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
+  // ✅ Validate secret token
+  const authHeader = req.headers.authorization;
+  const secret = process.env.VAPI_SECRET_TOKEN;
+
+  if (!authHeader || authHeader !== `Bearer ${secret}`) {
+    console.warn('Unauthorized attempt to access post_call endpoint');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
