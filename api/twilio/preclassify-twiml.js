@@ -114,6 +114,7 @@ export default async function handler(req, res) {
       day: 'numeric'
     }).format(new Date(pendingCallData.employee_dob));
     customHeaders['employee_dob'] = readableDob;
+    }
   }
 
   let twiml = '<?xml version="1.0" encoding="UTF-8"?><Response>';
