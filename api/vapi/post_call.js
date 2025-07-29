@@ -25,16 +25,15 @@ export default async function handler(req, res) {
 
     console.log('🪵 RAW BODY:', body);
     const parsed = JSON.parse(body);
+    const message = parsed?.message;
 
-    // HARDCODE the pendingcallid for now to verify downstream logic
-    const id = '0e9f4fc4-619a-40c2-b40a-05e8da6dbe8c';
+    // ✅ Pull pendingcallid from assistantOverrides.variableValues
+    const id = message?.assistantOverrides?.variableValues?.pendingcallid;
 
-    const summary = parsed.summary;
-    const successEvaluation = parsed.successEvaluation;
-    const structured =
-      parsed?.structuredData ||
-      parsed?.assistantOverrides?.structuredData ||
-      parsed?.variableValues?.structuredData;
+    // ✅ Pull summary, evaluation, structuredData from message.analysis
+    const summary = message?.analysis?.summary;
+    const successEvaluation = message?.analysis?.successEvaluation;
+    const structured = message?.analysis?.structuredData;
 
     if (!id) {
       return res.status(400).json({ error: 'Missing pendingcallid' });
@@ -43,11 +42,7 @@ export default async function handler(req, res) {
     const updates = {};
     if (summary) updates.summary = summary;
     if (successEvaluation) updates.success_evaluation = successEvaluation;
-    if (structured) {
-      updates.structured_data = typeof structured === 'object'
-        ? structured
-        : JSON.parse(structured);
-    }
+    if (structured) updates.structured_data = structured;
 
     console.log('🔍 ID used:', id);
     console.log('📦 Update payload:', updates);
