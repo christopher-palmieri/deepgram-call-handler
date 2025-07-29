@@ -54,6 +54,11 @@ export default async function handler(req, res) {
       .eq('id', id)
       .select();
 
+    console.log('🔍 ID used:', id);
+    console.log('📦 Update payload:', updates);
+    console.log('📊 Supabase result:', { status, statusText, data, error });
+
+
     if (error) {
       console.error('❌ Error updating Supabase:', error);
       return res.status(500).json({ error: 'Database update failed' });
