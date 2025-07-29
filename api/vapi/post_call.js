@@ -24,21 +24,14 @@ export default async function handler(req, res) {
     });
 
     const parsed = JSON.parse(body);
-    const {
-      pendingcallid,
-      summary,
-      successEvaluation, // camelCase from VAPI
-      structuredData     // camelCase from VAPI
-    } = parsed;
 
-    // fallback parsing if fields are missing
-    const fallback = (path) => path && typeof path === 'object' ? path : {};
+    // Extract pendingcallid from assistantOverrides.variables or variableValues
+    const assistantVars = parsed?.assistantOverrides?.variables || parsed?.variableValues || {};
+    const id = assistantVars.pendingcallid;
 
-    const fallbackPendingCallId = parsed?.assistantOverrides?.variables?.pendingcallid || parsed?.variableValues?.pendingcallid;
-    const fallbackStructuredData = parsed?.assistantOverrides?.structuredData || parsed?.variableValues?.structuredData;
-
-    const id = pendingcallid || fallbackPendingCallId;
-    const structured = structuredData || fallbackStructuredData;
+    const summary = parsed.summary;
+    const successEvaluation = parsed.successEvaluation;
+    const structured = parsed?.structuredData || parsed?.assistantOverrides?.structuredData || parsed?.variableValues?.structuredData;
 
     if (!id) {
       return res.status(400).json({ error: 'Missing pendingcallid' });
