@@ -24,23 +24,19 @@ export default async function handler(req, res) {
     });
 
     const parsed = JSON.parse(body);
-    console.log('🧩 Parsed Body:', parsed);
+    const message = parsed?.message;
 
-    // HARDCODE the pendingcallid to isolate downstream update logic
-    const id = '0e9f4fc4-619a-40c2-b40a-05e8da6dbe8c';
+    const pendingcallid = message?.call?.assistant?.variableValues?.pendingcallid;
+    const summary = message?.analysis?.summary;
+    const successEvaluation = message?.analysis?.successEvaluation;
+    const structured = message?.analysis?.structuredData;
 
-    const summary = parsed.summary || parsed?.assistantOverrides?.summary;
-    const successEvaluation = parsed.successEvaluation || parsed?.assistantOverrides?.successEvaluation;
-    const structured =
-      parsed?.structuredData ||
-      parsed?.assistantOverrides?.structuredData ||
-      parsed?.variableValues?.structuredData;
-
+    console.log('🧠 Extracted pendingcallid:', pendingcallid);
     console.log('📝 Summary:', summary);
-    console.log('✅ Success Evaluation:', successEvaluation);
-    console.log('📦 Structured Raw:', structured);
+    console.log('✅ Evaluation:', successEvaluation);
+    console.log('📦 Structured:', structured);
 
-    if (!id) {
+    if (!pendingcallid) {
       return res.status(400).json({ error: 'Missing pendingcallid' });
     }
 
@@ -53,13 +49,10 @@ export default async function handler(req, res) {
         : JSON.parse(structured);
     }
 
-    console.log('🔍 ID used:', id);
-    console.log('📦 Update payload:', updates);
-
     const { data, error, status, statusText } = await supabase
       .from('pending_calls')
       .update(updates)
-      .eq('id', id)
+      .eq('id', pendingcallid)
       .select();
 
     console.log('📊 Supabase result:', { status, statusText, data, error });
