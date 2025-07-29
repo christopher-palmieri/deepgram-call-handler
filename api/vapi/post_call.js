@@ -24,7 +24,12 @@ export default async function handler(req, res) {
     });
 
     const parsed = JSON.parse(body);
-    const { pendingcallid, summary, success_evaluation, structured_data } = parsed;
+    const {
+      pendingcallid,
+      summary,
+      successEvaluation, // camelCase from VAPI
+      structuredData     // camelCase from VAPI
+    } = parsed;
 
     if (!pendingcallid) {
       return res.status(400).json({ error: 'Missing pendingcallid' });
@@ -32,11 +37,11 @@ export default async function handler(req, res) {
 
     const updates = {};
     if (summary) updates.summary = summary;
-    if (success_evaluation) updates.success_evaluation = success_evaluation;
-    if (structured_data) {
-      updates.structured_data = typeof structured_data === 'object'
-        ? structured_data
-        : JSON.parse(structured_data);
+    if (successEvaluation) updates.success_evaluation = successEvaluation;
+    if (structuredData) {
+      updates.structured_data = typeof structuredData === 'object'
+        ? structuredData
+        : JSON.parse(structuredData);
     }
 
     const { data, error } = await supabase
