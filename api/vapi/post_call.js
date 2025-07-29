@@ -31,23 +31,32 @@ export default async function handler(req, res) {
       structuredData     // camelCase from VAPI
     } = parsed;
 
-    if (!pendingcallid) {
+    // fallback parsing if fields are missing
+    const fallback = (path) => path && typeof path === 'object' ? path : {};
+
+    const fallbackPendingCallId = parsed?.assistantOverrides?.variables?.pendingcallid || parsed?.variableValues?.pendingcallid;
+    const fallbackStructuredData = parsed?.assistantOverrides?.structuredData || parsed?.variableValues?.structuredData;
+
+    const id = pendingcallid || fallbackPendingCallId;
+    const structured = structuredData || fallbackStructuredData;
+
+    if (!id) {
       return res.status(400).json({ error: 'Missing pendingcallid' });
     }
 
     const updates = {};
     if (summary) updates.summary = summary;
     if (successEvaluation) updates.success_evaluation = successEvaluation;
-    if (structuredData) {
-      updates.structured_data = typeof structuredData === 'object'
-        ? structuredData
-        : JSON.parse(structuredData);
+    if (structured) {
+      updates.structured_data = typeof structured === 'object'
+        ? structured
+        : JSON.parse(structured);
     }
 
     const { data, error } = await supabase
       .from('pending_calls')
       .update(updates)
-      .eq('id', pendingcallid)
+      .eq('id', id)
       .select();
 
     if (error) {
