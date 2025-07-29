@@ -25,13 +25,17 @@ export default async function handler(req, res) {
 
     const parsed = JSON.parse(body);
 
-    // Extract pendingcallid from assistantOverrides.variables or variableValues
-    const assistantVars = parsed?.assistantOverrides?.variables || parsed?.variableValues || {};
-    const id = assistantVars.pendingcallid;
+    // Extract pendingcallid from both possible sources
+    const id =
+      parsed?.assistantOverrides?.variablesValues?.pendingcallid ||
+      parsed?.variableValues?.pendingcallid;
 
     const summary = parsed.summary;
     const successEvaluation = parsed.successEvaluation;
-    const structured = parsed?.structuredData || parsed?.assistantOverrides?.structuredData || parsed?.variableValues?.structuredData;
+    const structured =
+      parsed?.structuredData ||
+      parsed?.assistantOverrides?.structuredData ||
+      parsed?.variableValues?.structuredData;
 
     if (!id) {
       return res.status(400).json({ error: 'Missing pendingcallid' });
