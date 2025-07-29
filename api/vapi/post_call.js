@@ -46,7 +46,11 @@ export default async function handler(req, res) {
   for await (const chunk of req) {
     body += chunk;
   }
+  console.log('🔍 Raw body:', body);
+  
   const twilioData = querystring.parse(body);
+  console.log('🔍 Parsed Twilio Data:', twilioData);
+  
   const callSid = twilioData.CallSid;
   const phoneNumber = twilioData.To;
   const fromNumber = twilioData.From;
