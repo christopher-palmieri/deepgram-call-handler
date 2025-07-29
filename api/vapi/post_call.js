@@ -25,12 +25,12 @@ export default async function handler(req, res) {
 
     console.log('🪵 RAW BODY:', body);
     const parsed = JSON.parse(body);
+
     const message = parsed?.message;
 
-    // ✅ Pull pendingcallid from assistantOverrides.variableValues
+    // ✅ Correct extraction from nested assistantOverrides
     const id = message?.assistantOverrides?.variableValues?.pendingcallid;
 
-    // ✅ Pull summary, evaluation, structuredData from message.analysis
     const summary = message?.analysis?.summary;
     const successEvaluation = message?.analysis?.successEvaluation;
     const structured = message?.analysis?.structuredData;
@@ -42,7 +42,11 @@ export default async function handler(req, res) {
     const updates = {};
     if (summary) updates.summary = summary;
     if (successEvaluation) updates.success_evaluation = successEvaluation;
-    if (structured) updates.structured_data = structured;
+    if (structured) {
+      updates.structured_data = typeof structured === 'object'
+        ? structured
+        : JSON.parse(structured);
+    }
 
     console.log('🔍 ID used:', id);
     console.log('📦 Update payload:', updates);
