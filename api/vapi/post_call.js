@@ -23,20 +23,20 @@ export default async function handler(req, res) {
       req.on('error', err => reject(err));
     });
 
+    console.log('🪵 RAW BODY:', body);
     const parsed = JSON.parse(body);
-    const message = parsed?.message;
 
-    const pendingcallid = message?.call?.assistant?.variableValues?.pendingcallid;
-    const summary = message?.analysis?.summary;
-    const successEvaluation = message?.analysis?.successEvaluation;
-    const structured = message?.analysis?.structuredData;
+    // HARDCODE the pendingcallid for now to verify downstream logic
+    const id = '0e9f4fc4-619a-40c2-b40a-05e8da6dbe8c';
 
-    console.log('🧠 Extracted pendingcallid:', pendingcallid);
-    console.log('📝 Summary:', summary);
-    console.log('✅ Evaluation:', successEvaluation);
-    console.log('📦 Structured:', structured);
+    const summary = parsed.summary;
+    const successEvaluation = parsed.successEvaluation;
+    const structured =
+      parsed?.structuredData ||
+      parsed?.assistantOverrides?.structuredData ||
+      parsed?.variableValues?.structuredData;
 
-    if (!pendingcallid) {
+    if (!id) {
       return res.status(400).json({ error: 'Missing pendingcallid' });
     }
 
@@ -49,10 +49,13 @@ export default async function handler(req, res) {
         : JSON.parse(structured);
     }
 
+    console.log('🔍 ID used:', id);
+    console.log('📦 Update payload:', updates);
+
     const { data, error, status, statusText } = await supabase
       .from('pending_calls')
       .update(updates)
-      .eq('id', pendingcallid)
+      .eq('id', id)
       .select();
 
     console.log('📊 Supabase result:', { status, statusText, data, error });
