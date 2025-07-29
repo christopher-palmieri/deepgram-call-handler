@@ -16,22 +16,23 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { pendingcallid, summary, success } = req.body;
+    const { pendingcallid, summary, evaluation, structured_data } = req.body;
 
-    if (!pendingcallid || summary === undefined || success === undefined) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!pendingcallid) {
+      return res.status(400).json({ error: 'Missing pendingcallid' });
     }
+
+    const updates = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (summary !== undefined) updates.summary = summary;
+    if (evaluation !== undefined) updates.evaluation = evaluation;
+    if (structured_data !== undefined) updates.structured_data = structured_data;
 
     const { data, error } = await supabase
       .from('pending_calls')
-      .update({
-        call_status: success ? 'completed' : 'failed',
-        trigger_response: {
-          summary,
-          success
-        },
-        updated_at: new Date().toISOString()
-      })
+      .update(updates)
       .eq('id', pendingcallid)
       .select();
 
@@ -40,7 +41,6 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to update pending call' });
     }
 
-    console.log('✅ Post-call update successful:', data);
     return res.status(200).json({ status: 'ok', updated: true, data });
   } catch (err) {
     console.error('❌ Handler error:', err);
