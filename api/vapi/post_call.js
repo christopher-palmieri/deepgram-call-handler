@@ -25,10 +25,8 @@ export default async function handler(req, res) {
 
     const parsed = JSON.parse(body);
 
-    // Extract pendingcallid from both possible sources
-    const id =
-      parsed?.assistantOverrides?.variablesValues?.pendingcallid ||
-      parsed?.variableValues?.pendingcallid;
+    // HARDCODE the pendingcallid for now to verify downstream logic
+    const id = '0e9f4fc4-619a-40c2-b40a-05e8da6dbe8c';
 
     const summary = parsed.summary;
     const successEvaluation = parsed.successEvaluation;
