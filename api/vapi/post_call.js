@@ -48,16 +48,16 @@ export default async function handler(req, res) {
         : JSON.parse(structured);
     }
 
-    const { data, error } = await supabase
+    console.log('🔍 ID used:', id);
+    console.log('📦 Update payload:', updates);
+
+    const { data, error, status, statusText } = await supabase
       .from('pending_calls')
       .update(updates)
       .eq('id', id)
       .select();
 
-    console.log('🔍 ID used:', id);
-    console.log('📦 Update payload:', updates);
     console.log('📊 Supabase result:', { status, statusText, data, error });
-
 
     if (error) {
       console.error('❌ Error updating Supabase:', error);
