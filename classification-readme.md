@@ -1,153 +1,228 @@
-# Pre-Classification Call System
+# Pre-Classification Call System with Automated Scheduler
 
 ## Overview
-This system pre-classifies clinic phone systems (human vs IVR vs IVR-then-human) and caches the results for 30 days, enabling instant routing for subsequent calls. The system uses intelligent call handling to minimize wasted time on IVR systems during classification.
+This system pre-classifies clinic phone systems (human vs IVR vs IVR-then-human) and caches the results for 30 days, enabling instant routing for subsequent calls. The system uses intelligent call handling to minimize wasted time on IVR systems during classification, with a fully automated scheduler that orchestrates the entire workflow.
 
-**Core Concept**: Make a test call to each clinic once, learn how their phone system works, then use that knowledge for all future calls to save time and improve reliability.
+**Core Concept**: Make a test call to each clinic once, learn how their phone system works, cache that knowledge for 30 days, then use it for all future calls to save time and improve reliability.
 
 ## System Components
 
 ### 1. **Edge Functions** (Supabase)
-- `pre-classify-call/index.ts`: Entry point that initiates calls using a hardcoded pending_call_id
+- `pre-classify-call-07-21-2025`: Initiates calls with dynamic pending_call_id support
+- `scheduler`: Orchestrates workflow states and triggers calls every 5 minutes
 
 ### 2. **API Endpoints** (Vercel)
 - `api/twilio/preclassify-twiml.js`: Routes calls based on classification (TwiML webhook)
 - `api/twilio/get-pending-call.js`: Provides call data to VAPI (secured with shared secret)
-- `api/vapi/post_call.js`: Receives call results from VAPI (secured with bearer token)
+- `api/vapi/post_call.js`: Receives call results from VAPI and updates workflow states
 
 ### 3. **WebSocket Server** (Railway)
-- `server_deepgram.js`: Real-time call classification and IVR navigation
+- `server_deepgram.js`: Real-time call classification, IVR navigation, and workflow state management
 - Modules:
   - `ivr-navigator.js`: OpenAI-powered IVR menu navigation
   - `fast-classifier.js`: Pattern matching for instant classification
   - `openai-classifier.js`: AI classification for complex cases
-  - `supabase-logger-twilio.js`: Stores classifications and manages call state
+  - `supabase-logger.js`: Stores classifications and manages call state
+
+### 4. **Automated Scheduler** (pg_cron)
+- Runs every 5 minutes via pg_cron
+- Processes pending calls through workflow states
+- Handles retries with exponential backoff
+- Manages two-call flow for IVR systems
 
 ## Benefits
 - ⚡ **Speed**: Reduce call connection time from ~10s to ~5s
 - 💰 **Cost**: One classification per clinic per month instead of every call
-- 🎯 **Reliability**: Predictable routing behavior
-- 📊 **Scalability**: Handle high call volumes without classification bottleneck
-- 🤖 **Efficiency**: Automatic call termination for IVR systems after classification
+- 🎯 **Reliability**: Predictable routing behavior with automated retries
+- 📊 **Scalability**: Handle high call volumes with batch processing
+- 🤖 **Automation**: Fully automated workflow from classification to completion
+- 🔄 **Self-Healing**: Automatic retries for failed connections
+
+## Workflow States
+
+The system uses workflow states to track each pending call through its lifecycle:
+
+### Core Workflow States
+
+| State | Description | Next Action | Triggered By |
+|-------|-------------|-------------|--------------|
+| `pending` | Call is parked/paused for testing | None - ignored by scheduler | Manual testing mode |
+| `new` | Brand new call, not yet processed | Check for existing classification | Initial creation |
+| `checking_classification` | Looking up existing classification | Move to needs_classification or ready_to_call | Scheduler |
+| `needs_classification` | No classification found, needs to classify | Trigger classification call | No classification exists |
+| `classifying` | Classification call in progress | Wait for WebSocket to detect type | Edge function |
+| `classification_pending` | IVR detected, waiting before task call | Wait 30s, then trigger task call | WebSocket (IVR detected) |
+| `ready_to_call` | Classification known, ready for task call | Trigger task call immediately | Classification found/completed |
+| `calling` | Task call in progress with VAPI | Wait for VAPI to complete | Edge function |
+| `retry_pending` | Call failed, waiting to retry | Retry after delay (5/15/30 min) | VAPI "Unable to connect" |
+| `completed` | Call successfully completed | None - terminal state | VAPI "Sending Records" or "No Show" |
+| `failed` | Max retries exceeded | None - terminal state | After 3 failed attempts |
+
+### State Transition Flows
+
+#### Scenario 1: New Call with Existing Classification
+```
+new → checking_classification → ready_to_call → calling → completed
+```
+
+#### Scenario 2: New Call Requiring Classification (IVR)
+```
+new → checking_classification → needs_classification → classifying → classification_pending → ready_to_call → calling → completed
+```
+
+#### Scenario 3: New Call with Human Answer
+```
+new → checking_classification → needs_classification → classifying → calling → completed
+```
+
+#### Scenario 4: Failed Call with Retry
+```
+calling → retry_pending → ready_to_call → calling → completed
+```
 
 ## Architecture Flow
 
-### 1. CALL INITIATION (Edge Function)
+### 1. SCHEDULER ORCHESTRATION (pg_cron every 5 minutes)
 ```
-├─> Hardcoded pending_call_id (for testing)
+├─> Find pending calls needing action (next_action_at <= NOW)
+├─> Process by workflow_state:
+│   ├─> new → Check classification
+│   ├─> classification_pending → Trigger task call
+│   ├─> ready_to_call → Trigger task call
+│   └─> retry_pending → Retry if under max_retries
+└─> Update states and next_action_at times
+```
+
+### 2. CALL INITIATION (Edge Function)
+```
+├─> Receive pending_call_id from scheduler
 ├─> Fetch pending call details from Supabase
 ├─> Check for existing classification
 ├─> Create call session
+├─> Update workflow state (classifying or calling)
 ├─> Pass parameters to TwiML handler via URL
 └─> Initiate Twilio call
 ```
 
-### 2. CALL ROUTING (TwiML Handler)
+### 3. CALL ROUTING (TwiML Handler)
 ```
 ├─> Retrieve session and classification data
 ├─> Build SIP headers with pending call info
 ├─> Route based on classification:
 │   ├─> Human → Direct VAPI connection
-│   ├─> IVR → Execute stored actions → VAPI
+│   ├─> IVR → Execute stored actions with timing → VAPI
 │   └─> Unknown → Dual stream (VAPI + WebSocket)
 └─> Pass employee data in SIP headers
 ```
 
-### 3. CLASSIFICATION PROCESS (WebSocket Server)
+### 4. CLASSIFICATION PROCESS (WebSocket Server)
 ```
 ├─> Connect to Deepgram for transcription
 ├─> Fast pattern matching for instant detection
 ├─> OpenAI classification after 3 seconds
 ├─> Store classification state in session
-├─> For IVR: Navigate and log first action
-├─> Auto-terminate call after IVR action logged
+├─> Update pending_call workflow state:
+│   ├─> Human → calling (VAPI continues)
+│   ├─> IVR → classification_pending (wait for task call)
+├─> For IVR: Navigate and log first action with timing
+├─> Auto-terminate classification call after IVR action
 └─> Store final classification when call ends
 ```
 
-### 4. VAPI INTEGRATION
+### 5. VAPI INTEGRATION & COMPLETION
 ```
 ├─> VAPI receives call with pending_call_id
 ├─> Fetches full call data via API endpoint
 ├─> Conducts conversation with clinic
-└─> Posts results back to Supabase
+├─> Posts results back with success evaluation:
+│   ├─> "Sending Records" → completed
+│   ├─> "No Show" → completed
+│   └─> "Unable to connect" → retry_pending
+└─> Updates workflow state accordingly
 ```
 
 ## Database Schema
 
-### 1. pending_calls Table
-Stores exam/appointment data from external systems with all necessary context for VAPI.
+### 1. pending_calls Table (with Workflow Management)
 ```sql
 CREATE TABLE pending_calls (
+  -- Core fields
   id UUID PRIMARY KEY,
-  exam_id TEXT,                      -- External reference ID
-  employee_name TEXT,                -- Patient name
-  employee_dob DATE,                 -- Patient date of birth
-  client_name TEXT,                  -- Employer/company name
-  phone TEXT,                        -- Clinic phone number to call
-  clinic_name TEXT,                  -- Name of the medical clinic
-  appointment_time TIMESTAMPTZ,      -- When the appointment is scheduled
-  type_of_visit TEXT,                -- Visit type (e.g., "Annual Physical")
-  clinic_provider_address TEXT,      -- Clinic address
-  clinic_scheduling_rep TEXT,        -- Name of scheduling contact
-  procedures TEXT,                   -- Medical procedures needed
-  call_status TEXT,                  -- Status: pending, calling, completed, failed
-  trigger_attempted_at TIMESTAMPTZ,  -- When call was initiated
-  trigger_response JSONB,            -- Twilio API response
-  summary TEXT,                      -- VAPI's call summary
-  success_evaluation BOOLEAN,        -- Whether call succeeded
-  structured_data JSONB,             -- VAPI's structured extraction
+  exam_id TEXT,
+  employee_name TEXT,
+  employee_dob DATE,
+  client_name TEXT,
+  phone TEXT,
+  clinic_name TEXT,
+  appointment_time TIMESTAMPTZ,
+  
+  -- Workflow management (NEW)
+  workflow_state TEXT DEFAULT 'new',
+  classification_id UUID REFERENCES call_classifications(id),
+  classification_lookup_at TIMESTAMPTZ,
+  retry_count INT DEFAULT 0,
+  max_retries INT DEFAULT 3,
+  next_action_at TIMESTAMPTZ DEFAULT NOW(),
+  last_error TEXT,
+  last_attempt_at TIMESTAMPTZ,
+  workflow_metadata JSONB DEFAULT '{}',
+  
+  -- Call results
+  call_status TEXT,
+  trigger_attempted_at TIMESTAMPTZ,
+  trigger_response JSONB,
+  summary TEXT,
+  success_evaluation TEXT,  -- "Sending Records", "No Show", "Unable to connect"
+  structured_data JSONB,
+  
+  -- Failure tracking (NEW)
+  failed_at TIMESTAMPTZ,
+  failure_reason TEXT,
+  
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 
 ### 2. call_sessions Table
-Tracks individual call attempts and classification states.
 ```sql
 CREATE TABLE call_sessions (
   id UUID PRIMARY KEY,
   call_id TEXT UNIQUE,               -- Twilio Call SID
   pending_call_id UUID REFERENCES pending_calls(id),  -- Link to pending call
-  clinic_phone TEXT,                 -- Phone number being called
-  classification_id UUID REFERENCES call_classifications(id),  -- Pre-existing classification
-  call_status TEXT,                  -- active, completed, failed
+  clinic_phone TEXT,
+  clinic_name TEXT,                  -- Added for session tracking
+  classification_id UUID REFERENCES call_classifications(id),
+  call_status TEXT,
   ivr_detection_state TEXT,          -- human, ivr_only, ivr_then_human
-  ivr_classified_at TIMESTAMPTZ,     -- When classification was made
-  ivr_detection_latency_ms INT4,     -- Time to classify (ms)
-  ivr_confidence_score FLOAT8,       -- Classification confidence (0-1)
-  stream_started BOOLEAN DEFAULT false,  -- WebSocket connected
-  needs_ivr_actions BOOLEAN DEFAULT false,  -- Collecting IVR navigation
-  twilio_call_sid TEXT,              -- Main call SID
-  vapi_disconnected BOOLEAN DEFAULT false,  -- VAPI was disconnected
-  vapi_disconnect_reason TEXT,       -- Why VAPI was disconnected
-  call_ended_by TEXT,                -- Who ended the call
-  call_end_reason TEXT,              -- Why call ended
-  ended_at TIMESTAMPTZ,              -- When call ended
+  ivr_classified_at TIMESTAMPTZ,
+  ivr_detection_latency_ms INT4,
+  ivr_confidence_score FLOAT8,
+  stream_started BOOLEAN DEFAULT false,
+  twilio_call_sid TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 
 ### 3. call_classifications Table
-Stores pre-classified phone system types and IVR navigation paths with timing.
 ```sql
 CREATE TABLE call_classifications (
   id UUID PRIMARY KEY,
-  phone_number TEXT NOT NULL,        -- Clinic phone number
-  clinic_name TEXT,                  -- Clinic name (often "Unknown Clinic")
+  phone_number TEXT NOT NULL,
+  clinic_name TEXT,
   classification_type TEXT,          -- 'human', 'ivr_only', 'ivr_then_human'
-  classification_confidence FLOAT8,   -- Confidence score
-  ivr_actions JSONB,                 -- Array of navigation actions with timing
-  classification_duration_ms INT4,    -- Time taken to classify
-  pre_call_sid TEXT,                 -- Call SID that created this
+  classification_confidence FLOAT8,
+  ivr_actions JSONB,                -- Array of navigation actions with timing
+  classification_duration_ms INT4,
+  pre_call_sid TEXT,
   classification_expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '30 days',
   is_active BOOLEAN DEFAULT true,
-  last_verified_at TIMESTAMPTZ,      -- Last time verified
-  verification_count INT4 DEFAULT 1, -- Times verified
+  last_verified_at TIMESTAMPTZ,
+  verification_count INT4 DEFAULT 1,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ,
-  eps_id TEXT DEFAULT '0'            -- External system ID
+  updated_at TIMESTAMPTZ
 );
 
--- Example ivr_actions structure:
+-- Example ivr_actions structure with timing:
 -- [
 --   {
 --     "action_type": "dtmf",
@@ -155,24 +230,6 @@ CREATE TABLE call_classifications (
 --     "timing_ms": 17000  -- Press 3 after 17 seconds
 --   }
 -- ]
-```
-
-### 4. ivr_events Table
-Tracks IVR interactions during calls for navigation and classification.
-```sql
-CREATE TABLE ivr_events (
-  id UUID PRIMARY KEY,
-  call_id TEXT,                      -- Twilio Call SID
-  transcript TEXT,                   -- What was heard
-  stt_source TEXT DEFAULT 'deepgram',-- Transcription source
-  ai_reply TEXT,                     -- OpenAI's response
-  action_type TEXT,                  -- 'dtmf', 'speech', 'wait', 'skip', 'error'
-  action_value TEXT,                 -- What to press/say
-  client_state TEXT,                 -- Base64 encoded state
-  command_id UUID,                   -- Unique command ID
-  executed BOOLEAN DEFAULT false,    -- Has action been executed
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
 ```
 
 ## Key Environment Variables
@@ -202,295 +259,185 @@ DEEPGRAM_API_KEY=your-deepgram-key
 OPENAI_API_KEY=your-openai-key
 ```
 
-### 1. Edge Function: `pre-classify-call`
-**Location**: `supabase/functions/pre-classify-call/index.ts`
+## Automated Scheduler Setup
 
-**Purpose**: Initiates calls with pre-classification support
+### 1. Create the pg_cron Job
+```sql
+-- Schedule to run every 5 minutes
+SELECT cron.schedule(
+  'call-scheduler',
+  '*/5 * * * *',
+  $$
+  SELECT net.http_post(
+    url := 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/scheduler',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY',
+      'Content-Type', 'application/json'
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
+```
 
-**Key Features**:
-- Uses hardcoded `pending_call_id` for testing
-- Fetches pending call details including clinic phone
-- Checks for existing valid classifications
-- Creates call session with pending_call_id link
-- Passes session ID and classification status to TwiML
-
-### 2. TwiML Handler: `preclassify-twiml.js`
-**Location**: `api/twilio/preclassify-twiml.js`
-
-**Purpose**: Routes calls based on classification
-
-**Key Features**:
-- Builds SIP headers with pending call data
-- Formats dates for readability (DOB, appointment time)
-- Generates IVR navigation TwiML from stored actions
-- Implements dual-stream for unknown classifications
-- Properly encodes special characters in SIP URIs
-
-### 3. WebSocket Server: `server_deepgram.js`
-**Location**: Railway deployment
-
-**Purpose**: Real-time classification and IVR navigation
-
-**Key Features**:
-- Deepgram integration for transcription
-- Fast pattern matching for instant classification
-- OpenAI-based classification for complex cases
-- IVR action timing calculation from call start
-- Final classification storage when call ends
-
-### 4. VAPI Data Endpoint: `get-pending-call.js`
-**Location**: `api/twilio/get-pending-call.js`
-
-**Purpose**: Provides pending call data to VAPI
-
-**Security**: 
-- Requires `x-vapi-shared-secret` header
-- Returns 401 for unauthorized requests
-
-**Response**: Full pending call record with all fields needed by VAPI
-
-### 5. VAPI Webhook: `post_call.js`
-**Location**: `api/vapi/post_call.js`
-
-**Purpose**: Receives call results from VAPI
-
-**Updates**:
-- Summary
-- Success evaluation
-- Structured data from VAPI analysis
-
-## Classification Types
-
-### 1. Human Classification
-- Direct greeting from a person
-- Natural, conversational tone
-- Immediate VAPI connection without IVR navigation
-- Call proceeds normally to completion
-
-### 2. IVR Only Classification
-- Automated menu system
-- Requires DTMF or speech navigation
-- Stores navigation actions with timing
-- **Auto-terminates after first navigation action**
-
-### 3. IVR Then Human Classification
-- Starts with automated message
-- Transitions to human after initial greeting
-- May include transfer phrases
-- **Auto-terminates after first navigation action**
+### 2. Scheduler Logic
+The scheduler processes calls based on their workflow state:
+- Batches up to 10 calls per run
+- Checks `next_action_at` timestamps
+- Handles state transitions
+- Manages retry logic with exponential backoff
 
 ## How It Works - Complete Flow
 
 ### First Call to a Clinic (No Classification)
 
-1. **Edge Function** (`pre-classify-call`) initiates call:
-   - Uses hardcoded `pending_call_id` (testing)
-   - Fetches pending call details (patient info, appointment)
-   - Checks for existing classification
-   - Creates call_session record
-   - Calls Twilio API with TwiML webhook URL
-
-2. **TwiML Handler** (`preclassify-twiml.js`) receives call:
-   - No classification exists, so uses dual-stream approach
-   - Connects both VAPI (AI assistant) and WebSocket (for classification)
-   - VAPI starts immediately in case it's a human
-
-3. **WebSocket Server** (`server_deepgram.js`) classifies in real-time:
-   - Transcribes audio via Deepgram
-   - Uses pattern matching for instant detection
-   - Falls back to OpenAI for complex cases
-   - If human: Let call proceed with VAPI
-   - If IVR: Navigate menu, log action, then auto-terminate
-
-4. **VAPI Assistant** handles the conversation:
-   - Fetches full patient/appointment data via `get-pending-call.js`
-   - Attempts to schedule appointment
-   - Posts results back via `post_call.js`
+1. **Scheduler** finds pending call in `'new'` state
+2. **Scheduler** checks for existing classification → None found
+3. **Scheduler** triggers classification call via edge function
+4. **WebSocket Server** classifies in real-time:
+   - If human: Let VAPI continue → `'completed'`
+   - If IVR: Capture action, end call → `'classification_pending'`
+5. **Scheduler** (next run) finds `'classification_pending'` call
+6. **Scheduler** triggers task call with stored IVR actions
+7. **VAPI** handles conversation → Updates to `'completed'`
 
 ### Subsequent Calls (With Classification)
 
-1. **Edge Function** finds existing classification
-2. **TwiML Handler** routes based on type:
-   - Human: Direct VAPI connection
-   - IVR: Play stored DTMF sequence, then connect VAPI
-3. **No WebSocket needed** - uses cached navigation
+1. **Scheduler** finds pending call in `'new'` state
+2. **Scheduler** checks for classification → Found!
+3. **Scheduler** moves to `'ready_to_call'`
+4. **Scheduler** triggers task call immediately
+5. **TwiML Handler** uses cached IVR navigation
+6. **VAPI** handles conversation → Updates to `'completed'`
 
 ## IVR Navigation Intelligence
 
 ### Navigation Rules
-The system uses OpenAI to intelligently navigate IVR menus with specific targeting:
+The system uses OpenAI to intelligently navigate IVR menus:
 
 **GOOD Keywords** (will navigate):
-- Front Desk / Reception / Receptionist
-- Scheduling / Appointments
-- Operator / General representative
+- Front Desk / Reception / Scheduling
 - General inquiries / Patient care
-- Main office
+- Operator / Main office
 
 **AVOIDED Keywords** (will wait):
-- Billing department
-- Pharmacy / Prescriptions
-- Lab results
-- Medical records
+- Billing / Pharmacy / Lab results
 - Department-specific options
+- Medical records
 
 ### Action Timing
-IVR actions are stored with precise timing:
+IVR actions are stored with precise timing and replayed exactly:
 ```json
 {
   "action_type": "dtmf",
   "action_value": "3",
-  "timing_ms": 17000  // 17 seconds after call start
+  "timing_ms": 17000  // Wait 17 seconds, then press 3
 }
 ```
 
-## Real-Time Features
+## Monitoring & Operations
 
-### WebSocket Classification
-- Processes transcripts in real-time
-- Handles sentence fragments for IVR menus
-- Combines partial transcripts intelligently
-
-### Fast Classification Patterns
-Instant detection for common patterns:
-- Human greetings: "Hi, this is Sarah..."
-- IVR menus: "Press 1 for..."
-- Transfer indicators: "Let me transfer you..."
-
-### Automatic Call Termination
-When classifying new clinics:
-- **Human calls**: Continue normally with VAPI
-- **IVR calls**: Automatically terminated after first navigation action is logged
-- Prevents VAPI from wasting time talking to IVR systems
-- Ensures efficient use of resources
-
-### Real-Time IVR Action Monitoring
-```javascript
-// server_deepgram.js monitors IVR events in real-time
-const ivrChannel = supabase
-  .channel('ivr_events_twilio')
-  .on('postgres_changes', {
-    event: 'INSERT',
-    table: 'ivr_events',
-    filter: 'executed=eq.false'
-  }, async ({ new: action }) => {
-    // Automatically ends call if:
-    // 1. It's an IVR classification call
-    // 2. First navigation action is recorded
-    // 3. No prior classification exists
-  })
-  .subscribe();
-```
-
-## Monitoring & Debugging
-
-### Check Classification Status
+### Check Scheduler Status
 ```sql
--- View all active classifications
-SELECT 
-  phone_number, 
-  clinic_name, 
-  classification_type,
-  jsonb_array_length(ivr_actions) as action_count,
-  EXTRACT(DAY FROM (classification_expires_at - NOW())) as days_remaining
-FROM call_classifications
-WHERE is_active = true
-ORDER BY created_at DESC;
+-- View scheduler dashboard
+SELECT * FROM scheduler_dashboard;
 
--- View recent call sessions
-SELECT 
-  cs.call_id,
-  cs.pending_call_id,
-  pc.employee_name,
-  cs.ivr_detection_state,
-  cs.ivr_detection_latency_ms
-FROM call_sessions cs
-JOIN pending_calls pc ON cs.pending_call_id = pc.id
-ORDER BY cs.created_at DESC
-LIMIT 10;
+-- Recent cron runs
+SELECT * FROM cron.job_run_details 
+WHERE jobname = 'call-scheduler' 
+ORDER BY start_time DESC LIMIT 10;
+
+-- Active workflow states
+SELECT workflow_state, COUNT(*) 
+FROM pending_calls
+WHERE workflow_state NOT IN ('pending', 'completed', 'failed')
+GROUP BY workflow_state;
 ```
 
-### Trace Call Flow
+### Manage Calls
 ```sql
--- Full call trace
-SELECT 
-  'pending_call' as stage,
-  pc.created_at,
-  pc.call_status,
-  pc.phone
-FROM pending_calls pc
-WHERE pc.id = 'YOUR_PENDING_CALL_ID'
+-- Park all active calls (for testing)
+UPDATE pending_calls 
+SET workflow_state = 'pending'
+WHERE workflow_state NOT IN ('completed', 'failed', 'pending');
 
-UNION ALL
+-- Activate specific call
+UPDATE pending_calls 
+SET workflow_state = 'new'
+WHERE id = 'YOUR_CALL_ID';
 
-SELECT 
-  'call_session' as stage,
-  cs.created_at,
-  cs.call_status,
-  cs.clinic_phone
-FROM call_sessions cs
-WHERE cs.pending_call_id = 'YOUR_PENDING_CALL_ID'
-
-UNION ALL
-
-SELECT 
-  'ivr_event' as stage,
-  ie.created_at,
-  ie.action_type || ': ' || ie.action_value,
-  cs.clinic_phone
-FROM ivr_events ie
-JOIN call_sessions cs ON ie.call_id = cs.call_id
-WHERE cs.pending_call_id = 'YOUR_PENDING_CALL_ID'
-
-ORDER BY created_at;
+-- Force retry of failed calls
+UPDATE pending_calls 
+SET workflow_state = 'retry_pending', 
+    retry_count = 0,
+    next_action_at = NOW()
+WHERE workflow_state = 'failed';
 ```
 
-## Performance Optimization
+### Control Scheduler
+```sql
+-- Pause scheduler
+UPDATE cron.job SET active = false WHERE jobname = 'call-scheduler';
 
-### Connection Reuse
-- WebSocket connections cached for 30 seconds
-- Reduces connection overhead for retries
-- Maintains audio streams and processors
+-- Resume scheduler
+UPDATE cron.job SET active = true WHERE jobname = 'call-scheduler';
 
-### Timing Accuracy
-- Actions timestamped relative to call start
-- Precise pause calculations in TwiML
-- Handles IVR menu timing variations
+-- Manual run
+SELECT net.http_post(
+  url := 'https://YOUR_PROJECT.supabase.co/functions/v1/scheduler',
+  headers := jsonb_build_object(
+    'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY',
+    'Content-Type', 'application/json'
+  ),
+  body := '{}'::jsonb
+);
+```
 
-### Efficient Classification Calls
-- Human-answered calls complete normally (70-80% of cases)
-- IVR calls terminate after ~10-15 seconds
-- Captures classification + one navigation action
-- Subsequent calls use stored classification
+## Performance & Optimization
 
-## Error Handling
+### Timing Configuration
+- **Scheduler frequency**: Every 5 minutes (adjustable)
+- **Classification wait**: 30 seconds before task call
+- **Retry delays**: 5, 15, 30 minutes (exponential backoff)
+- **Max retries**: 3 attempts (configurable per call)
+- **Classification cache**: 30 days
 
-### Classification Failures
-- Falls back to dual-stream approach
-- VAPI connects regardless of classification
-- WebSocket performs real-time classification
+### Efficiency Features
+- Batch processing (10 calls per scheduler run)
+- Connection reuse (30-second WebSocket cache)
+- Automatic call termination for IVR classification
+- Parallel processing within batches
 
-### Missing Data Scenarios
-- Handles missing phone numbers gracefully
-- Creates sessions even without full data
-- Updates sessions when data becomes available
+## Success Evaluation Types
 
-### Auto-Termination Safety
-- Only terminates classification calls (no prior classification)
-- Requires confirmed IVR detection before terminating
-- Logs all termination attempts for debugging
+The system handles three VAPI evaluation outcomes:
+
+1. **"Sending Records"** - Success! Clinic is sending the requested records
+   - Sets `workflow_state = 'completed'`
+   - No retries needed
+
+2. **"No Show"** - Employee didn't attend appointment
+   - Sets `workflow_state = 'completed'`
+   - Terminal state, no retries
+
+3. **"Unable to connect"** - Failed to reach clinic representative
+   - Sets `workflow_state = 'retry_pending'`
+   - Automatic retry after 30 minutes
+   - Up to 3 retry attempts
 
 ## Security Considerations
 
 1. **API Authentication**: 
    - VAPI endpoint requires shared secret
    - Supabase uses service role key
+   - Edge functions use no-verify-jwt for internal calls
    
 2. **Data Privacy**:
-   - Employee PII passed via SIP headers
-   - Dates formatted for readability
-   - Phone numbers stored for classification
+   - Employee PII passed via secure SIP headers
+   - Phone numbers stored for classification only
+   - All data transmitted over secure WebSocket/HTTPS
 
 3. **Rate Limiting**:
-   - Single hardcoded pending_call_id prevents abuse
+   - Scheduler batch size limits prevent abuse
    - 30-day classification cache reduces API calls
+   - Exponential backoff prevents retry storms
