@@ -11,19 +11,28 @@ function generateIvrNavigationTwiml(ivrActions) {
   let twiml = '';
   let lastTimingMs = 0;
   const sortedActions = [...ivrActions].sort((a, b) => a.timing_ms - b.timing_ms);
+  
   for (const action of sortedActions) {
     const pauseMs = action.timing_ms - lastTimingMs;
     const pauseSeconds = Math.ceil(pauseMs / 1000);
+    
     if (pauseSeconds > 0) {
       twiml += `<Pause length="${pauseSeconds}" />`;
     }
+    
     if (action.action_type === 'dtmf') {
       twiml += `<Play digits="${action.action_value}" />`;
     } else if (action.action_type === 'speech') {
       twiml += `<Say>${action.action_value}</Say>`;
+    } else if (action.action_type === 'transfer') {
+      // For transfer, we just need the pause to time VAPI connection
+      console.log(`[TRANSFER] Will connect VAPI after ${pauseSeconds}s pause`);
+      // The pause has already been added above
     }
+    
     lastTimingMs = action.timing_ms;
   }
+  
   twiml += '<Pause length="1" />';
   return twiml;
 }
@@ -61,7 +70,7 @@ export default async function handler(req, res) {
   if (pendingCallId) {
     const { data, error } = await supabase
       .from('pending_calls')
-      .select('employee_name, employee_dob')
+      .select('employee_name, employee_dob, appointment_time')
       .eq('id', pendingCallId)
       .single();
     if (data) {
@@ -133,10 +142,12 @@ export default async function handler(req, res) {
   if (classification) {
     console.log('🎯 Using cached classification:', classification.classification_type);
     customHeaders['classification'] = classification.classification_type;
+    
     if (classification.classification_type === 'human') {
       console.log('👤 Human classification - direct VAPI connection');
       const sipUri = buildSipUriWithHeaders(baseSipUri, customHeaders);
       twiml += `<Dial><Sip>${sipUri}</Sip></Dial>`;
+      
     } else if (classification.classification_type === 'ivr_only') {
       console.log('🤖 IVR classification - executing stored actions');
       if (classification.ivr_actions && classification.ivr_actions.length > 0) {
@@ -144,11 +155,22 @@ export default async function handler(req, res) {
       }
       const sipUri = buildSipUriWithHeaders(baseSipUri, customHeaders);
       twiml += `<Dial><Sip>${sipUri}</Sip></Dial>`;
+      
     } else if (classification.classification_type === 'ivr_then_human') {
-      console.log('🤖➡️👤 IVR then human - to be implemented');
+      console.log('🤖➡️👤 IVR then human - using transfer timing');
+      
       if (classification.ivr_actions && classification.ivr_actions.length > 0) {
+        const transferAction = classification.ivr_actions.find(a => a.action_type === 'transfer');
+        if (transferAction) {
+          console.log(`📞 Will connect VAPI after ${transferAction.timing_ms}ms`);
+        }
         twiml += generateIvrNavigationTwiml(classification.ivr_actions);
+      } else {
+        // Fallback: 15 second default pause
+        console.log('📞 No transfer timing found, using 15s default');
+        twiml += '<Pause length="15" />';
       }
+      
       const sipUri = buildSipUriWithHeaders(baseSipUri, customHeaders);
       twiml += `<Dial><Sip>${sipUri}</Sip></Dial>`;
     }
