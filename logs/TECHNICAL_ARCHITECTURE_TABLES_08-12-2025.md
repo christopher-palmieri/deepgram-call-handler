@@ -4,6 +4,7 @@
 ## System Overview
 A comprehensive IVR classification and call handling system that pre-classifies clinic phone systems (human vs IVR vs voicemail) and caches results for 30 days, enabling instant routing for subsequent calls with automated workflow management.
 
+````mermaid
 graph TD
     %% Scheduler Flow
     CRON[pg_cron<br/>Every minute] -->|Triggers| SCHED[Edge Function<br/>scheduler]
@@ -83,6 +84,7 @@ graph TD
     class PC,CS,CC,EVT storage
     class TW,VAPI,WS external
     class WF,RT,CLS,STATUS decision
+````
 
 ## Core Components
 
