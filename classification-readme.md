@@ -1,15 +1,15 @@
 # Pre-Classification Call System with Automated Scheduler
 
 ## Overview
-This system pre-classifies clinic phone systems (human vs IVR vs IVR-then-human) and caches the results for 30 days, enabling instant routing for subsequent calls. The system uses intelligent call handling to minimize wasted time on IVR systems during classification, with a fully automated scheduler that orchestrates the entire workflow. Voicemail detection prevents false classifications and triggers appropriate retries.
+This system pre-classifies clinic phone systems (human vs IVR vs IVR-then-human) and caches the results for 30 days, enabling instant routing for subsequent calls. The system uses intelligent call handling to minimize wasted time on IVR systems during classification, with a fully automated scheduler that orchestrates the entire workflow. **Timezone-aware scheduling ensures clinics are only called during their local business hours (9 AM - 5 PM).** Voicemail detection prevents false classifications and triggers appropriate retries.
 
-**Core Concept**: Make a test call to each clinic once, learn how their phone system works (excluding temporary states like voicemail), cache that knowledge for 30 days, then use it for all future calls to save time and improve reliability.
+**Core Concept**: Make a test call to each clinic once, learn how their phone system works (excluding temporary states like voicemail), cache that knowledge for 30 days, then use it for all future calls to save time and improve reliability. **All calls respect the clinic's local timezone.**
 
 ## System Components
 
 ### 1. **Edge Functions** (Supabase)
 - `pre-classify-call-07-21-2025`: Initiates calls with dynamic pending_call_id support
-- `scheduler`: Orchestrates workflow states and triggers calls every minute
+- `scheduler`: Orchestrates workflow states and triggers calls every minute **for clinics currently in business hours**
 
 ### 2. **API Endpoints** (Vercel)
 - `api/twilio/preclassify-twiml.js`: Routes calls based on classification (TwiML webhook)
@@ -25,7 +25,8 @@ This system pre-classifies clinic phone systems (human vs IVR vs IVR-then-human)
   - `supabase-logger.js`: Stores classifications and manages call state
 
 ### 4. **Automated Scheduler** (pg_cron)
-- Runs every minute via pg_cron
+- Runs every minute via pg_cron **during expanded hours (13:00-01:00 UTC)**
+- **Timezone-aware filtering** - only processes clinics in their local business hours
 - Processes pending calls through workflow states
 - Handles retries with exponential backoff
 - Manages two-call flow for IVR systems
@@ -39,6 +40,7 @@ This system pre-classifies clinic phone systems (human vs IVR vs IVR-then-human)
 - 🤖 **Automation**: Fully automated workflow from classification to completion
 - 🔄 **Self-Healing**: Automatic retries for failed connections and voicemail
 - 📧 **Smart Detection**: Voicemail detection prevents false IVR classifications
+- 🌎 **Timezone Aware**: Respects each clinic's local business hours (9 AM - 5 PM)
 
 ## Classification Types
 
@@ -69,6 +71,58 @@ These are transient conditions that don't represent the clinic's actual phone sy
    - Does NOT create a classification record
    - Triggers retry in 1 hour
    - Call ends immediately to save costs
+
+## Timezone-Aware Scheduling
+
+### Supported Timezones
+The system supports all major US timezones:
+- **Eastern**: `America/New_York` (EST/EDT)
+- **Central**: `America/Chicago` (CST/CDT)
+- **Mountain**: `America/Denver` (MST/MDT)
+- **Pacific**: `America/Los_Angeles` (PST/PDT)
+
+### Business Hours Windows
+Each clinic is called only during their local 9 AM - 5 PM window:
+
+| Timezone | Local Hours | UTC Hours (EDT/Summer) | UTC Hours (EST/Winter) |
+|----------|------------|------------------------|------------------------|
+| Eastern | 9 AM - 5 PM | 13:00 - 21:00 | 14:00 - 22:00 |
+| Central | 9 AM - 5 PM | 14:00 - 22:00 | 15:00 - 23:00 |
+| Mountain | 9 AM - 5 PM | 15:00 - 23:00 | 16:00 - 00:00 |
+| Pacific | 9 AM - 5 PM | 16:00 - 00:00 | 17:00 - 01:00 |
+
+### Scheduler Configuration
+The cron job runs during an expanded window but only processes clinics currently in business hours:
+
+```sql
+-- Cron runs from 13:00 UTC to 01:00 UTC to cover all US timezones
+SELECT cron.schedule(
+  'call-scheduler',
+  '* 13-23,0-1 * * 1-5',  -- Monday-Friday, expanded hours
+  $$
+  SELECT net.http_post(...)
+  WHERE EXISTS (
+    SELECT 1 FROM pending_calls
+    WHERE 
+      workflow_state IN ('new', 'checking_classification', 'ready_to_call', 'retry_pending')
+      AND next_action_at <= NOW()
+      AND (
+        -- Automatically handles DST transitions
+        (clinic_timezone = 'America/New_York' 
+          AND EXTRACT(HOUR FROM NOW() AT TIME ZONE clinic_timezone) BETWEEN 9 AND 16)
+        OR (clinic_timezone = 'America/Chicago'
+          AND EXTRACT(HOUR FROM NOW() AT TIME ZONE clinic_timezone) BETWEEN 9 AND 16)
+        OR (clinic_timezone = 'America/Denver'
+          AND EXTRACT(HOUR FROM NOW() AT TIME ZONE clinic_timezone) BETWEEN 9 AND 16)
+        OR (clinic_timezone = 'America/Los_Angeles'
+          AND EXTRACT(HOUR FROM NOW() AT TIME ZONE clinic_timezone) BETWEEN 9 AND 16)
+        OR (clinic_timezone IS NULL 
+          AND EXTRACT(HOUR FROM NOW() AT TIME ZONE 'America/New_York') BETWEEN 9 AND 16)
+      )
+  );
+  $$
+);
+```
 
 ## Workflow States
 
@@ -122,7 +176,9 @@ calling → retry_pending → ready_to_call → calling → completed
 
 ### 1. SCHEDULER ORCHESTRATION (pg_cron every minute)
 ```
+├─> Check current time against timezone windows
 ├─> Find pending calls needing action (next_action_at <= NOW)
+├─> Filter for clinics in business hours (9 AM - 5 PM local)
 ├─> Process by workflow_state:
 │   ├─> new → Check classification
 │   ├─> classification_pending → Trigger task call
@@ -186,7 +242,7 @@ calling → retry_pending → ready_to_call → calling → completed
 
 ## Database Schema
 
-### 1. pending_calls Table (with Workflow Management)
+### 1. pending_calls Table (with Timezone Support)
 ```sql
 CREATE TABLE pending_calls (
   -- Core fields
@@ -197,6 +253,7 @@ CREATE TABLE pending_calls (
   client_name TEXT,
   phone TEXT,
   clinic_name TEXT,
+  clinic_timezone TEXT DEFAULT 'America/New_York',  -- Timezone support
   appointment_time TIMESTAMPTZ,
   
   -- Workflow management
@@ -242,12 +299,13 @@ CREATE TABLE call_sessions (
 );
 ```
 
-### 3. call_classifications Table (Never Stores Voicemail)
+### 3. call_classifications Table (with Timezone)
 ```sql
 CREATE TABLE call_classifications (
   id UUID PRIMARY KEY,
   phone_number TEXT NOT NULL,
   clinic_name TEXT,
+  clinic_timezone TEXT DEFAULT 'America/New_York',  -- Timezone support
   classification_type TEXT,          -- 'human', 'ivr_only', 'ivr_then_human' ONLY
   classification_confidence FLOAT8,
   ivr_actions JSONB,                -- Array of navigation actions with timing
@@ -325,27 +383,82 @@ For IVR systems that transfer to humans:
 
 ## Monitoring & Operations
 
-### Check Scheduler Status
+### Check Scheduler Status with Timezone Info
 ```sql
--- View scheduler dashboard
-SELECT * FROM scheduler_dashboard;
+-- View current business hours status across timezones
+SELECT 
+  tz as timezone,
+  TO_CHAR(NOW() AT TIME ZONE tz, 'HH24:MI') as local_time,
+  CASE 
+    WHEN EXTRACT(HOUR FROM NOW() AT TIME ZONE tz) BETWEEN 9 AND 16 
+     AND EXTRACT(DOW FROM NOW() AT TIME ZONE tz) BETWEEN 1 AND 5
+    THEN '✅ Business Hours'
+    ELSE '❌ Closed'
+  END as status,
+  COUNT(pc.id) as pending_calls
+FROM (
+  VALUES 
+    ('America/New_York'),
+    ('America/Chicago'),
+    ('America/Denver'),
+    ('America/Los_Angeles')
+) t(tz)
+LEFT JOIN pending_calls pc ON pc.clinic_timezone = t.tz
+  AND pc.workflow_state NOT IN ('completed', 'failed', 'pending')
+GROUP BY tz;
+
+-- Check calls by timezone and hour
+SELECT 
+  clinic_timezone,
+  DATE_TRUNC('hour', created_at AT TIME ZONE clinic_timezone) as local_hour,
+  COUNT(*) as calls_made
+FROM call_sessions cs
+JOIN pending_calls pc ON pc.id = cs.pending_call_id
+WHERE cs.created_at > NOW() - INTERVAL '24 hours'
+GROUP BY clinic_timezone, local_hour
+ORDER BY clinic_timezone, local_hour DESC;
 
 -- Recent cron runs
-SELECT * FROM cron.job_run_details 
-WHERE jobname = 'call-scheduler' 
-ORDER BY start_time DESC LIMIT 10;
+SELECT * FROM cron.job_run_details jrd
+JOIN cron.job j ON j.jobid = jrd.jobid
+WHERE j.jobname = 'call-scheduler' 
+ORDER BY jrd.start_time DESC LIMIT 10;
 
 -- Active workflow states
-SELECT workflow_state, COUNT(*) 
+SELECT workflow_state, clinic_timezone, COUNT(*) 
 FROM pending_calls
 WHERE workflow_state NOT IN ('pending', 'completed', 'failed')
-GROUP BY workflow_state;
+GROUP BY workflow_state, clinic_timezone;
 
 -- Voicemail encounters
 SELECT call_id, clinic_phone, workflow_metadata->>'voicemail_detected_at'
 FROM call_sessions
 WHERE workflow_metadata->>'voicemail_detected' = 'true'
 ORDER BY created_at DESC;
+```
+
+### Setting Clinic Timezones
+```sql
+-- Update timezone based on area code
+UPDATE pending_calls 
+SET clinic_timezone = 
+  CASE 
+    -- Pacific
+    WHEN phone ~ '^1?(213|310|415|408|619|714|818|925|949|951)' THEN 'America/Los_Angeles'
+    -- Mountain  
+    WHEN phone ~ '^1?(303|720|719|970|480|602|623|520|505|575|801|385)' THEN 'America/Denver'
+    -- Central
+    WHEN phone ~ '^1?(312|773|630|708|815|847|224|217|309|618|314|636|816|913)' THEN 'America/Chicago'
+    -- Eastern (default)
+    ELSE 'America/New_York'
+  END
+WHERE clinic_timezone IS NULL;
+
+-- Verify distribution
+SELECT clinic_timezone, COUNT(*) as count 
+FROM pending_calls 
+GROUP BY clinic_timezone 
+ORDER BY count DESC;
 ```
 
 ### Manage Calls
@@ -383,7 +496,7 @@ UPDATE cron.job SET active = false WHERE jobname = 'call-scheduler';
 -- Resume scheduler
 UPDATE cron.job SET active = true WHERE jobname = 'call-scheduler';
 
--- Manual run
+-- Manual run (respects timezone filtering)
 SELECT net.http_post(
   url := 'https://YOUR_PROJECT.supabase.co/functions/v1/scheduler',
   headers := jsonb_build_object(
@@ -397,7 +510,8 @@ SELECT net.http_post(
 ## Performance & Optimization
 
 ### Timing Configuration
-- **Scheduler frequency**: Every minute
+- **Scheduler frequency**: Every minute during 13:00-01:00 UTC
+- **Timezone filtering**: Only processes clinics in their local 9 AM - 5 PM
 - **Classification wait**: 30 seconds before task call
 - **Retry delays**: 
   - Unable to connect: 5, 15, 30 minutes (exponential)
@@ -406,6 +520,8 @@ SELECT net.http_post(
 - **Classification cache**: 30 days
 
 ### Efficiency Features
+- **Timezone-aware batching**: Processes calls by local business hours
+- **Smart scheduling**: Cron only triggers when eligible calls exist
 - Batch processing (10 calls per scheduler run)
 - Connection reuse (30-second WebSocket cache)
 - Automatic call termination for IVR/voicemail classification
@@ -485,3 +601,4 @@ Example call_sessions.workflow_metadata:
    - 30-day classification cache reduces API calls
    - Exponential backoff prevents retry storms
    - Voicemail detection prevents unnecessary calls
+   - Timezone filtering prevents off-hours calls
