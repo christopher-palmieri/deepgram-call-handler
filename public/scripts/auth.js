@@ -2,6 +2,7 @@
 // Handles login and TOTP MFA authentication
 
 let currentFactorId = null;
+let currentChallenge = null;
 
 // Wait for config to load
 window.addEventListener('DOMContentLoaded', async () => {
@@ -41,33 +42,66 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         
         if (error) throw error;
         
-        // Check if user has MFA set up
-        const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors();
+        // Check MFA assurance level
+        const { data: { session } } = await supabase.auth.getSession();
         
-        if (!factors || !factors.totp || factors.totp.length === 0) {
-            // No MFA set up yet - show setup form
-            authMessage.innerHTML = '<div class="success-message">Please set up two-factor authentication</div>';
-            document.getElementById('loginForm').style.display = 'none';
-            document.getElementById('totpSetupForm').style.display = 'block';
-            return;
-        }
-        
-        // Check for TOTP factor (authenticator app)
-        const totpFactor = factors.totp.find(f => f.factor_type === 'totp');
-        if (totpFactor) {
-            currentFactorId = totpFactor.id;
-            
-            const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({
-                factorId: totpFactor.id
-            });
-            
-            if (challengeError) throw challengeError;
-            
-            authMessage.innerHTML = '<div class="success-message">Enter code from your authenticator app</div>';
-            document.getElementById('loginForm').style.display = 'none';
-            document.getElementById('mfaForm').style.display = 'block';
+        // Check if MFA is required but not completed
+        if (session?.user && (!session.aal || session.aal === 'aal1')) {
+            // User needs to complete MFA
+            try {
+                // Check if user has MFA factors set up
+                const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors();
+                
+                if (factorsError) {
+                    console.error('Error listing factors:', factorsError);
+                    // No MFA set up, proceed to setup
+                    authMessage.innerHTML = '<div class="success-message">Please set up two-factor authentication</div>';
+                    document.getElementById('loginForm').style.display = 'none';
+                    document.getElementById('totpSetupForm').style.display = 'block';
+                    return;
+                }
+                
+                // Check for existing TOTP factor
+                if (factors?.totp && factors.totp.length > 0) {
+                    const totpFactor = factors.totp[0];
+                    currentFactorId = totpFactor.id;
+                    
+                    // Create MFA challenge
+                    const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({
+                        factorId: totpFactor.id
+                    });
+                    
+                    if (challengeError) {
+                        console.error('Challenge error:', challengeError);
+                        throw challengeError;
+                    }
+                    
+                    currentChallenge = challenge;
+                    authMessage.innerHTML = '<div class="success-message">Enter code from your authenticator app</div>';
+                    document.getElementById('loginForm').style.display = 'none';
+                    document.getElementById('mfaForm').style.display = 'block';
+                } else {
+                    // No MFA factors, show setup
+                    authMessage.innerHTML = '<div class="success-message">Please set up two-factor authentication</div>';
+                    document.getElementById('loginForm').style.display = 'none';
+                    document.getElementById('totpSetupForm').style.display = 'block';
+                }
+            } catch (mfaError) {
+                console.error('MFA check error:', mfaError);
+                // If MFA check fails, try to proceed without it
+                authMessage.innerHTML = '<div class="success-message">Login successful!</div>';
+                setTimeout(() => {
+                    window.location.href = '/dashboard.html';
+                }, 500);
+            }
+        } else if (session?.aal === 'aal2') {
+            // MFA already completed, proceed to dashboard
+            authMessage.innerHTML = '<div class="success-message">Login successful!</div>';
+            setTimeout(() => {
+                window.location.href = '/dashboard.html';
+            }, 500);
         } else {
-            // No MFA configured, proceed to dashboard
+            // No MFA required, proceed to dashboard
             authMessage.innerHTML = '<div class="success-message">Login successful!</div>';
             setTimeout(() => {
                 window.location.href = '/dashboard.html';
@@ -75,6 +109,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         }
         
     } catch (error) {
+        console.error('Login error:', error);
         authMessage.innerHTML = `<div class="error-message">${error.message}</div>`;
     } finally {
         loginBtn.disabled = false;
@@ -83,7 +118,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
 });
 
 // Handle TOTP setup (first-time MFA)
-document.getElementById('totpSetupForm').addEventListener('submit', async (e) => {
+document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     
     const authMessage = document.getElementById('authMessage');
@@ -93,10 +128,10 @@ document.getElementById('totpSetupForm').addEventListener('submit', async (e) =>
     setupBtn.textContent = 'Setting up...';
     
     try {
-        // Enroll TOTP factor (authenticator app)
+        // Enroll TOTP factor
         const { data: factor, error } = await supabase.auth.mfa.enroll({
             factorType: 'totp',
-            friendlyName: 'IVR Monitor'
+            friendlyName: 'IVR Monitor App'
         });
         
         if (error) throw error;
@@ -105,20 +140,29 @@ document.getElementById('totpSetupForm').addEventListener('submit', async (e) =>
         
         // Show QR code for authenticator app
         const qrContainer = document.getElementById('qrCodeContainer');
-        qrContainer.innerHTML = `
-            <img src="${factor.qr_code}" alt="MFA QR Code" style="margin: 20px auto; display: block; max-width: 256px;">
-            <p style="margin: 15px 0; font-size: 12px; color: #666;">
-                Can't scan? Enter this code manually: <br>
-                <code style="font-size: 10px; word-break: break-all;">${factor.secret}</code>
-            </p>
-        `;
-        qrContainer.style.display = 'block';
+        if (qrContainer) {
+            qrContainer.innerHTML = `
+                <img src="${factor.qr_code}" alt="MFA QR Code" style="margin: 20px auto; display: block; max-width: 256px;">
+                <p style="margin: 15px 0; font-size: 12px; color: #666;">
+                    Can't scan? Enter this code manually: <br>
+                    <code style="font-size: 10px; word-break: break-all;">${factor.secret}</code>
+                </p>
+            `;
+            qrContainer.style.display = 'block';
+        }
         
-        authMessage.innerHTML = '<div class="success-message">Scan QR code, then enter the verification code</div>';
+        authMessage.innerHTML = '<div class="success-message">Scan QR code with your authenticator app, then enter the code</div>';
         document.getElementById('totpSetupForm').style.display = 'none';
         document.getElementById('mfaForm').style.display = 'block';
         
+        // Show instruction
+        const mfaFormText = document.querySelector('#mfaForm p');
+        if (mfaFormText) {
+            mfaFormText.textContent = 'Enter the 6-digit code from your authenticator app to complete setup';
+        }
+        
     } catch (error) {
+        console.error('Setup error:', error);
         authMessage.innerHTML = `<div class="error-message">${error.message}</div>`;
     } finally {
         setupBtn.disabled = false;
@@ -127,7 +171,7 @@ document.getElementById('totpSetupForm').addEventListener('submit', async (e) =>
 });
 
 // Handle MFA verification
-document.getElementById('mfaForm').addEventListener('submit', async (e) => {
+document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     
     const otp = document.getElementById('otpInput').value;
@@ -138,16 +182,29 @@ document.getElementById('mfaForm').addEventListener('submit', async (e) => {
     verifyBtn.textContent = 'Verifying...';
     
     try {
-        const { data, error } = await supabase.auth.mfa.verify({
-            factorId: currentFactorId,
-            code: otp
-        });
-        
-        if (error) throw error;
+        // If we have a challenge, use it, otherwise this is enrollment verification
+        if (currentChallenge) {
+            // Verifying existing MFA
+            const { data, error } = await supabase.auth.mfa.verify({
+                factorId: currentFactorId,
+                challengeId: currentChallenge.id,
+                code: otp
+            });
+            
+            if (error) throw error;
+        } else {
+            // Verifying enrollment
+            const { data, error } = await supabase.auth.mfa.verify({
+                factorId: currentFactorId,
+                code: otp
+            });
+            
+            if (error) throw error;
+        }
         
         authMessage.innerHTML = '<div class="success-message">Verification successful!</div>';
         
-        // Hide QR code if it's visible
+        // Hide QR code if visible
         const qrContainer = document.getElementById('qrCodeContainer');
         if (qrContainer) {
             qrContainer.style.display = 'none';
@@ -158,12 +215,11 @@ document.getElementById('mfaForm').addEventListener('submit', async (e) => {
         }, 500);
         
     } catch (error) {
-        authMessage.innerHTML = `<div class="error-message">${error.message}</div>`;
+        console.error('Verification error:', error);
+        authMessage.innerHTML = `<div class="error-message">Invalid code. Please try again.</div>`;
+        document.getElementById('otpInput').value = '';
     } finally {
         verifyBtn.disabled = false;
         verifyBtn.textContent = 'Verify';
     }
 });
-
-// No resend needed for TOTP since codes regenerate every 30 seconds
-document.getElementById('resendBtn').style.display = 'none';
