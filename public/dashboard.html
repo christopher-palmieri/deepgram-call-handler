@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IVR Monitor Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="stylesheet" href="/styles/monitor.css">
+</head>
+<body>
+    <div class="dashboard-container authenticated">
+        <div class="header">
+            <div class="user-info">
+                <span class="user-email" id="userEmailDash">-</span>
+                <button class="logout-btn" onclick="logout()">Sign Out</button>
+            </div>
+            
+            <h1>IVR Monitor Dashboard</h1>
+            <p>Active and pending calls overview</p>
+        </div>
+        
+        <div class="dashboard-content">
+            <div class="dashboard-controls">
+                <div class="status-filter">
+                    <button class="filter-btn active" onclick="filterCalls('all')">All</button>
+                    <button class="filter-btn" onclick="filterCalls('active')">Active</button>
+                    <button class="filter-btn" onclick="filterCalls('pending')">Pending</button>
+                    <button class="filter-btn" onclick="filterCalls('completed')">Completed</button>
+                </div>
+                <button class="refresh-btn" onclick="loadPendingCalls()">Refresh</button>
+            </div>
+            
+            <div class="calls-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Employee Name</th>
+                            <th>Clinic</th>
+                            <th>Phone</th>
+                            <th>Workflow State</th>
+                            <th>Retry Count</th>
+                            <th>Last Attempt</th>
+                            <th>Success</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="callsTableBody">
+                        <tr>
+                            <td colspan="8" class="empty-table">Loading calls...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/scripts/config.js"></script>
+    <script src="/scripts/dashboard.js"></script>
+</body>
+</html>
