@@ -11,8 +11,10 @@ export default function handler(req, res) {
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
   
-  // You'll need to add this one for your Railway WebSocket URL
-  const WS_URL = process.env.WS_URL || 'wss://your-railway-app.railway.app/monitor';
+  // Use your existing DEEPGRAM_WS_URL and append /monitor path
+  const WS_URL = process.env.DEEPGRAM_WS_URL ? 
+    process.env.DEEPGRAM_WS_URL.replace(/\/$/, '') + '/monitor' : 
+    'ws://localhost:3000/monitor';
 
   // Serve the monitor HTML with injected variables
   const html = `<!DOCTYPE html>
