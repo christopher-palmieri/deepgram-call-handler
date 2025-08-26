@@ -48,7 +48,8 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
             email,
             password,
             options: {
-                shouldCreateUser: false
+                shouldCreateUser: false,
+                redirectTo: false
             }
         });
         
