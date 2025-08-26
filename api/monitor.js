@@ -1,5 +1,5 @@
 // api/monitor.js
-// Updated with dashboard home page and call details page
+// Complete working version with dashboard and call details
 
 export default function handler(req, res) {
   // Only allow GET requests
@@ -304,6 +304,7 @@ export default function handler(req, res) {
         .workflow-failed { background: #fee2e2; color: #991b1b; }
         .workflow-retry_pending { background: #fed7aa; color: #9a3412; }
         .workflow-classifying { background: #e9d5ff; color: #6b21a8; }
+        .workflow-ready_to_call { background: #bfdbfe; color: #1e3a8a; }
         
         .monitor-btn {
             padding: 6px 16px;
@@ -328,7 +329,7 @@ export default function handler(req, res) {
             color: #6b7280;
         }
         
-        /* Call Details Styles (existing monitor styles) */
+        /* Call Details Styles */
         .connection-form {
             display: flex;
             gap: 10px;
@@ -654,7 +655,7 @@ export default function handler(req, res) {
         </div>
     </div>
 
-    <!-- Call Details Container (existing monitor) -->
+    <!-- Call Details Container -->
     <div class="container" id="monitorContainer">
         <div class="header">
             <div class="user-info">
@@ -1001,7 +1002,7 @@ export default function handler(req, res) {
             showLogin();
         }
         
-        // WebSocket connection functions (existing monitor code)
+        // WebSocket connection functions
         function toggleConnection() {
             if (isConnected) {
                 disconnect();
@@ -1081,7 +1082,7 @@ export default function handler(req, res) {
                     break;
                 case 'connecting':
                     badge.classList.add('status-connecting');
-                    badge.textContent = 'Connecting...
+                    badge.textContent = 'Connecting...';
                     break;
                 default:
                     badge.classList.add('status-disconnected');
@@ -1089,8 +1090,239 @@ export default function handler(req, res) {
             }
         }
         
-        // Audio and message handling functions remain the same...
-        // [Rest of the existing monitor JavaScript code for audio handling, etc.]
+        // Audio handling functions
+        async function toggleAudio() {
+            const button = document.getElementById('audioToggle');
+            const status = document.getElementById('audioStatus');
+            
+            if (!audioEnabled) {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                        sampleRate: 8000
+                    });
+                }
+                
+                audioEnabled = true;
+                button.textContent = 'Disable Audio';
+                status.textContent = 'Audio: Enabled';
+                processAudioQueue();
+            } else {
+                audioEnabled = false;
+                button.textContent = 'Enable Audio';
+                status.textContent = 'Audio: Disabled';
+                audioQueue = [];
+            }
+        }
+        
+        function setVolume(value) {
+            currentVolume = value / 100;
+            document.getElementById('volumeValue').textContent = value + '%';
+        }
+        
+        // Message handling
+        function handleMessage(data) {
+            switch(data.type) {
+                case 'connected':
+                    addEvent('Connected to call', '🔗', 'event-audio');
+                    break;
+                case 'transcript':
+                    addTranscript(data.text, data.source);
+                    break;
+                case 'classification':
+                    addClassification(data.classification, data.confidence);
+                    break;
+                case 'ivr_action':
+                    addIVRAction(data.action_type, data.action_value);
+                    break;
+                case 'audio':
+                    if (data.data) {
+                        handleAudioData(data.data);
+                    }
+                    break;
+                case 'call_ended':
+                    addEvent('Call ended', '📞', 'event-end');
+                    stopAudioVisualizer();
+                    break;
+                case 'error':
+                    if (data.message || data.error) {
+                        addEvent('Error: ' + (data.message || data.error), '⚠️', 'event-end');
+                    }
+                    break;
+            }
+        }
+        
+        // UI update functions
+        function addTranscript(text, source) {
+            source = source || 'unknown';
+            const container = document.getElementById('transcripts');
+            const emptyState = container.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+            
+            const item = document.createElement('div');
+            item.className = 'transcript-item';
+            item.innerHTML = '<div class="source">' + source.toUpperCase() + ' • ' + new Date().toLocaleTimeString() + '</div>' +
+                           '<div class="text">' + text + '</div>';
+            
+            container.insertBefore(item, container.firstChild);
+            
+            while (container.children.length > 10) {
+                container.removeChild(container.lastChild);
+            }
+        }
+        
+        function addEvent(text, icon, className) {
+            const container = document.getElementById('events');
+            const emptyState = container.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+            
+            const item = document.createElement('div');
+            item.className = 'event-item';
+            item.innerHTML = '<div class="event-icon ' + className + '">' + icon + '</div>' +
+                           '<div class="event-details">' +
+                           '<div>' + text + '</div>' +
+                           '<div class="event-time">' + new Date().toLocaleTimeString() + '</div>' +
+                           '</div>';
+            
+            container.insertBefore(item, container.firstChild);
+            
+            while (container.children.length > 10) {
+                container.removeChild(container.lastChild);
+            }
+        }
+        
+        function addClassification(classification, confidence) {
+            const confidencePercent = Math.round(confidence * 100);
+            addEvent(
+                'Classification: ' + classification + ' (' + confidencePercent + '% confidence)',
+                '🎯',
+                'event-classification'
+            );
+        }
+        
+        function addIVRAction(actionType, actionValue) {
+            let text = '';
+            if (actionType === 'dtmf') {
+                text = 'Pressed: ' + actionValue;
+            } else if (actionType === 'speech') {
+                text = 'Said: "' + actionValue + '"';
+            } else if (actionType === 'transfer') {
+                text = 'Transfer detected - connecting VAPI';
+            } else {
+                text = 'Action: ' + actionType + ' - ' + actionValue;
+            }
+            
+            addEvent(text, '⚡', 'event-action');
+        }
+        
+        function clearContent() {
+            document.getElementById('transcripts').innerHTML = '<div class="empty-state"><p>Waiting for transcripts...</p></div>';
+            document.getElementById('events').innerHTML = '<div class="empty-state"><p>Waiting for events...</p></div>';
+        }
+        
+        // Audio processing functions
+        function handleAudioData(base64Audio) {
+            if (!audioEnabled) return;
+            
+            const visualizer = document.getElementById('audioVisualizer');
+            if (visualizer.style.display === 'none') {
+                visualizer.style.display = 'flex';
+                startAudioVisualizer();
+            }
+            
+            const binaryString = atob(base64Audio);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            const pcmData = mulawToPCM(bytes);
+            audioQueue.push(pcmData);
+            
+            if (!isPlaying) {
+                processAudioQueue();
+            }
+        }
+        
+        function mulawToPCM(mulawData) {
+            const MULAW_BIAS = 33;
+            const pcmData = new Float32Array(mulawData.length);
+            
+            for (let i = 0; i < mulawData.length; i++) {
+                let mulaw = mulawData[i];
+                mulaw = ~mulaw & 0xFF;
+                
+                const sign = (mulaw & 0x80);
+                const exponent = (mulaw >> 4) & 0x07;
+                const mantissa = mulaw & 0x0F;
+                
+                let pcm = ((mantissa << 3) + MULAW_BIAS) << exponent;
+                pcm -= MULAW_BIAS;
+                
+                if (sign !== 0) {
+                    pcm = -pcm;
+                }
+                
+                pcmData[i] = pcm / 32768.0;
+            }
+            
+            return pcmData;
+        }
+        
+        async function processAudioQueue() {
+            if (!audioEnabled || audioQueue.length === 0 || isPlaying) return;
+            
+            isPlaying = true;
+            
+            while (audioQueue.length > 0 && audioEnabled) {
+                const pcmData = audioQueue.shift();
+                
+                const audioBuffer = audioContext.createBuffer(1, pcmData.length, 8000);
+                audioBuffer.copyToChannel(pcmData, 0);
+                
+                const source = audioContext.createBufferSource();
+                const gainNode = audioContext.createGain();
+                
+                source.buffer = audioBuffer;
+                gainNode.gain.value = currentVolume;
+                
+                source.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                await new Promise(resolve => {
+                    source.onended = resolve;
+                    source.start();
+                });
+            }
+            
+            isPlaying = false;
+        }
+        
+        function startAudioVisualizer() {
+            const visualizer = document.getElementById('audioVisualizer');
+            visualizer.innerHTML = '';
+            for (let i = 0; i < 30; i++) {
+                const bar = document.createElement('div');
+                bar.className = 'audio-bar';
+                bar.style.height = '5px';
+                visualizer.appendChild(bar);
+            }
+            
+            audioVisualizerInterval = setInterval(() => {
+                const bars = visualizer.querySelectorAll('.audio-bar');
+                bars.forEach(bar => {
+                    const height = 5 + Math.random() * 40;
+                    bar.style.height = height + 'px';
+                });
+            }, 100);
+        }
+        
+        function stopAudioVisualizer() {
+            if (audioVisualizerInterval) {
+                clearInterval(audioVisualizerInterval);
+                audioVisualizerInterval = null;
+            }
+            document.getElementById('audioVisualizer').style.display = 'none';
+        }
         
         // Initialize on load
         window.addEventListener('load', () => {
