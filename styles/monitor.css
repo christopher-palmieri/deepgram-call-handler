@@ -1,0 +1,569 @@
+/* Global Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    background: linear-gradient(135deg, #008d6f 0%, #00614d 100%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+/* Login Styles */
+.login-container {
+    background: white;
+    border-radius: 20px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    padding: 40px;
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+}
+
+.login-container h1 {
+    color: #008d6f;
+    margin-bottom: 30px;
+}
+
+.login-container h3 {
+    margin-bottom: 20px;
+    font-size: 18px;
+    color: #008d6f;
+}
+
+.login-container p {
+    margin-bottom: 15px;
+    color: #666;
+    font-size: 14px;
+}
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.login-form input {
+    padding: 12px 20px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    font-size: 16px;
+}
+
+.login-form button {
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #008d6f 0%, #00614d 100%);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.login-form button:hover {
+    transform: scale(1.05);
+}
+
+.login-form button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#resendBtn {
+    background: #6c757d;
+    margin-top: 10px;
+}
+
+.error-message {
+    color: #dc2626;
+    margin-top: 10px;
+    font-size: 14px;
+}
+
+.success-message {
+    color: #059669;
+    margin-top: 10px;
+    font-size: 14px;
+}
+
+/* Dashboard Container */
+.dashboard-container {
+    background: white;
+    border-radius: 20px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    width: 100%;
+    max-width: 1400px;
+    overflow: hidden;
+    display: none;
+}
+
+.dashboard-container.authenticated {
+    display: block;
+}
+
+/* Call Details Container */
+.container {
+    background: white;
+    border-radius: 20px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    width: 100%;
+    max-width: 1200px;
+    overflow: hidden;
+    display: none;
+}
+
+.container.active {
+    display: block;
+}
+
+/* Header Styles */
+.header {
+    background: linear-gradient(135deg, #008d6f 0%, #00614d 100%);
+    color: white;
+    padding: 30px;
+    text-align: center;
+    position: relative;
+}
+
+.header h1 {
+    font-size: 28px;
+    margin-bottom: 10px;
+}
+
+.header-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.back-btn {
+    padding: 8px 20px;
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    border-radius: 20px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.3s;
+}
+
+.back-btn:hover {
+    background: rgba(255,255,255,0.3);
+}
+
+.user-info {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    background: rgba(255,255,255,0.2);
+    padding: 10px 20px;
+    border-radius: 20px;
+}
+
+.user-email {
+    font-size: 14px;
+}
+
+.logout-btn {
+    padding: 6px 15px;
+    background: white;
+    color: #008d6f;
+    border: none;
+    border-radius: 15px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 12px;
+}
+
+.logout-btn:hover {
+    transform: scale(1.05);
+}
+
+/* Dashboard Table Styles */
+.dashboard-content {
+    padding: 30px;
+}
+
+.dashboard-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.refresh-btn {
+    padding: 10px 20px;
+    background: #008d6f;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.3s;
+}
+
+.refresh-btn:hover {
+    background: #00614d;
+}
+
+.status-filter {
+    display: flex;
+    gap: 10px;
+}
+
+.filter-btn {
+    padding: 8px 16px;
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.filter-btn.active {
+    background: #008d6f;
+    color: white;
+    border-color: #008d6f;
+}
+
+.calls-table {
+    width: 100%;
+    background: white;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.calls-table table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.calls-table th {
+    background: #f9fafb;
+    padding: 12px;
+    text-align: left;
+    font-weight: 600;
+    color: #374151;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 14px;
+}
+
+.calls-table td {
+    padding: 12px;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 14px;
+}
+
+.calls-table tr:hover {
+    background: #f9fafb;
+}
+
+.calls-table tr.clickable {
+    cursor: pointer;
+}
+
+.workflow-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.workflow-new { background: #dbeafe; color: #1e40af; }
+.workflow-calling { background: #fef3c7; color: #92400e; }
+.workflow-completed { background: #d1fae5; color: #065f46; }
+.workflow-failed { background: #fee2e2; color: #991b1b; }
+.workflow-retry_pending { background: #fed7aa; color: #9a3412; }
+.workflow-classifying { background: #e9d5ff; color: #6b21a8; }
+.workflow-ready_to_call { background: #bfdbfe; color: #1e3a8a; }
+
+.monitor-btn {
+    padding: 6px 16px;
+    background: #008d6f;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.monitor-btn:hover {
+    background: #00614d;
+    transform: scale(1.05);
+}
+
+.empty-table {
+    padding: 40px;
+    text-align: center;
+    color: #6b7280;
+}
+
+/* Call Monitor Styles */
+.connection-form {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.connection-form input {
+    padding: 12px 20px;
+    border-radius: 25px;
+    border: none;
+    font-size: 16px;
+    width: 300px;
+}
+
+.connection-form button {
+    padding: 12px 30px;
+    border-radius: 25px;
+    border: none;
+    background: white;
+    color: #008d6f;
+    font-weight: bold;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.connection-form button:hover:not(:disabled) {
+    transform: scale(1.05);
+}
+
+.connection-form button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.call-info-panel {
+    background: #f9fafb;
+    padding: 20px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.call-info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.info-label {
+    font-size: 12px;
+    color: #6b7280;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.info-value {
+    font-size: 14px;
+    color: #111827;
+}
+
+.status {
+    padding: 20px 30px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.status-badge {
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.status-connected {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-disconnected {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.status-connecting {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.audio-controls {
+    background: #343a40;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.audio-controls button {
+    padding: 10px 20px;
+    border-radius: 20px;
+    border: none;
+    background: #008d6f;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.audio-controls button:hover:not(:disabled) {
+    background: #00614d;
+    transform: scale(1.05);
+}
+
+.audio-controls button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.volume-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: white;
+}
+
+.volume-slider {
+    width: 150px;
+}
+
+.audio-status {
+    color: white;
+    font-size: 14px;
+    padding: 8px 16px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 20px;
+}
+
+.main-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    padding: 20px;
+    height: 400px;
+}
+
+.panel {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.panel h3 {
+    margin-bottom: 15px;
+    color: #495057;
+    font-size: 18px;
+}
+
+.transcript-item, .event-item {
+    background: white;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.transcript-item .source {
+    font-size: 12px;
+    color: #6c757d;
+    margin-bottom: 5px;
+}
+
+.transcript-item .text {
+    color: #212529;
+    line-height: 1.5;
+}
+
+.event-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.event-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.event-classification {
+    background: #e3f2fd;
+}
+
+.event-action {
+    background: #fff3e0;
+}
+
+.event-audio {
+    background: #e8f5e9;
+}
+
+.event-end {
+    background: #fce4ec;
+}
+
+.event-details {
+    flex: 1;
+}
+
+.event-time {
+    font-size: 12px;
+    color: #6c757d;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 40px;
+    color: #6c757d;
+}
+
+.audio-visualizer {
+    height: 60px;
+    background: linear-gradient(to right, #008d6f, #00614d);
+    border-radius: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 0 20px;
+}
+
+.audio-bar {
+    width: 3px;
+    background: white;
+    border-radius: 2px;
+    transition: height 0.1s ease;
+}
