@@ -37,10 +37,17 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     try {
         const { data, error } = await supabase.auth.signInWithPassword({
             email,
-            password
+            password,
+            options: {
+                shouldCreateUser: false
+            }
         });
         
-        if (error) throw error;
+        console.log('Login response:', data);
+        if (error) {
+            console.error('Login error:', error);
+            throw error;
+        }
         
         // Check MFA assurance level
         const { data: { session } } = await supabase.auth.getSession();
