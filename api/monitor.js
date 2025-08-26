@@ -584,10 +584,14 @@ export default function handler(req, res) {
         }
     </style>
 </head>
-<body>
+<body>`
     <!-- Login Container -->
+    const ENHANCED_LOGIN_CONTAINER = `
+    <!-- Login Container with MFA -->
     <div class="login-container" id="loginContainer">
         <h1>IVR Monitor Login</h1>
+        
+        <!-- Step 1: Email/Password -->
         <form class="login-form" id="loginForm">
             <input 
                 type="email" 
@@ -605,8 +609,49 @@ export default function handler(req, res) {
                 Sign In
             </button>
         </form>
+        
+        <!-- Step 2: Phone Setup (first-time MFA) -->
+        <form class="login-form" id="phoneSetupForm" style="display: none;">
+            <h3 style="margin-bottom: 20px; font-size: 18px; color: #008d6f;">Setup Two-Factor Authentication</h3>
+            <p style="margin-bottom: 15px; color: #666; font-size: 14px;">
+                Enter your phone number to receive verification codes
+            </p>
+            <input 
+                type="tel" 
+                id="phoneInput" 
+                placeholder="+1234567890"
+                pattern="\\+[0-9]{10,15}"
+                required
+            />
+            <button type="submit" id="setupPhoneBtn">
+                Send Verification Code
+            </button>
+        </form>
+        
+        <!-- Step 3: Verify MFA -->
+        <form class="login-form" id="mfaForm" style="display: none;">
+            <p style="margin-bottom: 20px; color: #666;">
+                Enter the 6-digit code sent to your phone
+            </p>
+            <input 
+                type="text" 
+                id="otpInput" 
+                placeholder="6-digit code"
+                pattern="[0-9]{6}"
+                maxlength="6"
+                required
+            />
+            <button type="submit" id="verifyBtn">
+                Verify
+            </button>
+            <button type="button" onclick="resendCode()" style="background: #6c757d; margin-top: 10px;">
+                Resend Code
+            </button>
+        </form>
+        
         <div id="authMessage"></div>
     </div>
+`;
 
     <!-- Dashboard Container -->
     <div class="dashboard-container" id="dashboardContainer">
@@ -963,7 +1008,11 @@ export default function handler(req, res) {
             }, 500);
         }
         
-        // Handle login
+       const ENHANCED_LOGIN_HANDLER = `
+        let currentFactorId = null;
+        let currentPhoneNumber = null;
+        
+        // Enhanced login handler with MFA
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -977,6 +1026,7 @@ export default function handler(req, res) {
             authMessage.innerHTML = '';
             
             try {
+                // Sign in with password
                 const { data, error } = await supabase.auth.signInWithPassword({
                     email,
                     password
@@ -984,12 +1034,39 @@ export default function handler(req, res) {
                 
                 if (error) throw error;
                 
-                authMessage.innerHTML = '<div class="success-message">Login successful!</div>';
-                currentUser = data.user;
+                // Check if user has MFA set up
+                const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors();
                 
-                setTimeout(() => {
-                    showDashboard();
-                }, 500);
+                if (factorsError) {
+                    // No MFA required, proceed to dashboard
+                    authMessage.innerHTML = '<div class="success-message">Login successful!</div>';
+                    currentUser = data.user;
+                    setTimeout(() => showDashboard(), 500);
+                    return;
+                }
+                
+                // Check for phone factor
+                const phoneFactor = factors?.totp?.find(f => f.factor_type === 'phone');
+                
+                if (!phoneFactor) {
+                    // First time - need to set up MFA
+                    authMessage.innerHTML = '<div class="success-message">Please set up two-factor authentication</div>';
+                    document.getElementById('loginForm').style.display = 'none';
+                    document.getElementById('phoneSetupForm').style.display = 'block';
+                } else {
+                    // MFA already set up - send challenge
+                    currentFactorId = phoneFactor.id;
+                    
+                    const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({
+                        factorId: phoneFactor.id
+                    });
+                    
+                    if (challengeError) throw challengeError;
+                    
+                    authMessage.innerHTML = '<div class="success-message">Verification code sent!</div>';
+                    document.getElementById('loginForm').style.display = 'none';
+                    document.getElementById('mfaForm').style.display = 'block';
+                }
                 
             } catch (error) {
                 authMessage.innerHTML = '<div class="error-message">' + error.message + '</div>';
@@ -998,6 +1075,95 @@ export default function handler(req, res) {
                 loginBtn.textContent = 'Sign In';
             }
         });
+        
+        // Handle phone setup (first-time MFA)
+        document.getElementById('phoneSetupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const phone = document.getElementById('phoneInput').value;
+            const authMessage = document.getElementById('authMessage');
+            const setupBtn = document.getElementById('setupPhoneBtn');
+            
+            currentPhoneNumber = phone;
+            setupBtn.disabled = true;
+            setupBtn.textContent = 'Sending...';
+            
+            try {
+                // Enroll phone factor
+                const { data: factor, error } = await supabase.auth.mfa.enroll({
+                    factorType: 'phone',
+                    phone: phone
+                });
+                
+                if (error) throw error;
+                
+                currentFactorId = factor.id;
+                
+                authMessage.innerHTML = '<div class="success-message">Code sent to ' + phone + '</div>';
+                document.getElementById('phoneSetupForm').style.display = 'none';
+                document.getElementById('mfaForm').style.display = 'block';
+                
+            } catch (error) {
+                authMessage.innerHTML = '<div class="error-message">' + error.message + '</div>';
+            } finally {
+                setupBtn.disabled = false;
+                setupBtn.textContent = 'Send Verification Code';
+            }
+        });
+        
+        // Handle MFA verification
+        document.getElementById('mfaForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const otp = document.getElementById('otpInput').value;
+            const authMessage = document.getElementById('authMessage');
+            const verifyBtn = document.getElementById('verifyBtn');
+            
+            verifyBtn.disabled = true;
+            verifyBtn.textContent = 'Verifying...';
+            
+            try {
+                // Verify the MFA code
+                const { data, error } = await supabase.auth.mfa.verify({
+                    factorId: currentFactorId,
+                    code: otp
+                });
+                
+                if (error) throw error;
+                
+                authMessage.innerHTML = '<div class="success-message">Verification successful!</div>';
+                
+                // Get updated user session
+                const { data: { user } } = await supabase.auth.getUser();
+                currentUser = user;
+                
+                setTimeout(() => showDashboard(), 500);
+                
+            } catch (error) {
+                authMessage.innerHTML = '<div class="error-message">' + error.message + '</div>';
+            } finally {
+                verifyBtn.disabled = false;
+                verifyBtn.textContent = 'Verify';
+            }
+        });
+        
+        // Resend code function
+        async function resendCode() {
+            const authMessage = document.getElementById('authMessage');
+            
+            try {
+                const { data: challenge, error } = await supabase.auth.mfa.challenge({
+                    factorId: currentFactorId
+                });
+                
+                if (error) throw error;
+                
+                authMessage.innerHTML = '<div class="success-message">New code sent!</div>';
+            } catch (error) {
+                authMessage.innerHTML = '<div class="error-message">Failed to resend: ' + error.message + '</div>';
+            }
+        }
+`;
         
         // Handle logout
         async function logout() {
