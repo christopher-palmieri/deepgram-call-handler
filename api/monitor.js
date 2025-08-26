@@ -7,7 +7,7 @@ export default function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Use your EXISTING environment variables (no NEXT_PUBLIC_ prefix needed!)
+  // Use your EXISTING environment variables
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
   
@@ -495,13 +495,13 @@ export default function handler(req, res) {
     </div>
 
     <script>
-        // Supabase configuration - these will be replaced by environment variables in Vercel
-        const SUPABASE_URL = window.SUPABASE_URL || 'YOUR_SUPABASE_URL';
-        const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'YOUR_SUPABASE_ANON_KEY';
-        const WS_URL = window.WS_URL || 'wss://your-railway-app.railway.app/monitor';
+        // Inject environment variables from server
+        window.SUPABASE_URL = '${SUPABASE_URL}';
+        window.SUPABASE_ANON_KEY = '${SUPABASE_ANON_KEY}';
+        window.WS_URL = '${WS_URL}';
         
         // Initialize Supabase client
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
         
         // Monitor state
         let ws = null;
@@ -576,7 +576,7 @@ export default function handler(req, res) {
                 }, 500);
                 
             } catch (error) {
-                authMessage.innerHTML = `<div class="error-message">${error.message}</div>`;
+                authMessage.innerHTML = '<div class="error-message">' + error.message + '</div>';
             } finally {
                 loginBtn.disabled = false;
                 loginBtn.textContent = 'Sign In';
@@ -611,10 +611,10 @@ export default function handler(req, res) {
                 if (calls && calls.length > 0) {
                     const callList = calls.map(call => {
                         const time = new Date(call.created_at).toLocaleTimeString();
-                        return `${call.call_id} - ${call.clinic_name || 'Unknown'} (${time})`;
-                    }).join('\n');
+                        return call.call_id + ' - ' + (call.clinic_name || 'Unknown') + ' (' + time + ')';
+                    }).join('\\n');
                     
-                    const selectedCall = prompt('Active calls:\n\n' + callList + '\n\nEnter Call ID to monitor:');
+                    const selectedCall = prompt('Active calls:\\n\\n' + callList + '\\n\\nEnter Call ID to monitor:');
                     if (selectedCall) {
                         document.getElementById('callIdInput').value = selectedCall;
                         connect();
@@ -652,7 +652,7 @@ export default function handler(req, res) {
             updateStatus('connecting');
             
             // Add user token to WebSocket connection for additional security
-            const wsUrlWithAuth = `${WS_URL}?callId=${callId}&token=${currentUser.access_token}`;
+            const wsUrlWithAuth = window.WS_URL + '?callId=' + callId + '&token=' + currentUser.access_token;
             
             ws = new WebSocket(wsUrlWithAuth);
             
@@ -742,7 +742,7 @@ export default function handler(req, res) {
         
         function setVolume(value) {
             currentVolume = value / 100;
-            document.getElementById('volumeValue').textContent = `${value}%`;
+            document.getElementById('volumeValue').textContent = value + '%';
         }
         
         // Message handling
@@ -771,24 +771,23 @@ export default function handler(req, res) {
                     break;
                 case 'error':
                     if (data.message || data.error) {
-                        addEvent(`Error: ${data.message || data.error}`, '⚠️', 'event-end');
+                        addEvent('Error: ' + (data.message || data.error), '⚠️', 'event-end');
                     }
                     break;
             }
         }
         
         // UI update functions
-        function addTranscript(text, source = 'unknown') {
+        function addTranscript(text, source) {
+            source = source || 'unknown';
             const container = document.getElementById('transcripts');
             const emptyState = container.querySelector('.empty-state');
             if (emptyState) emptyState.remove();
             
             const item = document.createElement('div');
             item.className = 'transcript-item';
-            item.innerHTML = `
-                <div class="source">${source.toUpperCase()} • ${new Date().toLocaleTimeString()}</div>
-                <div class="text">${text}</div>
-            `;
+            item.innerHTML = '<div class="source">' + source.toUpperCase() + ' • ' + new Date().toLocaleTimeString() + '</div>' +
+                           '<div class="text">' + text + '</div>';
             
             container.insertBefore(item, container.firstChild);
             
@@ -804,13 +803,11 @@ export default function handler(req, res) {
             
             const item = document.createElement('div');
             item.className = 'event-item';
-            item.innerHTML = `
-                <div class="event-icon ${className}">${icon}</div>
-                <div class="event-details">
-                    <div>${text}</div>
-                    <div class="event-time">${new Date().toLocaleTimeString()}</div>
-                </div>
-            `;
+            item.innerHTML = '<div class="event-icon ' + className + '">' + icon + '</div>' +
+                           '<div class="event-details">' +
+                           '<div>' + text + '</div>' +
+                           '<div class="event-time">' + new Date().toLocaleTimeString() + '</div>' +
+                           '</div>';
             
             container.insertBefore(item, container.firstChild);
             
@@ -822,7 +819,7 @@ export default function handler(req, res) {
         function addClassification(classification, confidence) {
             const confidencePercent = Math.round(confidence * 100);
             addEvent(
-                `Classification: ${classification} (${confidencePercent}% confidence)`,
+                'Classification: ' + classification + ' (' + confidencePercent + '% confidence)',
                 '🎯',
                 'event-classification'
             );
@@ -831,13 +828,13 @@ export default function handler(req, res) {
         function addIVRAction(actionType, actionValue) {
             let text = '';
             if (actionType === 'dtmf') {
-                text = `Pressed: ${actionValue}`;
+                text = 'Pressed: ' + actionValue;
             } else if (actionType === 'speech') {
-                text = `Said: "${actionValue}"`;
+                text = 'Said: "' + actionValue + '"';
             } else if (actionType === 'transfer') {
-                text = `Transfer detected - connecting VAPI`;
+                text = 'Transfer detected - connecting VAPI';
             } else {
-                text = `Action: ${actionType} - ${actionValue}`;
+                text = 'Action: ' + actionType + ' - ' + actionValue;
             }
             
             addEvent(text, '⚡', 'event-action');
@@ -940,7 +937,7 @@ export default function handler(req, res) {
                 const bars = visualizer.querySelectorAll('.audio-bar');
                 bars.forEach(bar => {
                     const height = 5 + Math.random() * 40;
-                    bar.style.height = `${height}px`;
+                    bar.style.height = height + 'px';
                 });
             }, 100);
         }
