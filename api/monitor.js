@@ -864,49 +864,54 @@ export default function handler(req, res) {
         
         // Render calls table
         function renderCallsTable() {
-            const tbody = document.getElementById('callsTableBody');
+          const tbody = document.getElementById('callsTableBody');
+          
+          let filteredCalls = allCalls;
+          if (currentFilter !== 'all') {
+              if (currentFilter === 'active') {
+                  filteredCalls = allCalls.filter(c => ['calling', 'classifying'].includes(c.workflow_state));
+              } else if (currentFilter === 'pending') {
+                  filteredCalls = allCalls.filter(c => ['new', 'ready_to_call', 'retry_pending'].includes(c.workflow_state));
+              } else if (currentFilter === 'completed') {
+                  filteredCalls = allCalls.filter(c => ['completed', 'failed'].includes(c.workflow_state));
+              }
+          }
+          
+          if (filteredCalls.length === 0) {
+              tbody.innerHTML = '<tr><td colspan="8" class="empty-table">No calls found</td></tr>';
+              return;
+          }
+      
+          tbody.innerHTML = filteredCalls.map(call => {
+            const lastAttempt = call.last_attempt_at ? 
+                new Date(call.last_attempt_at).toLocaleString() : '-';
             
-            let filteredCalls = allCalls;
-            if (currentFilter !== 'all') {
-                if (currentFilter === 'active') {
-                    filteredCalls = allCalls.filter(c => ['calling', 'classifying'].includes(c.workflow_state));
-                } else if (currentFilter === 'pending') {
-                    filteredCalls = allCalls.filter(c => ['new', 'ready_to_call', 'retry_pending'].includes(c.workflow_state));
-                } else if (currentFilter === 'completed') {
-                    filteredCalls = allCalls.filter(c => ['completed', 'failed'].includes(c.workflow_state));
-                }
+            const activeSession = call.call_sessions && call.call_sessions.find(s => s.call_status === 'active');
+            
+            // Using string concatenation to avoid template literal issues
+            let buttonHtml = '';
+            if (activeSession) {
+                buttonHtml = '<button class="monitor-btn" onclick="event.stopPropagation(); monitorCall(\\'' + 
+                    call.id + '\\', \\'' + activeSession.call_id + '\\')">Monitor Live</button>';
+            } else {
+                buttonHtml = '<button class="monitor-btn" onclick="event.stopPropagation(); showCallDetails(\\'' + 
+                    call.id + '\\')">View Details</button>';
             }
             
-            if (filteredCalls.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" class="empty-table">No calls found</td></tr>';
-                return;
-            }
-            
-            tbody.innerHTML = filteredCalls.map(call => {
-                const lastAttempt = call.last_attempt_at ? 
-                    new Date(call.last_attempt_at).toLocaleString() : '-';
-                
-                const activeSession = call.call_sessions && call.call_sessions.find(s => s.call_status === 'active');
-                
-                return '<tr class="clickable" onclick="showCallDetails(\'' + call.id + '\')">' +
-                    '<td>' + (call.employee_name || '-') + '</td>' +
-                    '<td>' + (call.clinic_name || '-') + '</td>' +
-                    '<td>' + (call.phone || '-') + '</td>' +
-                    '<td><span class="workflow-badge workflow-' + call.workflow_state + '">' + call.workflow_state + '</span></td>' +
-                    '<td>' + (call.retry_count || 0) + '/' + (call.max_retries || 3) + '</td>' +
-                    '<td>' + lastAttempt + '</td>' +
-                    '<td>' + (call.success_evaluation || '-') + '</td>' +
-                    '<td>' +
-                        (activeSession ? 
-                            '<button class="monitor-btn" onclick="event.stopPropagation(); monitorCall(\'' + 
-                            call.id + '\', \'' + activeSession.call_id + '\')">Monitor Live</button>' :
-                            '<button class="monitor-btn" onclick="event.stopPropagation(); showCallDetails(\'' + 
-                            call.id + '\')">View Details</button>') +
-                    '</td>' +
-                '</tr>';
-            }).join('');
+            return '<tr class="clickable" onclick="showCallDetails(\\'' + call.id + '\\')">' +
+                '<td>' + (call.employee_name || '-') + '</td>' +
+                '<td>' + (call.clinic_name || '-') + '</td>' +
+                '<td>' + (call.phone || '-') + '</td>' +
+                '<td><span class="workflow-badge workflow-' + call.workflow_state + '">' + 
+                    call.workflow_state + '</span></td>' +
+                '<td>' + (call.retry_count || 0) + '/' + (call.max_retries || 3) + '</td>' +
+                '<td>' + lastAttempt + '</td>' +
+                '<td>' + (call.success_evaluation || '-') + '</td>' +
+                '<td>' + buttonHtml + '</td>' +
+            '</tr>';
+        }).join('');
+
         }
-        
         // Load call details
         async function loadCallDetails(pendingCallId) {
             try {
