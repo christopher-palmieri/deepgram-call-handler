@@ -5,6 +5,11 @@ let config = null;
 let supabase = null;
 
 async function loadConfig() {
+    // Return existing instances to avoid duplicates
+    if (config && supabase) {
+        return config;
+    }
+    
     if (config) return config;
     
     try {
@@ -15,12 +20,24 @@ async function loadConfig() {
         
         config = await response.json();
         
-        // Initialize Supabase client
-        if (window.supabase && config.supabaseUrl && config.supabaseAnonKey) {
+        // Only create Supabase client if it doesn't exist
+        if (!supabase && window.supabase && config.supabaseUrl && config.supabaseAnonKey) {
             supabase = window.supabase.createClient(
                 config.supabaseUrl, 
-                config.supabaseAnonKey
+                config.supabaseAnonKey,
+                {
+                    auth: {
+                        persistSession: true,
+                        autoRefreshToken: true
+                    }
+                }
             );
+            // Make it globally available to prevent duplicates
+            window.supabaseClient = supabase;
+        } else if (window.supabaseClient) {
+            // Use existing client if available
+            supabase = window.supabaseClient;
+        }
         } else {
             console.error('Failed to initialize Supabase - missing configuration');
         }
