@@ -1,23 +1,4 @@
-// api/monitor.js
-// Complete working version with dashboard and call details
-
-export default function handler(req, res) {
-  // Only allow GET requests
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  // Use your EXISTING environment variables
-  const SUPABASE_URL = process.env.SUPABASE_URL;
-  const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
-  
-  // Use your existing DEEPGRAM_WS_URL and append /monitor path
-  const WS_URL = process.env.DEEPGRAM_WS_URL ? 
-    process.env.DEEPGRAM_WS_URL.replace(/\/$/, '') + '/monitor' : 
-    'ws://localhost:3000/monitor';
-
-  // Serve the monitor HTML with injected variables
-  const html = `<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -585,8 +566,6 @@ export default function handler(req, res) {
     </style>
 </head>
 <body>
-    <!-- Login Container -->
-    const ENHANCED_LOGIN_CONTAINER = `
     <!-- Login Container with MFA -->
     <div class="login-container" id="loginContainer">
         <h1>IVR Monitor Login</h1>
@@ -620,7 +599,7 @@ export default function handler(req, res) {
                 type="tel" 
                 id="phoneInput" 
                 placeholder="+1234567890"
-                pattern="\\+[0-9]{10,15}"
+                pattern="\+[0-9]{10,15}"
                 required
             />
             <button type="submit" id="setupPhoneBtn">
@@ -651,7 +630,6 @@ export default function handler(req, res) {
         
         <div id="authMessage"></div>
     </div>
-`;
 
     <!-- Dashboard Container -->
     <div class="dashboard-container" id="dashboardContainer">
@@ -819,6 +797,8 @@ export default function handler(req, res) {
         let allCalls = [];
         let currentFilter = 'all';
         let currentPendingCall = null;
+        let currentFactorId = null;
+        let currentPhoneNumber = null;
         
         // Monitor state
         let ws = null;
@@ -907,56 +887,52 @@ export default function handler(req, res) {
             renderCallsTable();
         }
         
-        // Render calls table
+        // Render calls table with fixed string handling
         function renderCallsTable() {
-          const tbody = document.getElementById('callsTableBody');
-          
-          let filteredCalls = allCalls;
-          if (currentFilter !== 'all') {
-              if (currentFilter === 'active') {
-                  filteredCalls = allCalls.filter(c => ['calling', 'classifying'].includes(c.workflow_state));
-              } else if (currentFilter === 'pending') {
-                  filteredCalls = allCalls.filter(c => ['new', 'ready_to_call', 'retry_pending'].includes(c.workflow_state));
-              } else if (currentFilter === 'completed') {
-                  filteredCalls = allCalls.filter(c => ['completed', 'failed'].includes(c.workflow_state));
-              }
-          }
-          
-          if (filteredCalls.length === 0) {
-              tbody.innerHTML = '<tr><td colspan="8" class="empty-table">No calls found</td></tr>';
-              return;
-          }
-      
-          tbody.innerHTML = filteredCalls.map(call => {
-            const lastAttempt = call.last_attempt_at ? 
-                new Date(call.last_attempt_at).toLocaleString() : '-';
+            const tbody = document.getElementById('callsTableBody');
             
-            const activeSession = call.call_sessions && call.call_sessions.find(s => s.call_status === 'active');
-            
-            // Using string concatenation to avoid template literal issues
-            let buttonHtml = '';
-            if (activeSession) {
-                buttonHtml = '<button class="monitor-btn" onclick="event.stopPropagation(); monitorCall(\\'' + 
-                    call.id + '\\', \\'' + activeSession.call_id + '\\')">Monitor Live</button>';
-            } else {
-                buttonHtml = '<button class="monitor-btn" onclick="event.stopPropagation(); showCallDetails(\\'' + 
-                    call.id + '\\')">View Details</button>';
+            let filteredCalls = allCalls;
+            if (currentFilter !== 'all') {
+                if (currentFilter === 'active') {
+                    filteredCalls = allCalls.filter(c => ['calling', 'classifying'].includes(c.workflow_state));
+                } else if (currentFilter === 'pending') {
+                    filteredCalls = allCalls.filter(c => ['new', 'ready_to_call', 'retry_pending'].includes(c.workflow_state));
+                } else if (currentFilter === 'completed') {
+                    filteredCalls = allCalls.filter(c => ['completed', 'failed'].includes(c.workflow_state));
+                }
             }
             
-            return '<tr class="clickable" onclick="showCallDetails(\\'' + call.id + '\\')">' +
-                '<td>' + (call.employee_name || '-') + '</td>' +
-                '<td>' + (call.clinic_name || '-') + '</td>' +
-                '<td>' + (call.phone || '-') + '</td>' +
-                '<td><span class="workflow-badge workflow-' + call.workflow_state + '">' + 
-                    call.workflow_state + '</span></td>' +
-                '<td>' + (call.retry_count || 0) + '/' + (call.max_retries || 3) + '</td>' +
-                '<td>' + lastAttempt + '</td>' +
-                '<td>' + (call.success_evaluation || '-') + '</td>' +
-                '<td>' + buttonHtml + '</td>' +
-            '</tr>';
-        }).join('');
-
+            if (filteredCalls.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="empty-table">No calls found</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = filteredCalls.map(call => {
+                const lastAttempt = call.last_attempt_at ? 
+                    new Date(call.last_attempt_at).toLocaleString() : '-';
+                
+                const activeSession = call.call_sessions && call.call_sessions.find(s => s.call_status === 'active');
+                
+                let buttonHtml = '';
+                if (activeSession) {
+                    buttonHtml = `<button class="monitor-btn" onclick="event.stopPropagation(); monitorCall('${call.id}', '${activeSession.call_id}')">Monitor Live</button>`;
+                } else {
+                    buttonHtml = `<button class="monitor-btn" onclick="event.stopPropagation(); showCallDetails('${call.id}')">View Details</button>`;
+                }
+                
+                return `<tr class="clickable" onclick="showCallDetails('${call.id}')">
+                    <td>${call.employee_name || '-'}</td>
+                    <td>${call.clinic_name || '-'}</td>
+                    <td>${call.phone || '-'}</td>
+                    <td><span class="workflow-badge workflow-${call.workflow_state}">${call.workflow_state}</span></td>
+                    <td>${call.retry_count || 0}/${call.max_retries || 3}</td>
+                    <td>${lastAttempt}</td>
+                    <td>${call.success_evaluation || '-'}</td>
+                    <td>${buttonHtml}</td>
+                </tr>`;
+            }).join('');
         }
+        
         // Load call details
         async function loadCallDetails(pendingCallId) {
             try {
@@ -1007,10 +983,6 @@ export default function handler(req, res) {
                 connect();
             }, 500);
         }
-        
-       const ENHANCED_LOGIN_HANDLER = `
-        let currentFactorId = null;
-        let currentPhoneNumber = null;
         
         // Enhanced login handler with MFA
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
@@ -1069,7 +1041,7 @@ export default function handler(req, res) {
                 }
                 
             } catch (error) {
-                authMessage.innerHTML = '<div class="error-message">' + error.message + '</div>';
+                authMessage.innerHTML = `<div class="error-message">${error.message}</div>`;
             } finally {
                 loginBtn.disabled = false;
                 loginBtn.textContent = 'Sign In';
@@ -1099,12 +1071,12 @@ export default function handler(req, res) {
                 
                 currentFactorId = factor.id;
                 
-                authMessage.innerHTML = '<div class="success-message">Code sent to ' + phone + '</div>';
+                authMessage.innerHTML = `<div class="success-message">Code sent to ${phone}</div>`;
                 document.getElementById('phoneSetupForm').style.display = 'none';
                 document.getElementById('mfaForm').style.display = 'block';
                 
             } catch (error) {
-                authMessage.innerHTML = '<div class="error-message">' + error.message + '</div>';
+                authMessage.innerHTML = `<div class="error-message">${error.message}</div>`;
             } finally {
                 setupBtn.disabled = false;
                 setupBtn.textContent = 'Send Verification Code';
@@ -1140,7 +1112,7 @@ export default function handler(req, res) {
                 setTimeout(() => showDashboard(), 500);
                 
             } catch (error) {
-                authMessage.innerHTML = '<div class="error-message">' + error.message + '</div>';
+                authMessage.innerHTML = `<div class="error-message">${error.message}</div>`;
             } finally {
                 verifyBtn.disabled = false;
                 verifyBtn.textContent = 'Verify';
@@ -1160,10 +1132,9 @@ export default function handler(req, res) {
                 
                 authMessage.innerHTML = '<div class="success-message">New code sent!</div>';
             } catch (error) {
-                authMessage.innerHTML = '<div class="error-message">Failed to resend: ' + error.message + '</div>';
+                authMessage.innerHTML = `<div class="error-message">Failed to resend: ${error.message}</div>`;
             }
         }
-`;
         
         // Handle logout
         async function logout() {
@@ -1197,7 +1168,7 @@ export default function handler(req, res) {
             
             updateStatus('connecting');
             
-            const wsUrlWithAuth = window.WS_URL + '?callId=' + callId + '&token=' + currentUser.access_token;
+            const wsUrlWithAuth = `${window.WS_URL}?callId=${callId}&token=${currentUser.access_token}`;
             
             ws = new WebSocket(wsUrlWithAuth);
             
@@ -1287,7 +1258,7 @@ export default function handler(req, res) {
         
         function setVolume(value) {
             currentVolume = value / 100;
-            document.getElementById('volumeValue').textContent = value + '%';
+            document.getElementById('volumeValue').textContent = `${value}%`;
         }
         
         // Message handling
@@ -1316,7 +1287,7 @@ export default function handler(req, res) {
                     break;
                 case 'error':
                     if (data.message || data.error) {
-                        addEvent('Error: ' + (data.message || data.error), '⚠️', 'event-end');
+                        addEvent(`Error: ${data.message || data.error}`, '⚠️', 'event-end');
                     }
                     break;
             }
@@ -1331,8 +1302,10 @@ export default function handler(req, res) {
             
             const item = document.createElement('div');
             item.className = 'transcript-item';
-            item.innerHTML = '<div class="source">' + source.toUpperCase() + ' • ' + new Date().toLocaleTimeString() + '</div>' +
-                           '<div class="text">' + text + '</div>';
+            item.innerHTML = `
+                <div class="source">${source.toUpperCase()} • ${new Date().toLocaleTimeString()}</div>
+                <div class="text">${text}</div>
+            `;
             
             container.insertBefore(item, container.firstChild);
             
@@ -1348,11 +1321,13 @@ export default function handler(req, res) {
             
             const item = document.createElement('div');
             item.className = 'event-item';
-            item.innerHTML = '<div class="event-icon ' + className + '">' + icon + '</div>' +
-                           '<div class="event-details">' +
-                           '<div>' + text + '</div>' +
-                           '<div class="event-time">' + new Date().toLocaleTimeString() + '</div>' +
-                           '</div>';
+            item.innerHTML = `
+                <div class="event-icon ${className}">${icon}</div>
+                <div class="event-details">
+                    <div>${text}</div>
+                    <div class="event-time">${new Date().toLocaleTimeString()}</div>
+                </div>
+            `;
             
             container.insertBefore(item, container.firstChild);
             
@@ -1364,7 +1339,7 @@ export default function handler(req, res) {
         function addClassification(classification, confidence) {
             const confidencePercent = Math.round(confidence * 100);
             addEvent(
-                'Classification: ' + classification + ' (' + confidencePercent + '% confidence)',
+                `Classification: ${classification} (${confidencePercent}% confidence)`,
                 '🎯',
                 'event-classification'
             );
@@ -1373,13 +1348,13 @@ export default function handler(req, res) {
         function addIVRAction(actionType, actionValue) {
             let text = '';
             if (actionType === 'dtmf') {
-                text = 'Pressed: ' + actionValue;
+                text = `Pressed: ${actionValue}`;
             } else if (actionType === 'speech') {
-                text = 'Said: "' + actionValue + '"';
+                text = `Said: "${actionValue}"`;
             } else if (actionType === 'transfer') {
                 text = 'Transfer detected - connecting VAPI';
             } else {
-                text = 'Action: ' + actionType + ' - ' + actionValue;
+                text = `Action: ${actionType} - ${actionValue}`;
             }
             
             addEvent(text, '⚡', 'event-action');
@@ -1482,7 +1457,7 @@ export default function handler(req, res) {
                 const bars = visualizer.querySelectorAll('.audio-bar');
                 bars.forEach(bar => {
                     const height = 5 + Math.random() * 40;
-                    bar.style.height = height + 'px';
+                    bar.style.height = `${height}px`;
                 });
             }, 100);
         }
@@ -1519,13 +1494,4 @@ export default function handler(req, res) {
         });
     </script>
 </body>
-</html>`;
-
-  res.status(200).setHeader('Content-Type', 'text/html').send(html);
-}
-
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+</html>
