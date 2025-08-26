@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -18,20 +18,35 @@
             <button type="submit" id="loginBtn">Sign In</button>
         </form>
         
-        <!-- Step 2: Phone Setup (first-time MFA) -->
-        <form class="login-form" id="phoneSetupForm" style="display: none;">
-            <h3>Setup Two-Factor Authentication</h3>
-            <p>Enter your phone number to receive verification codes</p>
-            <input type="tel" id="phoneInput" placeholder="+1234567890" pattern="\+[0-9]{10,15}" required />
-            <button type="submit" id="setupPhoneBtn">Send Verification Code</button>
+        <!-- Step 2: TOTP Setup (first-time MFA) -->
+        <form class="login-form" id="totpSetupForm" style="display: none;">
+            <h3 style="margin-bottom: 20px; font-size: 18px; color: #008d6f;">Setup Two-Factor Authentication</h3>
+            <p style="margin-bottom: 15px; color: #666; font-size: 14px;">
+                You'll need an authenticator app like Google Authenticator, Authy, or Microsoft Authenticator
+            </p>
+            <button type="submit" id="setupTotpBtn">Setup Authenticator</button>
         </form>
+        
+        <!-- QR Code Display -->
+        <div id="qrCodeContainer" style="display: none; text-align: center;">
+            <!-- QR code will be inserted here -->
+        </div>
         
         <!-- Step 3: Verify MFA -->
         <form class="login-form" id="mfaForm" style="display: none;">
-            <p>Enter the 6-digit code sent to your phone</p>
-            <input type="text" id="otpInput" placeholder="6-digit code" pattern="[0-9]{6}" maxlength="6" required />
+            <p style="margin-bottom: 20px; color: #666;">
+                Enter the 6-digit code from your authenticator app
+            </p>
+            <input 
+                type="text" 
+                id="otpInput" 
+                placeholder="6-digit code"
+                pattern="[0-9]{6}"
+                maxlength="6"
+                required
+            />
             <button type="submit" id="verifyBtn">Verify</button>
-            <button type="button" id="resendBtn">Resend Code</button>
+            <button type="button" id="resendBtn" style="display: none;">Resend Code</button>
         </form>
         
         <div id="authMessage"></div>
