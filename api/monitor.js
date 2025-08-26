@@ -584,7 +584,7 @@ export default function handler(req, res) {
         }
     </style>
 </head>
-<body>`
+<body>
     <!-- Login Container -->
     const ENHANCED_LOGIN_CONTAINER = `
     <!-- Login Container with MFA -->
