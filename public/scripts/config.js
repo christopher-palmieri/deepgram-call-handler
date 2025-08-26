@@ -5,12 +5,10 @@ let config = null;
 let supabase = null;
 
 async function loadConfig() {
-    // Return existing instances to avoid duplicates
+    // Return existing config if already loaded
     if (config && supabase) {
         return config;
     }
-    
-    if (config) return config;
     
     try {
         const response = await fetch('/api/config');
@@ -19,8 +17,9 @@ async function loadConfig() {
         }
         
         config = await response.json();
+        console.log('Loaded config:', config);
         
-        // Only create Supabase client if it doesn't exist
+        // Initialize Supabase client only once
         if (!supabase && window.supabase && config.supabaseUrl && config.supabaseAnonKey) {
             supabase = window.supabase.createClient(
                 config.supabaseUrl, 
@@ -28,18 +27,24 @@ async function loadConfig() {
                 {
                     auth: {
                         persistSession: true,
-                        autoRefreshToken: true
+                        autoRefreshToken: true,
+                        detectSessionInUrl: false
                     }
                 }
             );
-            // Make it globally available to prevent duplicates
+            console.log('Supabase client created');
+            
+            // Make it globally available
             window.supabaseClient = supabase;
         } else if (window.supabaseClient) {
             // Use existing client if available
             supabase = window.supabaseClient;
-        }
+            console.log('Using existing Supabase client');
         } else {
-            console.error('Failed to initialize Supabase - missing configuration');
+            console.error('Failed to create Supabase client. Missing config or Supabase library.');
+            console.log('window.supabase:', window.supabase);
+            console.log('supabaseUrl:', config.supabaseUrl);
+            console.log('supabaseAnonKey:', config.supabaseAnonKey);
         }
         
         return config;
@@ -62,6 +67,7 @@ async function checkAuth() {
     }
     
     if (!supabase) {
+        console.error('Supabase client not available');
         return null;
     }
     
