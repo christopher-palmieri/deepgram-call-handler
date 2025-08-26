@@ -3,19 +3,23 @@
 
 let currentFactorId = null;
 let currentChallenge = null;
+let supabaseClient = null; // Will be set after config loads
 
 // Wait for config to load
 window.addEventListener('DOMContentLoaded', async () => {
     await loadConfig(); // From config.js
     
-    if (!supabase) {
+    // Get the supabase client from global scope
+    supabaseClient = window.supabaseClient || window.supabase || supabase;
+    
+    if (!supabaseClient) {
         document.getElementById('authMessage').innerHTML = 
             '<div class="error-message">Failed to initialize. Please refresh.</div>';
         return;
     }
     
     // Check if already logged in
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await supabaseClient.auth.getUser();
     if (user) {
         window.location.href = '/dashboard.html';
     }
@@ -24,6 +28,11 @@ window.addEventListener('DOMContentLoaded', async () => {
 // Handle email/password login
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
+    
+    if (!supabaseClient) {
+        alert('Please refresh the page - authentication not initialized');
+        return;
+    }
     
     const email = document.getElementById('emailInput').value;
     const password = document.getElementById('passwordInput').value;
@@ -35,7 +44,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     authMessage.innerHTML = '';
     
     try {
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
             email,
             password,
             options: {
@@ -50,14 +59,14 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         }
         
         // Check MFA assurance level
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await supabaseClient.auth.getSession();
         
         // Check if MFA is required but not completed
         if (session?.user && (!session.aal || session.aal === 'aal1')) {
             // User needs to complete MFA
             try {
                 // Check if user has MFA factors set up
-                const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors();
+                const { data: factors, error: factorsError } = await supabaseClient.auth.mfa.listFactors();
                 
                 if (factorsError) {
                     console.error('Error listing factors:', factorsError);
@@ -76,7 +85,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
                     console.log('Found existing TOTP factor:', totpFactor);
                     
                     // Create MFA challenge for existing factor
-                    const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({
+                    const { data: challenge, error: challengeError } = await supabaseClient.auth.mfa.challenge({
                         factorId: totpFactor.id
                     });
                     
@@ -135,6 +144,11 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
 document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     
+    if (!supabaseClient) {
+        alert('Please refresh the page - authentication not initialized');
+        return;
+    }
+    
     const authMessage = document.getElementById('authMessage');
     const setupBtn = document.getElementById('setupTotpBtn');
     
@@ -142,10 +156,19 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
     setupBtn.textContent = 'Setting up...';
     
     try {
-        // Enroll TOTP factor
-        const { data: factor, error } = await supabase.auth.mfa.enroll({
+        // First, unenroll any existing broken factors
+        const { data: existingFactors } = await supabaseClient.auth.mfa.listFactors();
+        if (existingFactors?.totp?.length > 0) {
+            for (const factor of existingFactors.totp) {
+                await supabaseClient.auth.mfa.unenroll({ factorId: factor.id });
+                console.log('Removed existing factor:', factor.id);
+            }
+        }
+        
+        // Enroll new TOTP factor
+        const { data: factor, error } = await supabaseClient.auth.mfa.enroll({
             factorType: 'totp',
-            friendlyName: 'IVR Monitor App'
+            friendlyName: 'Authenticator App'
         });
         
         if (error) throw error;
@@ -188,6 +211,11 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
 document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     
+    if (!supabaseClient) {
+        alert('Please refresh the page - authentication not initialized');
+        return;
+    }
+    
     const otp = document.getElementById('otpInput').value;
     const authMessage = document.getElementById('authMessage');
     const verifyBtn = document.getElementById('verifyBtn');
@@ -199,7 +227,7 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
         // If we have a challenge, use it, otherwise this is enrollment verification
         if (currentChallenge) {
             // Verifying existing MFA
-            const { data, error } = await supabase.auth.mfa.verify({
+            const { data, error } = await supabaseClient.auth.mfa.verify({
                 factorId: currentFactorId,
                 challengeId: currentChallenge.id,
                 code: otp
@@ -208,7 +236,7 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
             if (error) throw error;
         } else {
             // Verifying enrollment
-            const { data, error } = await supabase.auth.mfa.verify({
+            const { data, error } = await supabaseClient.auth.mfa.verify({
                 factorId: currentFactorId,
                 code: otp
             });
