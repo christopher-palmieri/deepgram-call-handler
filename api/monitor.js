@@ -1,5 +1,5 @@
 // api/monitor.js
-// Add this to your deepgram-call-handler repo
+// Uses your existing environment variables
 
 export default function handler(req, res) {
   // Only allow GET requests
@@ -7,7 +7,14 @@ export default function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Inject environment variables and serve the monitor HTML
+  // Use your EXISTING environment variables (no NEXT_PUBLIC_ prefix needed!)
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+  
+  // You'll need to add this one for your Railway WebSocket URL
+  const WS_URL = process.env.WS_URL || 'wss://your-railway-app.railway.app/monitor';
+
+  // Serve the monitor HTML with injected variables
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -19,45 +26,28 @@ export default function handler(req, res) {
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
     <style>
-        /* Paste all the CSS from the monitor HTML artifact here */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-        
-        /* ... rest of the CSS from the artifact ... */
+        /* ... CSS from the monitor artifact ... */
     </style>
 </head>
 <body>
-    <!-- Login and Monitor containers from the artifact -->
+    <!-- ... HTML body from the monitor artifact ... -->
     
     <script>
-        // Inject environment variables
-        const SUPABASE_URL = '${process.env.NEXT_PUBLIC_SUPABASE_URL || ''}';
-        const SUPABASE_ANON_KEY = '${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''}';
-        const WS_URL = '${process.env.NEXT_PUBLIC_WS_URL || 'wss://your-railway-app.railway.app/monitor'}';
+        // Inject your existing environment variables
+        const SUPABASE_URL = '${SUPABASE_URL}';
+        const SUPABASE_ANON_KEY = '${SUPABASE_ANON_KEY}';
+        const WS_URL = '${WS_URL}';
         
         // Check if environment variables are set
         if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-            document.body.innerHTML = '<div style="padding: 50px; text-align: center; color: white;"><h1>Configuration Error</h1><p>Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables in Vercel.</p></div>';
+            document.body.innerHTML = '<div style="padding: 50px; text-align: center; color: white;"><h1>Configuration Error</h1><p>Environment variables not configured.</p></div>';
             throw new Error('Missing environment variables');
         }
         
         // Initialize Supabase client
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         
-        // ... rest of the JavaScript from the artifact ...
+        // ... rest of JavaScript from the monitor artifact ...
     </script>
 </body>
 </html>`;
