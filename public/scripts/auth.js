@@ -73,7 +73,9 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
                     const totpFactor = factors.totp[0];
                     currentFactorId = totpFactor.id;
                     
-                    // Create MFA challenge
+                    console.log('Found existing TOTP factor:', totpFactor);
+                    
+                    // Create MFA challenge for existing factor
                     const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({
                         factorId: totpFactor.id
                     });
@@ -86,6 +88,11 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
                     currentChallenge = challenge;
                     authMessage.innerHTML = '<div class="success-message">Enter code from your authenticator app</div>';
                     document.getElementById('loginForm').style.display = 'none';
+                    // Hide setup form and QR container if they exist
+                    const setupForm = document.getElementById('totpSetupForm');
+                    if (setupForm) setupForm.style.display = 'none';
+                    const qrContainer = document.getElementById('qrCodeContainer');
+                    if (qrContainer) qrContainer.style.display = 'none';
                     document.getElementById('mfaForm').style.display = 'block';
                 } else {
                     // No MFA factors, show setup
