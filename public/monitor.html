@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Call Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="stylesheet" href="/styles/monitor.css">
+</head>
+<body>
+    <div class="container active">
+        <div class="header">
+            <div class="user-info">
+                <span class="user-email" id="userEmail">-</span>
+                <button class="logout-btn" onclick="logout()">Sign Out</button>
+            </div>
+            
+            <div class="header-nav">
+                <button class="back-btn" onclick="goToDashboard()">← Back to Dashboard</button>
+                <div></div>
+            </div>
+            
+            <h1>Call Monitor</h1>
+            <p>Real-time monitoring of IVR classification and navigation</p>
+            
+            <div class="connection-form">
+                <input 
+                    type="text" 
+                    id="callIdInput" 
+                    placeholder="Enter Call SID (e.g., CA...)"
+                    value=""
+                />
+                <button id="connectBtn" onclick="toggleConnection()">
+                    Connect
+                </button>
+            </div>
+        </div>
+        
+        <div class="call-info-panel" id="callInfoPanel" style="display: none;">
+            <div class="call-info-grid">
+                <div class="info-item">
+                    <span class="info-label">Employee</span>
+                    <span class="info-value" id="infoEmployee">-</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Clinic</span>
+                    <span class="info-value" id="infoClinic">-</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Phone</span>
+                    <span class="info-value" id="infoPhone">-</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Appointment</span>
+                    <span class="info-value" id="infoAppointment">-</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Workflow State</span>
+                    <span class="info-value" id="infoWorkflow">-</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="status">
+            <div>
+                <strong>Status:</strong>
+                <span id="statusBadge" class="status-badge status-disconnected">
+                    Disconnected
+                </span>
+            </div>
+            <div id="callInfo" style="display: none;">
+                Call ID: <code id="callIdDisplay">-</code>
+            </div>
+        </div>
+        
+        <div class="audio-controls">
+            <button id="audioToggle" onclick="toggleAudio()">
+                Enable Audio
+            </button>
+            <div class="volume-control">
+                <span>Volume</span>
+                <input type="range" id="volumeSlider" class="volume-slider" 
+                       min="0" max="100" value="50" onchange="setVolume(this.value)">
+                <span id="volumeValue">50%</span>
+            </div>
+            <div class="audio-status" id="audioStatus">
+                Audio: Disabled
+            </div>
+            <div class="audio-visualizer" id="audioVisualizer" style="display: none;">
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <div class="panel">
+                <h3>Transcripts</h3>
+                <div id="transcripts">
+                    <div class="empty-state">
+                        <p>Waiting for transcripts...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <h3>Events & Actions</h3>
+                <div id="events">
+                    <div class="empty-state">
+                        <p>Waiting for events...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/scripts/config.js"></script>
+    <script src="/scripts/call-monitor.js"></script>
+</body>
+</html>
