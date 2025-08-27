@@ -233,7 +233,11 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
         
         currentFactorId = factor.id;
         currentChallenge = null; // IMPORTANT: No challenge for enrollment verification
-        console.log('New factor enrolled:', factor);
+        
+        console.log('New factor enrolled - full response:', JSON.stringify(factor, null, 2));
+        console.log('Factor ID:', factor.id);
+        console.log('Factor status:', factor.status);
+        console.log('Factor totp object:', factor.totp);
         
         // DO NOT create a challenge here - enrollment must be verified first
         
