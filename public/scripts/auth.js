@@ -23,45 +23,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (user) {
         window.location.href = '/dashboard.html';
     }
-
-    
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    
-    if (session?.user) {
-        // Check if MFA is required but not completed
-        if (session.aal === 'aal1') {
-            console.log('User logged in but needs MFA');
-            // Don't redirect to dashboard - show MFA form instead
-            
-            // Check for existing factors
-            const { data: factors } = await supabaseClient.auth.mfa.listFactors();
-            
-            if (factors?.totp?.length > 0) {
-                // Has MFA, needs to verify
-                document.getElementById('loginForm').style.display = 'none';
-                document.getElementById('totpSetupForm').style.display = 'none';
-                document.getElementById('mfaForm').style.display = 'block';
-                
-                // Create challenge
-                const factor = factors.totp[0];
-                const { data: challenge } = await supabaseClient.auth.mfa.challenge({
-                    factorId: factor.id
-                });
-                currentChallenge = challenge;
-                currentFactorId = factor.id;
-            } else {
-                // Needs to set up MFA
-                document.getElementById('loginForm').style.display = 'none';
-                document.getElementById('totpSetupForm').style.display = 'block';
-            }
-        } else if (session.aal === 'aal2') {
-            // Fully authenticated, go to dashboard
-            window.location.href = '/dashboard.html';
-        }
-    } else {
-        // Not logged in, show login form
-        document.getElementById('loginForm').style.display = 'block';
-    }
 });
 
 // Handle email/password login
@@ -87,8 +48,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
             email,
             password,
             options: {
-                shouldCreateUser: false,
-                redirectTo: false
+                shouldCreateUser: false
             }
         });
         
@@ -196,36 +156,55 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
     setupBtn.textContent = 'Setting up...';
     
     try {
-        // First, unenroll any existing broken factors
+        // First, unenroll any existing factors (clean slate approach)
         const { data: existingFactors } = await supabaseClient.auth.mfa.listFactors();
+        console.log('Existing factors:', existingFactors);
+        
         if (existingFactors?.totp?.length > 0) {
+            authMessage.innerHTML = '<div class="success-message">Removing old authenticator setup...</div>';
             for (const factor of existingFactors.totp) {
-                await supabaseClient.auth.mfa.unenroll({ factorId: factor.id });
-                console.log('Removed existing factor:', factor.id);
+                const { error: unenrollError } = await supabaseClient.auth.mfa.unenroll({ 
+                    factorId: factor.id 
+                });
+                if (unenrollError) {
+                    console.error('Error removing factor:', unenrollError);
+                } else {
+                    console.log('Removed existing factor:', factor.id);
+                }
             }
+            // Small delay to ensure cleanup completes
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
         
-        // Enroll new TOTP factor
+        // Now enroll new TOTP factor
+        authMessage.innerHTML = '<div class="success-message">Creating new authenticator setup...</div>';
         const { data: factor, error } = await supabaseClient.auth.mfa.enroll({
             factorType: 'totp',
-            friendlyName: 'Authenticator App'
+            friendlyName: 'Auth App ' + new Date().getTime() // Unique name to avoid conflicts
         });
         
-        if (error) throw error;
+        if (error) {
+            console.error('Enrollment error:', error);
+            throw error;
+        }
         
         currentFactorId = factor.id;
+        console.log('New factor enrolled:', factor);
         
         // Show QR code for authenticator app
         const qrContainer = document.getElementById('qrCodeContainer');
-        if (qrContainer) {
+        if (qrContainer && factor.qr_code) {
             qrContainer.innerHTML = `
                 <img src="${factor.qr_code}" alt="MFA QR Code" style="margin: 20px auto; display: block; max-width: 256px;">
                 <p style="margin: 15px 0; font-size: 12px; color: #666;">
                     Can't scan? Enter this code manually: <br>
-                    <code style="font-size: 10px; word-break: break-all;">${factor.secret}</code>
+                    <code style="font-size: 10px; word-break: break-all;">${factor.secret || 'Secret not available'}</code>
                 </p>
             `;
             qrContainer.style.display = 'block';
+        } else {
+            authMessage.innerHTML = '<div class="error-message">QR code not generated. Please try again.</div>';
+            return;
         }
         
         authMessage.innerHTML = '<div class="success-message">Scan QR code with your authenticator app, then enter the code</div>';
@@ -240,7 +219,7 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
         
     } catch (error) {
         console.error('Setup error:', error);
-        authMessage.innerHTML = `<div class="error-message">${error.message}</div>`;
+        authMessage.innerHTML = `<div class="error-message">Error: ${error.message}. Please try refreshing the page.</div>`;
     } finally {
         setupBtn.disabled = false;
         setupBtn.textContent = 'Setup Authenticator';
