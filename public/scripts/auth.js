@@ -193,16 +193,21 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
         
         // Show QR code for authenticator app
         const qrContainer = document.getElementById('qrCodeContainer');
-        if (qrContainer && factor.qr_code) {
+        // QR code might be at factor.qr_code or factor.totp.qr_code
+        const qrCode = factor.qr_code || factor.totp?.qr_code;
+        const secret = factor.secret || factor.totp?.secret;
+        
+        if (qrContainer && qrCode) {
             qrContainer.innerHTML = `
-                <img src="${factor.qr_code}" alt="MFA QR Code" style="margin: 20px auto; display: block; max-width: 256px;">
+                <img src="${qrCode}" alt="MFA QR Code" style="margin: 20px auto; display: block; max-width: 256px;">
                 <p style="margin: 15px 0; font-size: 12px; color: #666;">
                     Can't scan? Enter this code manually: <br>
-                    <code style="font-size: 10px; word-break: break-all;">${factor.secret || 'Secret not available'}</code>
+                    <code style="font-size: 10px; word-break: break-all;">${secret || 'Secret not available'}</code>
                 </p>
             `;
             qrContainer.style.display = 'block';
         } else {
+            console.error('QR code not found in factor:', factor);
             authMessage.innerHTML = '<div class="error-message">QR code not generated. Please try again.</div>';
             return;
         }
