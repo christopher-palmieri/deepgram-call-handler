@@ -374,7 +374,7 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
             throw verifyResult.error;
         }
         
-        authMessage.innerHTML = '<div class="success-message">Verification successful!</div>';
+        authMessage.innerHTML = '<div class="success-message">Verification successful! Redirecting...</div>';
         
         // Hide QR code if visible
         const qrContainer = document.getElementById('qrCodeContainer');
@@ -404,7 +404,21 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
         console.log('Redirecting to dashboard in 500ms...');
         setTimeout(() => {
             console.log('Executing redirect now...');
-            window.location.href = '/dashboard.html';
+            try {
+                console.log('Current location:', window.location.href);
+                console.log('Target redirect:', '/dashboard.html');
+                window.location.href = '/dashboard.html';
+                // Backup redirect methods
+                setTimeout(() => {
+                    console.log('Backup redirect attempt...');
+                    window.location.replace('/dashboard.html');
+                }, 1000);
+            } catch (redirectError) {
+                console.error('Redirect error:', redirectError);
+                // Manual redirect as fallback
+                console.log('Manual redirect fallback...');
+                window.open('/dashboard.html', '_self');
+            }
         }, 500);
         
     } catch (error) {
