@@ -31,14 +31,24 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
     
     // Check MFA level - must be aal2 to access monitor
-    if (!session.aal || session.aal !== 'aal2') {
-        console.log('MFA not completed, redirecting to login');
+    console.log('Monitor session check:', {
+        aal: session.aal,
+        userId: session.user?.id,
+        hasUser: !!session.user
+    });
+    
+    // Use getAuthenticatorAssuranceLevel instead of session.aal
+    const { data: aalCheck } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    console.log('Monitor AAL check:', aalCheck);
+    
+    if (!aalCheck || aalCheck.currentLevel !== 'aal2') {
+        console.log('MFA not completed, redirecting to login. Current AAL:', aalCheck?.currentLevel);
         window.location.href = '/login.html';
         return;
     }
     
     currentUser = session.user;
-    document.getElementById('userEmail').textContent = user.email;
+    document.getElementById('userEmail').textContent = currentUser.email;
     
     // Check for URL parameters
     const pendingCallId = getUrlParam('pendingCallId');
