@@ -390,15 +390,26 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
             fullSession: session
         });
         
+        // Force session refresh after MFA verification
+        console.log('Refreshing session after MFA verification...');
+        const { data: refreshData, error: refreshError } = await supabaseClient.auth.refreshSession();
+        
+        if (refreshError) {
+            console.error('Session refresh error:', refreshError);
+        } else {
+            console.log('Session refreshed successfully');
+        }
+        
         // Wait a moment for session to update
         console.log('Waiting for session to update...');
         await new Promise(resolve => setTimeout(resolve, 1000));
         
         // Check session again
         const { data: { updatedSession } } = await supabaseClient.auth.getSession();
-        console.log('Updated session after wait:', {
+        console.log('Updated session after refresh and wait:', {
             aal: updatedSession?.aal,
-            user: updatedSession?.user?.id
+            user: updatedSession?.user?.id,
+            refreshedSession: refreshData?.session?.aal
         });
         
         console.log('Redirecting to dashboard in 500ms...');

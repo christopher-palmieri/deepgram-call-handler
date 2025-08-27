@@ -24,14 +24,20 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
     
     // Check MFA level - must be aal2 to access dashboard
+    console.log('Dashboard session check:', {
+        aal: session.aal,
+        userId: session.user?.id,
+        hasUser: !!session.user
+    });
+    
     if (!session.aal || session.aal !== 'aal2') {
-        console.log('MFA not completed, redirecting to login');
+        console.log('MFA not completed, redirecting to login. Current AAL:', session.aal);
         window.location.href = '/login.html';
         return;
     }
     
     currentUser = session.user;
-    document.getElementById('userEmailDash').textContent = user.email;
+    document.getElementById('userEmailDash').textContent = currentUser.email;
     
     // Load calls
     loadPendingCalls();
