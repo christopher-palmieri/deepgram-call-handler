@@ -15,13 +15,22 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
     
     // Check authentication
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session?.user) {
+        // Not logged in at all
         window.location.href = '/login.html';
         return;
     }
     
-    currentUser = user;
+    // Check MFA level - must be aal2 to access dashboard
+    if (!session.aal || session.aal !== 'aal2') {
+        console.log('MFA not completed, redirecting to login');
+        window.location.href = '/login.html';
+        return;
+    }
+    
+    currentUser = session.user;
     document.getElementById('userEmailDash').textContent = user.email;
     
     // Load calls
