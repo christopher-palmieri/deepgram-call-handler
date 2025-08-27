@@ -247,6 +247,14 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
         console.log('Waiting 2 seconds for factor to be ready...');
         await new Promise(resolve => setTimeout(resolve, 2000));
         
+        // Check current session before creating challenge
+        const { data: { session: currentSession } } = await supabaseClient.auth.getSession();
+        console.log('Current session before challenge:', {
+            aal: currentSession?.aal,
+            userId: currentSession?.user?.id,
+            accessToken: !!currentSession?.access_token
+        });
+        
         // Create challenge for enrollment verification
         console.log('Creating challenge for enrollment verification...');
         const { data: enrollmentChallenge, error: challengeError } = await supabaseClient.auth.mfa.challenge({
@@ -255,11 +263,12 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
         
         if (challengeError) {
             console.error('Challenge creation error:', challengeError);
+            console.error('Challenge error details:', JSON.stringify(challengeError, null, 2));
             throw challengeError;
         }
         
         currentChallenge = enrollmentChallenge;
-        console.log('Enrollment challenge created:', enrollmentChallenge);
+        console.log('Enrollment challenge created:', JSON.stringify(enrollmentChallenge, null, 2));
         
         // Show QR code for authenticator app
         const qrContainer = document.getElementById('qrCodeContainer');
@@ -322,7 +331,15 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
             factorId: currentFactorId,
             challengeId: currentChallenge?.id,
             codeLength: otp.length,
-            isEnrollment: isEnrollmentFlow
+            isEnrollment: isEnrollmentFlow,
+            challengeObject: currentChallenge
+        });
+        
+        // Additional debug: check current session
+        const { data: { session: verifySession } } = await supabaseClient.auth.getSession();
+        console.log('Session during verification:', {
+            aal: verifySession?.aal,
+            userId: verifySession?.user?.id
         });
         
         let verifyResult;
