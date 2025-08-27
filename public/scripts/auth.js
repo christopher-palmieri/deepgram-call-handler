@@ -19,9 +19,51 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
     
     // Check if already logged in
-    const { data: { user } } = await supabaseClient.auth.getUser();
-    if (user) {
-        window.location.href = '/dashboard.html';
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    
+    if (session?.user) {
+        // Check MFA level - aal1 means logged in but no MFA, aal2 means MFA completed
+        if (!session.aal || session.aal === 'aal1') {
+            console.log('User logged in but MFA not completed');
+            
+            // Check if they have MFA set up
+            const { data: factors } = await supabaseClient.auth.mfa.listFactors();
+            
+            if (factors?.totp?.length > 0) {
+                // Has MFA enrolled, needs to verify
+                console.log('MFA enrolled, showing verification form');
+                const totpFactor = factors.totp[0];
+                currentFactorId = totpFactor.id;
+                
+                // Create challenge
+                const { data: challenge } = await supabaseClient.auth.mfa.challenge({
+                    factorId: totpFactor.id
+                });
+                currentChallenge = challenge;
+                
+                // Show MFA verification form
+                document.getElementById('loginForm').style.display = 'none';
+                document.getElementById('totpSetupForm').style.display = 'none';
+                document.getElementById('mfaForm').style.display = 'block';
+                document.getElementById('authMessage').innerHTML = 
+                    '<div class="success-message">Enter code from your authenticator app</div>';
+            } else {
+                // No MFA set up yet, show setup
+                console.log('No MFA enrolled, showing setup form');
+                document.getElementById('loginForm').style.display = 'none';
+                document.getElementById('totpSetupForm').style.display = 'block';
+                document.getElementById('authMessage').innerHTML = 
+                    '<div class="success-message">Please set up two-factor authentication</div>';
+            }
+        } else if (session.aal === 'aal2') {
+            // MFA completed, can go to dashboard
+            console.log('MFA already completed, redirecting to dashboard');
+            window.location.href = '/dashboard.html';
+        }
+    } else {
+        // Not logged in at all, show login form
+        console.log('Not logged in, showing login form');
+        document.getElementById('loginForm').style.display = 'block';
     }
 });
 
