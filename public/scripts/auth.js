@@ -290,24 +290,36 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
     verifyBtn.textContent = 'Verifying...';
     
     try {
+        console.log('Verifying with:', {
+            factorId: currentFactorId,
+            challengeId: currentChallenge?.id,
+            codeLength: otp.length
+        });
+        
+        let verifyResult;
+        
         // If we have a challenge, use it, otherwise this is enrollment verification
-        if (currentChallenge) {
-            // Verifying existing MFA
-            const { data, error } = await supabaseClient.auth.mfa.verify({
+        if (currentChallenge?.id) {
+            // Verifying existing MFA (login challenge)
+            console.log('Verifying with challenge');
+            verifyResult = await supabaseClient.auth.mfa.verify({
                 factorId: currentFactorId,
                 challengeId: currentChallenge.id,
                 code: otp
             });
-            
-            if (error) throw error;
         } else {
-            // Verifying enrollment
-            const { data, error } = await supabaseClient.auth.mfa.verify({
+            // Verifying enrollment (no challenge needed)
+            console.log('Verifying enrollment');
+            verifyResult = await supabaseClient.auth.mfa.verify({
                 factorId: currentFactorId,
                 code: otp
             });
-            
-            if (error) throw error;
+        }
+        
+        console.log('Verify result:', verifyResult);
+        
+        if (verifyResult.error) {
+            throw verifyResult.error;
         }
         
         authMessage.innerHTML = '<div class="success-message">Verification successful!</div>';
@@ -318,13 +330,17 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
             qrContainer.style.display = 'none';
         }
         
+        // Check session to confirm aal2
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        console.log('Session after verification:', session?.aal);
+        
         setTimeout(() => {
             window.location.href = '/dashboard.html';
         }, 500);
         
     } catch (error) {
-        console.error('Verification error:', error);
-        authMessage.innerHTML = `<div class="error-message">Invalid code. Please try again.</div>`;
+        console.error('Verification error details:', error);
+        authMessage.innerHTML = `<div class="error-message">Invalid code: ${error.message || 'Please try again'}</div>`;
         document.getElementById('otpInput').value = '';
     } finally {
         verifyBtn.disabled = false;
