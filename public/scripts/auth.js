@@ -247,7 +247,19 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
         console.log('Waiting 2 seconds for factor to be ready...');
         await new Promise(resolve => setTimeout(resolve, 2000));
         
-        // DO NOT create a challenge here - enrollment must be verified first
+        // Create challenge for enrollment verification
+        console.log('Creating challenge for enrollment verification...');
+        const { data: enrollmentChallenge, error: challengeError } = await supabaseClient.auth.mfa.challenge({
+            factorId: factor.id
+        });
+        
+        if (challengeError) {
+            console.error('Challenge creation error:', challengeError);
+            throw challengeError;
+        }
+        
+        currentChallenge = enrollmentChallenge;
+        console.log('Enrollment challenge created:', enrollmentChallenge);
         
         // Show QR code for authenticator app
         const qrContainer = document.getElementById('qrCodeContainer');
@@ -316,10 +328,14 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
         let verifyResult;
         
         if (isEnrollmentFlow) {
-            // For enrollment verification, use only factorId and code
-            console.log('Enrollment verification - using factorId and code only');
+            // For enrollment verification, use factorId, challengeId, and code
+            console.log('Enrollment verification - using factorId, challengeId, and code');
+            if (!currentChallenge?.id) {
+                throw new Error('No valid challenge found for enrollment. Please try again.');
+            }
             verifyResult = await supabaseClient.auth.mfa.verify({
                 factorId: currentFactorId,
+                challengeId: currentChallenge.id,
                 code: otp
             });
         } else {
