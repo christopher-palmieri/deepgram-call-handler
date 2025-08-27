@@ -239,6 +239,10 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
         console.log('Factor status:', factor.status);
         console.log('Factor totp object:', factor.totp);
         
+        // Wait a moment for the factor to be fully registered in Supabase's backend
+        console.log('Waiting 2 seconds for factor to be ready...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
         // DO NOT create a challenge here - enrollment must be verified first
         
         // Show QR code for authenticator app
