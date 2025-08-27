@@ -198,20 +198,21 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
     setupBtn.textContent = 'Setting up...';
     
     try {
-        // First, unenroll any existing factors (clean slate approach)
+        // First, clean up ALL factors (including unverified ones)
         const { data: existingFactors } = await supabaseClient.auth.mfa.listFactors();
         console.log('Existing factors:', existingFactors);
         
-        if (existingFactors?.totp?.length > 0) {
-            authMessage.innerHTML = '<div class="success-message">Removing old authenticator setup...</div>';
-            for (const factor of existingFactors.totp) {
+        if (existingFactors?.all?.length > 0) {
+            authMessage.innerHTML = '<div class="success-message">Cleaning up old authenticator setup...</div>';
+            for (const factor of existingFactors.all) {
+                console.log(`Removing factor (${factor.status}):`, factor.id);
                 const { error: unenrollError } = await supabaseClient.auth.mfa.unenroll({ 
                     factorId: factor.id 
                 });
                 if (unenrollError) {
                     console.error('Error removing factor:', unenrollError);
                 } else {
-                    console.log('Removed existing factor:', factor.id);
+                    console.log('Removed factor:', factor.id);
                 }
             }
             // Small delay to ensure cleanup completes
