@@ -104,6 +104,10 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         
         // Check MFA assurance level
         const { data: { session } } = await supabaseClient.auth.getSession();
+        console.log('Login session check:', {
+            aal: session?.aal,
+            userId: session?.user?.id
+        });
         
         // Check if MFA is required but not completed
         if (session?.user && (!session.aal || session.aal === 'aal1')) {
@@ -374,6 +378,11 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
             throw verifyResult.error;
         }
         
+        // Check authenticator assurance level
+        console.log('Checking authenticator assurance level after verification...');
+        const { data: aalData } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
+        console.log('AAL check result:', aalData);
+        
         authMessage.innerHTML = '<div class="success-message">Verification successful! Redirecting...</div>';
         
         // Hide QR code if visible
@@ -397,20 +406,33 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
         if (refreshError) {
             console.error('Session refresh error:', refreshError);
         } else {
-            console.log('Session refreshed successfully');
+            console.log('Session refreshed successfully:', {
+                aal: refreshData?.session?.aal,
+                userId: refreshData?.session?.user?.id
+            });
         }
         
-        // Wait a moment for session to update
+        // Wait longer for session to update
         console.log('Waiting for session to update...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
-        // Check session again
-        const { data: { updatedSession } } = await supabaseClient.auth.getSession();
-        console.log('Updated session after refresh and wait:', {
-            aal: updatedSession?.aal,
-            user: updatedSession?.user?.id,
-            refreshedSession: refreshData?.session?.aal
-        });
+        // Check session again multiple times
+        for (let i = 0; i < 3; i++) {
+            const { data: { updatedSession } } = await supabaseClient.auth.getSession();
+            console.log(`Session check attempt ${i + 1}:`, {
+                aal: updatedSession?.aal,
+                user: updatedSession?.user?.id
+            });
+            
+            if (updatedSession?.aal === 'aal2') {
+                console.log('AAL2 achieved!');
+                break;
+            }
+            
+            if (i < 2) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
         
         console.log('Redirecting to dashboard in 500ms...');
         setTimeout(() => {
