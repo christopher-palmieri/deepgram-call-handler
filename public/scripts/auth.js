@@ -3,6 +3,7 @@
 
 let currentFactorId = null;
 let currentChallenge = null;
+let isEnrollmentFlow = false; // Track if we're in enrollment or login flow
 let supabaseClient = null; // Will be set after config loads
 
 // Wait for config to load
@@ -34,6 +35,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                 console.log('MFA enrolled, showing verification form');
                 const totpFactor = factors.totp[0];
                 currentFactorId = totpFactor.id;
+                isEnrollmentFlow = false;
                 
                 // Create challenge
                 const { data: challenge } = await supabaseClient.auth.mfa.challenge({
@@ -123,6 +125,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
                 if (factors?.totp && factors.totp.length > 0) {
                     const totpFactor = factors.totp[0];
                     currentFactorId = totpFactor.id;
+                    isEnrollmentFlow = false;
                     
                     console.log('Found existing TOTP factor:', totpFactor);
                     
@@ -233,6 +236,7 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
         
         currentFactorId = factor.id;
         currentChallenge = null; // IMPORTANT: No challenge for enrollment verification
+        isEnrollmentFlow = true; // Mark this as enrollment flow
         
         console.log('New factor enrolled - full response:', JSON.stringify(factor, null, 2));
         console.log('Factor ID:', factor.id);
@@ -305,40 +309,28 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
         console.log('Verifying with:', {
             factorId: currentFactorId,
             challengeId: currentChallenge?.id,
-            codeLength: otp.length
+            codeLength: otp.length,
+            isEnrollment: isEnrollmentFlow
         });
         
         let verifyResult;
         
-        // For enrollment verification, just pass the code
-        console.log('Attempting verification with factorId:', currentFactorId);
-        
-        try {
-            // Try the simplest verification first
-            const response = await fetch(`${supabaseClient.auth.url}/factors/${currentFactorId}/verify`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${(await supabaseClient.auth.getSession()).data.session?.access_token}`,
-                    'apikey': supabaseClient.supabaseKey
-                },
-                body: JSON.stringify({ code: otp })
-            });
-            
-            const result = await response.json();
-            console.log('Direct API response:', result);
-            
-            if (!response.ok) {
-                throw new Error(result.msg || result.message || 'Verification failed');
-            }
-            
-            verifyResult = { data: result, error: null };
-        } catch (apiError) {
-            console.log('Direct API failed, trying SDK method');
-            
-            // Fall back to SDK method
+        if (isEnrollmentFlow) {
+            // For enrollment verification, use only factorId and code
+            console.log('Enrollment verification - using factorId and code only');
             verifyResult = await supabaseClient.auth.mfa.verify({
                 factorId: currentFactorId,
+                code: otp
+            });
+        } else {
+            // For regular login verification, use challengeId and code
+            console.log('Login verification - using challengeId and code');
+            if (!currentChallenge?.id) {
+                throw new Error('No valid challenge found. Please try logging in again.');
+            }
+            verifyResult = await supabaseClient.auth.mfa.verify({
+                factorId: currentFactorId,
+                challengeId: currentChallenge.id,
                 code: otp
             });
         }
