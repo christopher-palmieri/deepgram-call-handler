@@ -384,9 +384,26 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
         
         // Check session to confirm aal2
         const { data: { session } } = await supabaseClient.auth.getSession();
-        console.log('Session after verification:', session?.aal);
+        console.log('Session after verification:', {
+            aal: session?.aal,
+            user: session?.user?.id,
+            fullSession: session
+        });
         
+        // Wait a moment for session to update
+        console.log('Waiting for session to update...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Check session again
+        const { data: { updatedSession } } = await supabaseClient.auth.getSession();
+        console.log('Updated session after wait:', {
+            aal: updatedSession?.aal,
+            user: updatedSession?.user?.id
+        });
+        
+        console.log('Redirecting to dashboard in 500ms...');
         setTimeout(() => {
+            console.log('Executing redirect now...');
             window.location.href = '/dashboard.html';
         }, 500);
         
