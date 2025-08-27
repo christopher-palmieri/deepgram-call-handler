@@ -231,6 +231,7 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
         }
         
         currentFactorId = factor.id;
+        currentChallenge = null; // Clear any existing challenge since this is enrollment
         console.log('New factor enrolled:', factor);
         
         // Show QR code for authenticator app
@@ -298,20 +299,22 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
         
         let verifyResult;
         
-        // If we have a challenge, use it, otherwise this is enrollment verification
-        if (currentChallenge?.id) {
-            // Verifying existing MFA (login challenge)
-            console.log('Verifying with challenge');
+        // Determine if this is enrollment or challenge verification
+        const isEnrollment = !currentChallenge || !currentChallenge.id;
+        
+        if (isEnrollment) {
+            // Verifying enrollment (just completed QR code scan)
+            console.log('Verifying enrollment - no challenge needed');
             verifyResult = await supabaseClient.auth.mfa.verify({
                 factorId: currentFactorId,
-                challengeId: currentChallenge.id,
                 code: otp
             });
         } else {
-            // Verifying enrollment (no challenge needed)
-            console.log('Verifying enrollment');
+            // Verifying with challenge (returning user)
+            console.log('Verifying with challenge:', currentChallenge.id);
             verifyResult = await supabaseClient.auth.mfa.verify({
                 factorId: currentFactorId,
+                challengeId: currentChallenge.id,
                 code: otp
             });
         }
