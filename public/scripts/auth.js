@@ -230,8 +230,20 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
             throw error;
         }
         
+        // After enrollment, create a challenge for verification
+        const { data: challenge, error: challengeError } = await supabaseClient.auth.mfa.challenge({
+            factorId: factor.id
+        });
+        
+        if (challenge) {
+            currentChallenge = challenge;
+            console.log('Challenge created for enrollment verification:', challenge);
+        } else {
+            currentChallenge = null;
+            console.log('No challenge created (will try verification without it)');
+        }
+        
         currentFactorId = factor.id;
-        currentChallenge = null; // Clear any existing challenge since this is enrollment
         console.log('New factor enrolled:', factor);
         
         // Show QR code for authenticator app
@@ -299,22 +311,35 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
         
         let verifyResult;
         
-        // Determine if this is enrollment or challenge verification
-        const isEnrollment = !currentChallenge || !currentChallenge.id;
+        // For enrollment verification, just pass the code
+        console.log('Attempting verification with factorId:', currentFactorId);
         
-        if (isEnrollment) {
-            // Verifying enrollment (just completed QR code scan)
-            console.log('Verifying enrollment - no challenge needed');
-            verifyResult = await supabaseClient.auth.mfa.verify({
-                factorId: currentFactorId,
-                code: otp
+        try {
+            // Try the simplest verification first
+            const response = await fetch(`${supabaseClient.auth.url}/factors/${currentFactorId}/verify`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${(await supabaseClient.auth.getSession()).data.session?.access_token}`,
+                    'apikey': supabaseClient.supabaseKey
+                },
+                body: JSON.stringify({ code: otp })
             });
-        } else {
-            // Verifying with challenge (returning user)
-            console.log('Verifying with challenge:', currentChallenge.id);
+            
+            const result = await response.json();
+            console.log('Direct API response:', result);
+            
+            if (!response.ok) {
+                throw new Error(result.msg || result.message || 'Verification failed');
+            }
+            
+            verifyResult = { data: result, error: null };
+        } catch (apiError) {
+            console.log('Direct API failed, trying SDK method');
+            
+            // Fall back to SDK method
             verifyResult = await supabaseClient.auth.mfa.verify({
                 factorId: currentFactorId,
-                challengeId: currentChallenge.id,
                 code: otp
             });
         }
