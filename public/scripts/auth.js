@@ -383,6 +383,11 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
         const { data: aalData } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
         console.log('AAL check result:', aalData);
         
+        // Check if we've achieved aal2
+        if (aalData?.currentLevel !== 'aal2') {
+            throw new Error('MFA verification succeeded but AAL2 not achieved');
+        }
+        
         authMessage.innerHTML = '<div class="success-message">Verification successful! Redirecting...</div>';
         
         // Hide QR code if visible

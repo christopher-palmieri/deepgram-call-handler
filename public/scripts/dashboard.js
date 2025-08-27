@@ -30,8 +30,12 @@ window.addEventListener('DOMContentLoaded', async () => {
         hasUser: !!session.user
     });
     
-    if (!session.aal || session.aal !== 'aal2') {
-        console.log('MFA not completed, redirecting to login. Current AAL:', session.aal);
+    // Use getAuthenticatorAssuranceLevel instead of session.aal
+    const { data: aalCheck } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    console.log('Dashboard AAL check:', aalCheck);
+    
+    if (!aalCheck || aalCheck.currentLevel !== 'aal2') {
+        console.log('MFA not completed, redirecting to login. Current AAL:', aalCheck?.currentLevel);
         window.location.href = '/login.html';
         return;
     }
