@@ -23,6 +23,45 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (user) {
         window.location.href = '/dashboard.html';
     }
+
+    
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    
+    if (session?.user) {
+        // Check if MFA is required but not completed
+        if (session.aal === 'aal1') {
+            console.log('User logged in but needs MFA');
+            // Don't redirect to dashboard - show MFA form instead
+            
+            // Check for existing factors
+            const { data: factors } = await supabaseClient.auth.mfa.listFactors();
+            
+            if (factors?.totp?.length > 0) {
+                // Has MFA, needs to verify
+                document.getElementById('loginForm').style.display = 'none';
+                document.getElementById('totpSetupForm').style.display = 'none';
+                document.getElementById('mfaForm').style.display = 'block';
+                
+                // Create challenge
+                const factor = factors.totp[0];
+                const { data: challenge } = await supabaseClient.auth.mfa.challenge({
+                    factorId: factor.id
+                });
+                currentChallenge = challenge;
+                currentFactorId = factor.id;
+            } else {
+                // Needs to set up MFA
+                document.getElementById('loginForm').style.display = 'none';
+                document.getElementById('totpSetupForm').style.display = 'block';
+            }
+        } else if (session.aal === 'aal2') {
+            // Fully authenticated, go to dashboard
+            window.location.href = '/dashboard.html';
+        }
+    } else {
+        // Not logged in, show login form
+        document.getElementById('loginForm').style.display = 'block';
+    }
 });
 
 // Handle email/password login
