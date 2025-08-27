@@ -230,21 +230,11 @@ document.getElementById('totpSetupForm')?.addEventListener('submit', async (e) =
             throw error;
         }
         
-        // After enrollment, create a challenge for verification
-        const { data: challenge, error: challengeError } = await supabaseClient.auth.mfa.challenge({
-            factorId: factor.id
-        });
-        
-        if (challenge) {
-            currentChallenge = challenge;
-            console.log('Challenge created for enrollment verification:', challenge);
-        } else {
-            currentChallenge = null;
-            console.log('No challenge created (will try verification without it)');
-        }
-        
         currentFactorId = factor.id;
+        currentChallenge = null; // IMPORTANT: No challenge for enrollment verification
         console.log('New factor enrolled:', factor);
+        
+        // DO NOT create a challenge here - enrollment must be verified first
         
         // Show QR code for authenticator app
         const qrContainer = document.getElementById('qrCodeContainer');
