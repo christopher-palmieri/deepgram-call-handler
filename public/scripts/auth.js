@@ -69,6 +69,35 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
+// Start over function - returns to login screen
+function startOver() {
+    // Sign out to clear any partial authentication state
+    if (supabaseClient) {
+        supabaseClient.auth.signOut();
+    }
+    
+    // Reset form states
+    currentFactorId = null;
+    currentChallenge = null;
+    isEnrollmentFlow = false;
+    
+    // Hide all forms except login
+    document.getElementById('loginForm').style.display = 'block';
+    document.getElementById('totpSetupForm').style.display = 'none';
+    document.getElementById('mfaForm').style.display = 'none';
+    document.getElementById('qrCodeContainer').style.display = 'none';
+    
+    // Clear form inputs
+    document.getElementById('emailInput').value = '';
+    document.getElementById('passwordInput').value = '';
+    document.getElementById('otpInput').value = '';
+    
+    // Clear messages
+    document.getElementById('authMessage').innerHTML = '';
+    
+    console.log('Started over - returned to login screen');
+}
+
 // Handle email/password login
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
