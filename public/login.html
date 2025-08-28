@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IVR Monitor - Login</title>
+    <link rel="icon" type="image/png" href="/favicon.png">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="stylesheet" href="/styles/monitor.css">
 </head>
@@ -37,6 +38,7 @@
                 You'll need an authenticator app like Google Authenticator, Authy, or Microsoft Authenticator
             </p>
             <button type="submit" id="setupTotpBtn">Setup Authenticator</button>
+            <button type="button" id="totpStartOverBtn" onclick="startOver()" style="margin-top: 10px; background: #6c757d; color: white;">Start Over</button>
         </form>
         
         <!-- QR Code Display -->
