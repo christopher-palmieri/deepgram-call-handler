@@ -85,6 +85,7 @@ function startOver() {
     document.getElementById('loginForm').style.display = '';
     document.getElementById('totpSetupForm').style.display = 'none';
     document.getElementById('mfaForm').style.display = 'none';
+    document.getElementById('forgotPasswordForm').style.display = 'none';
     document.getElementById('qrCodeContainer').style.display = 'none';
     
     // Clear form inputs
@@ -495,5 +496,74 @@ document.getElementById('mfaForm')?.addEventListener('submit', async (e) => {
     } finally {
         verifyBtn.disabled = false;
         verifyBtn.textContent = 'Verify';
+    }
+});
+
+// Forgot Password Link Handler
+document.getElementById('forgotPasswordLink')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    
+    // Hide login form, show forgot password form
+    document.getElementById('loginForm').style.display = 'none';
+    document.getElementById('forgotPasswordForm').style.display = '';
+    document.getElementById('authMessage').innerHTML = '';
+});
+
+// Back to Login Link Handler
+document.getElementById('backToLoginLink')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    
+    // Hide forgot password form, show login form
+    document.getElementById('forgotPasswordForm').style.display = 'none';
+    document.getElementById('loginForm').style.display = '';
+    document.getElementById('authMessage').innerHTML = '';
+});
+
+// Forgot Password Form Handler
+document.getElementById('forgotPasswordForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const resetBtn = document.getElementById('resetPasswordBtn');
+    const authMessage = document.getElementById('authMessage');
+    const email = document.getElementById('resetEmailInput').value.trim();
+    
+    if (!email) {
+        authMessage.innerHTML = '<div class="error-message">Please enter your email address</div>';
+        return;
+    }
+    
+    resetBtn.disabled = true;
+    resetBtn.textContent = 'Sending...';
+    authMessage.innerHTML = '';
+    
+    try {
+        console.log('Requesting password reset for:', email);
+        
+        // Use Supabase to send password reset email
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+            redirectTo: `${window.location.origin}/reset-password.html`
+        });
+        
+        if (error) {
+            throw error;
+        }
+        
+        authMessage.innerHTML = '<div class="success-message">Password reset link sent! Check your email.</div>';
+        
+        // Clear the form
+        document.getElementById('resetEmailInput').value = '';
+        
+        // Show back to login link
+        setTimeout(() => {
+            document.getElementById('forgotPasswordForm').style.display = 'none';
+            document.getElementById('loginForm').style.display = '';
+        }, 3000);
+        
+    } catch (error) {
+        console.error('Password reset error:', error);
+        authMessage.innerHTML = `<div class="error-message">Error: ${error.message || 'Failed to send reset email'}</div>`;
+    } finally {
+        resetBtn.disabled = false;
+        resetBtn.textContent = 'Send Reset Link';
     }
 });

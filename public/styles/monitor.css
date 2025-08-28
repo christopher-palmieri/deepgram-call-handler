@@ -82,6 +82,15 @@ body {
     margin-top: 10px;
 }
 
+.login-form a {
+    transition: opacity 0.2s;
+}
+
+.login-form a:hover {
+    opacity: 0.8;
+    text-decoration: underline;
+}
+
 .error-message {
     color: #dc2626;
     margin-top: 10px;
