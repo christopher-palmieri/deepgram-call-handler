@@ -65,7 +65,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     } else {
         // Not logged in at all, show login form
         console.log('Not logged in, showing login form');
-        document.getElementById('loginForm').style.display = 'block';
+        document.getElementById('loginForm').style.display = '';
     }
 });
 
@@ -82,7 +82,7 @@ function startOver() {
     isEnrollmentFlow = false;
     
     // Hide all forms except login
-    document.getElementById('loginForm').style.display = 'block';
+    document.getElementById('loginForm').style.display = '';
     document.getElementById('totpSetupForm').style.display = 'none';
     document.getElementById('mfaForm').style.display = 'none';
     document.getElementById('qrCodeContainer').style.display = 'none';
