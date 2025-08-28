@@ -567,3 +567,233 @@ body {
     border-radius: 2px;
     transition: height 0.1s ease;
 }
+
+/* Add these CSS styles to public/styles/monitor.css */
+
+/* Historical data styling */
+.transcript-item.historical,
+.event-item.historical {
+    opacity: 0.8;
+    background: #f8f9fa;
+    border-left: 3px solid #6c757d;
+    position: relative;
+}
+
+.transcript-item.historical::before,
+.event-item.historical::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    background: #6c757d;
+    border-radius: 50%;
+    transform: translateY(-50%);
+}
+
+.historical-badge {
+    font-size: 12px;
+    margin-left: 8px;
+    opacity: 0.7;
+}
+
+/* Loading states */
+.transcript-item.loading,
+.event-item.loading {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+/* Info event styling */
+.event-info {
+    background: #e3f2fd;
+    border: 1px solid #2196f3;
+}
+
+.event-error {
+    background: #ffebee;
+    border: 1px solid #f44336;
+}
+
+/* Connection status enhancements */
+.status-connecting .status-badge {
+    animation: pulse 2s ease-in-out infinite;
+}
+
+/* Scrollable panels with better UX */
+.panel {
+    position: relative;
+}
+
+.panel::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 20px;
+    background: linear-gradient(transparent, rgba(248,249,250,0.8));
+    pointer-events: none;
+}
+
+/* Historical data separator */
+.historical-separator {
+    display: flex;
+    align-items: center;
+    margin: 20px 0;
+    color: #6c757d;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.historical-separator::before,
+.historical-separator::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #dee2e6;
+}
+
+.historical-separator::before {
+    margin-right: 15px;
+}
+
+.historical-separator::after {
+    margin-left: 15px;
+}
+
+/* Real-time indicator */
+.transcript-item:not(.historical),
+.event-item:not(.historical) {
+    border-left: 3px solid #28a745;
+    animation: fadeIn 0.3s ease-in;
+}
+
+.transcript-item:not(.historical)::before,
+.event-item:not(.historical)::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    background: #28a745;
+    border-radius: 50%;
+    transform: translateY(-50%);
+    animation: pulse 2s ease-in-out 3;
+}
+
+@keyframes fadeIn {
+    from { 
+        opacity: 0; 
+        transform: translateY(-10px); 
+    }
+    to { 
+        opacity: 1; 
+        transform: translateY(0); 
+    }
+}
+
+/* Enhanced empty state */
+.empty-state {
+    text-align: center;
+    padding: 40px;
+    color: #6c757d;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.empty-state.loading {
+    color: #007bff;
+}
+
+.empty-state.loading::after {
+    content: ' ⏳';
+    animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Call info panel enhancements */
+.call-info-panel.has-data {
+    animation: slideDown 0.5s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        max-height: 0;
+        padding: 0 20px;
+    }
+    to {
+        opacity: 1;
+        max-height: 200px;
+        padding: 20px;
+    }
+}
+
+/* Status badges for different event types */
+.event-classification .event-icon {
+    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    color: #1565c0;
+}
+
+.event-action .event-icon {
+    background: linear-gradient(135deg, #fff3e0 0%, #ffcc02 100%);
+    color: #ef6c00;
+}
+
+.event-audio .event-icon {
+    background: linear-gradient(135deg, #e8f5e8 0%, #a5d6a7 100%);
+    color: #2e7d32;
+}
+
+.event-end .event-icon {
+    background: linear-gradient(135deg, #fce4ec 0%, #f8bbd9 100%);
+    color: #c2185b;
+}
+
+.event-info .event-icon {
+    background: linear-gradient(135deg, #e3f2fd 0%, #90caf9 100%);
+    color: #1976d2;
+}
+
+.event-error .event-icon {
+    background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+    color: #d32f2f;
+}
+
+/* Responsive design improvements */
+@media (max-width: 768px) {
+    .main-content {
+        grid-template-columns: 1fr;
+        height: auto;
+        gap: 10px;
+    }
+    
+    .panel {
+        height: 300px;
+    }
+    
+    .call-info-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .audio-controls {
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
+    }
+    
+    .volume-control {
+        justify-content: space-between;
+    }
+}
