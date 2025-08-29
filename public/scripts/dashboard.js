@@ -101,7 +101,7 @@ function renderCallsTable() {
     }
     
     if (filteredCalls.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-table">No calls found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-table">No calls found</td></tr>';
         return;
     }
     
@@ -250,6 +250,7 @@ function createCallRowHtml(call) {
         <td>${call.employee_name || '-'}</td>
         <td>${call.clinic_name || '-'}</td>
         <td>${call.phone || '-'}</td>
+        <td><span class="task-type-badge">${call.task_type || 'records_request'}</span></td>
         <td><span class="workflow-badge workflow-${call.workflow_state}">${call.workflow_state}</span></td>
         <td>${call.retry_count || 0}/${call.max_retries || 3}</td>
         <td>${lastAttempt}</td>
