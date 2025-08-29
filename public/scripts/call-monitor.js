@@ -108,6 +108,11 @@ async function loadCallDetails(pendingCallId) {
         document.getElementById('callInfoPanel').style.display = 'block';
         document.getElementById('callInfoPanel').classList.add('has-data');
         
+        // Sort call sessions by newest to oldest
+        if (pendingCall.call_sessions) {
+            pendingCall.call_sessions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        }
+        
         // Display call sessions and classifications
         await displayCallClassifications(pendingCall);
         
@@ -205,15 +210,22 @@ async function displayCallClassifications(pendingCall) {
             `;
             
             // Load IVR events for this classification
-            loadIvrEventsForClassification(classification);
+            loadIvrEventsForClassification(classification, session);
         } else {
             html += `
                 <div class="classification-section">
                     <div class="empty-state">
                         <p>No classification available for this session.</p>
                     </div>
+                    
+                    <div id="ivrEvents_session_${session.id}" class="ivr-events-section">
+                        <h6>Loading IVR Events for Session...</h6>
+                    </div>
                 </div>
             `;
+            
+            // Load IVR events directly for the session
+            loadIvrEventsForSession(session);
         }
         
         html += '</div>'; // Close call-session-card
@@ -223,23 +235,52 @@ async function displayCallClassifications(pendingCall) {
 }
 
 // Load IVR events for a specific classification
-async function loadIvrEventsForClassification(classification) {
+async function loadIvrEventsForClassification(classification, session) {
     try {
-        const { data: events, error } = await supabase
-            .from('ivr_events')
-            .select('*')
-            .eq('call_id', classification.pre_call_sid)
-            .order('timing_ms', { ascending: true });
+        console.log('Loading IVR events for classification:', classification.id);
+        console.log('Classification pre_call_sid:', classification.pre_call_sid);
+        console.log('Session call_id:', session.call_id);
+        
+        // Try both call_id sources - first the session call_id, then classification pre_call_sid
+        let events = null;
+        let error = null;
+        
+        // First try with session call_id
+        if (session.call_id) {
+            const result1 = await supabase
+                .from('ivr_events')
+                .select('*')
+                .eq('call_id', session.call_id)
+                .order('timing_ms', { ascending: true });
+            
+            console.log('IVR events query with session.call_id:', result1);
+            events = result1.data;
+            error = result1.error;
+        }
+        
+        // If no events found with session call_id, try with classification pre_call_sid
+        if ((!events || events.length === 0) && classification.pre_call_sid) {
+            const result2 = await supabase
+                .from('ivr_events')
+                .select('*')
+                .eq('call_id', classification.pre_call_sid)
+                .order('timing_ms', { ascending: true });
+            
+            console.log('IVR events query with classification.pre_call_sid:', result2);
+            events = result2.data;
+            error = result2.error;
+        }
         
         const container = document.getElementById(`ivrEvents_${classification.id}`);
         
         if (error) {
+            console.error('IVR events error:', error);
             container.innerHTML = '<h6>IVR Events</h6><p class="error">Error loading events: ' + error.message + '</p>';
             return;
         }
         
         if (!events || events.length === 0) {
-            container.innerHTML = '<h6>IVR Events</h6><p class="empty-state">No IVR events found for this classification.</p>';
+            container.innerHTML = '<h6>IVR Events</h6><p class="empty-state">No IVR events found for this classification (tried both session.call_id and classification.pre_call_sid).</p>';
             return;
         }
         
@@ -266,6 +307,60 @@ async function loadIvrEventsForClassification(classification) {
     } catch (error) {
         console.error('Error loading IVR events:', error);
         const container = document.getElementById(`ivrEvents_${classification.id}`);
+        container.innerHTML = '<h6>IVR Events</h6><p class="error">Error loading events.</p>';
+    }
+}
+
+// Load IVR events directly for a call session (when no classification exists)
+async function loadIvrEventsForSession(session) {
+    try {
+        console.log('Loading IVR events for session:', session.id);
+        console.log('Session call_id:', session.call_id);
+        
+        const { data: events, error } = await supabase
+            .from('ivr_events')
+            .select('*')
+            .eq('call_id', session.call_id)
+            .order('timing_ms', { ascending: true });
+        
+        console.log('IVR events query for session:', { events, error });
+        
+        const container = document.getElementById(`ivrEvents_session_${session.id}`);
+        
+        if (error) {
+            console.error('IVR events error for session:', error);
+            container.innerHTML = '<h6>IVR Events</h6><p class="error">Error loading events: ' + error.message + '</p>';
+            return;
+        }
+        
+        if (!events || events.length === 0) {
+            container.innerHTML = '<h6>IVR Events</h6><p class="empty-state">No IVR events found for this session.</p>';
+            return;
+        }
+        
+        let html = '<h6>IVR Events (' + events.length + ')</h6><div class="events-list">';
+        
+        events.forEach(event => {
+            html += `
+                <div class="event-item">
+                    <div class="event-header">
+                        <span class="event-timing">${event.timing_ms}ms</span>
+                        <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
+                        ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
+                    </div>
+                    ${event.transcript ? `<div class="event-transcript">"${event.transcript}"</div>` : ''}
+                    ${event.ai_reply ? `<div class="event-ai-reply">AI: ${event.ai_reply}</div>` : ''}
+                    ${event.client_state ? `<div class="event-state">State: ${event.client_state}</div>` : ''}
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error loading IVR events for session:', error);
+        const container = document.getElementById(`ivrEvents_session_${session.id}`);
         container.innerHTML = '<h6>IVR Events</h6><p class="error">Error loading events.</p>';
     }
 }
