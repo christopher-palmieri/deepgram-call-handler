@@ -77,9 +77,18 @@ async function loadCallDetails(pendingCallId) {
     try {
         showLoading('Loading call details...');
         
+        // Load pending call with its call sessions, classifications, and IVR events
         const { data: pendingCall, error } = await supabase
             .from('pending_calls')
-            .select('*')
+            .select(`
+                *,
+                call_sessions (
+                    *,
+                    call_classifications (
+                        *
+                    )
+                )
+            `)
             .eq('id', pendingCallId)
             .single();
         
@@ -99,33 +108,19 @@ async function loadCallDetails(pendingCallId) {
         document.getElementById('callInfoPanel').style.display = 'block';
         document.getElementById('callInfoPanel').classList.add('has-data');
         
-        // Check for active session
-        const { data: sessions } = await supabase
-            .from('call_sessions')
-            .select('*')
-            .eq('pending_call_id', pendingCallId)
-            .eq('call_status', 'active')
-            .order('created_at', { ascending: false })
-            .limit(1);
+        // Display call sessions and classifications
+        await displayCallClassifications(pendingCall);
         
-        if (sessions && sessions.length > 0) {
-            const callId = sessions[0].call_id;
+        // Set up call ID input with active or most recent session
+        const activeSessions = pendingCall.call_sessions?.filter(s => s.call_status === 'active') || [];
+        if (activeSessions.length > 0) {
+            const callId = activeSessions[0].call_id;
             document.getElementById('callIdInput').value = callId;
             showInfo(`Found active call session: ${callId}`);
-        } else {
-            // Check for most recent completed session
-            const { data: recentSessions } = await supabase
-                .from('call_sessions')
-                .select('*')
-                .eq('pending_call_id', pendingCallId)
-                .order('created_at', { ascending: false })
-                .limit(1);
-            
-            if (recentSessions && recentSessions.length > 0) {
-                const callId = recentSessions[0].call_id;
-                document.getElementById('callIdInput').value = callId;
-                showInfo(`Found recent call session: ${callId} (${recentSessions[0].call_status})`);
-            }
+        } else if (pendingCall.call_sessions?.length > 0) {
+            const recentSession = pendingCall.call_sessions[0]; // Most recent
+            document.getElementById('callIdInput').value = recentSession.call_id;
+            showInfo(`Found recent call session: ${recentSession.call_id} (${recentSession.call_status})`);
         }
         
         hideLoading();
@@ -134,6 +129,144 @@ async function loadCallDetails(pendingCallId) {
         console.error('Error loading call details:', error);
         showError('Failed to load call details: ' + error.message);
         hideLoading();
+    }
+}
+
+// Display call sessions with their classifications and IVR events
+async function displayCallClassifications(pendingCall) {
+    const container = document.getElementById('classificationsContainer');
+    
+    if (!pendingCall.call_sessions || pendingCall.call_sessions.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>No call sessions found for this pending call.</p></div>';
+        return;
+    }
+    
+    let html = '';
+    
+    for (const session of pendingCall.call_sessions) {
+        html += `
+            <div class="call-session-card">
+                <div class="session-header">
+                    <h4>Call Session: ${session.call_id}</h4>
+                    <span class="session-status status-${session.call_status}">${session.call_status}</span>
+                </div>
+                <div class="session-details">
+                    <div class="detail-item">
+                        <span class="detail-label">Created:</span>
+                        <span class="detail-value">${new Date(session.created_at).toLocaleString()}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Status:</span>
+                        <span class="detail-value">${session.call_status || '-'}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">IVR State:</span>
+                        <span class="detail-value">${session.ivr_detection_state || '-'}</span>
+                    </div>
+                </div>
+        `;
+        
+        // Display classification if it exists
+        if (session.call_classifications) {
+            const classification = session.call_classifications;
+            html += `
+                <div class="classification-section">
+                    <h5>Classification</h5>
+                    <div class="classification-details">
+                        <div class="detail-item">
+                            <span class="detail-label">Type:</span>
+                            <span class="detail-value classification-type">${classification.classification_type || '-'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Confidence:</span>
+                            <span class="detail-value">${classification.classification_confidence ? (classification.classification_confidence * 100).toFixed(1) + '%' : '-'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Duration:</span>
+                            <span class="detail-value">${classification.classification_duration_ms ? classification.classification_duration_ms + 'ms' : '-'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Expires:</span>
+                            <span class="detail-value">${classification.classification_expires_at ? new Date(classification.classification_expires_at).toLocaleDateString() : '-'}</span>
+                        </div>
+                    </div>
+                    
+                    ${classification.ivr_actions ? `
+                        <div class="ivr-actions">
+                            <h6>IVR Actions</h6>
+                            <pre class="actions-json">${JSON.stringify(classification.ivr_actions, null, 2)}</pre>
+                        </div>
+                    ` : ''}
+                    
+                    <div id="ivrEvents_${classification.id}" class="ivr-events-section">
+                        <h6>Loading IVR Events...</h6>
+                    </div>
+                </div>
+            `;
+            
+            // Load IVR events for this classification
+            loadIvrEventsForClassification(classification);
+        } else {
+            html += `
+                <div class="classification-section">
+                    <div class="empty-state">
+                        <p>No classification available for this session.</p>
+                    </div>
+                </div>
+            `;
+        }
+        
+        html += '</div>'; // Close call-session-card
+    }
+    
+    container.innerHTML = html;
+}
+
+// Load IVR events for a specific classification
+async function loadIvrEventsForClassification(classification) {
+    try {
+        const { data: events, error } = await supabase
+            .from('ivr_events')
+            .select('*')
+            .eq('call_id', classification.pre_call_sid)
+            .order('timing_ms', { ascending: true });
+        
+        const container = document.getElementById(`ivrEvents_${classification.id}`);
+        
+        if (error) {
+            container.innerHTML = '<h6>IVR Events</h6><p class="error">Error loading events: ' + error.message + '</p>';
+            return;
+        }
+        
+        if (!events || events.length === 0) {
+            container.innerHTML = '<h6>IVR Events</h6><p class="empty-state">No IVR events found for this classification.</p>';
+            return;
+        }
+        
+        let html = '<h6>IVR Events (' + events.length + ')</h6><div class="events-list">';
+        
+        events.forEach(event => {
+            html += `
+                <div class="event-item">
+                    <div class="event-header">
+                        <span class="event-timing">${event.timing_ms}ms</span>
+                        <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
+                        ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
+                    </div>
+                    ${event.transcript ? `<div class="event-transcript">"${event.transcript}"</div>` : ''}
+                    ${event.ai_reply ? `<div class="event-ai-reply">AI: ${event.ai_reply}</div>` : ''}
+                    ${event.client_state ? `<div class="event-state">State: ${event.client_state}</div>` : ''}
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error loading IVR events:', error);
+        const container = document.getElementById(`ivrEvents_${classification.id}`);
+        container.innerHTML = '<h6>IVR Events</h6><p class="error">Error loading events.</p>';
     }
 }
 

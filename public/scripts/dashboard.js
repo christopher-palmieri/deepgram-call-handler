@@ -140,6 +140,7 @@ function setupRealtimeSubscription() {
         }, handleCallSessionUpdate)
         .subscribe((status) => {
             console.log('Real-time subscription status:', status);
+            console.log('Subscribed to channels:', ['pending_calls', 'call_sessions']);
             updateConnectionStatus(status === 'SUBSCRIBED');
         });
 }
@@ -147,6 +148,8 @@ function setupRealtimeSubscription() {
 // Handle real-time updates for pending_calls
 async function handleRealtimeUpdate(payload) {
     console.log('Real-time update:', payload);
+    console.log('Current filter:', currentFilter);
+    console.log('Total calls before update:', allCalls.length);
     
     if (payload.eventType === 'INSERT') {
         // New call added
@@ -157,13 +160,21 @@ async function handleRealtimeUpdate(payload) {
         }
     } else if (payload.eventType === 'UPDATE') {
         // Call updated
+        console.log('UPDATE event - old:', payload.old);
+        console.log('UPDATE event - new:', payload.new);
         const updatedCall = await fetchCallWithSessions(payload.new.id);
         if (updatedCall) {
+            console.log('Fetched updated call:', updatedCall.workflow_state);
             const index = allCalls.findIndex(c => c.id === updatedCall.id);
             if (index !== -1) {
                 allCalls[index] = updatedCall;
                 updateSingleCallRow(updatedCall);
+                console.log('Updated call at index:', index);
+            } else {
+                console.log('Call not found in allCalls array');
             }
+        } else {
+            console.log('Failed to fetch updated call');
         }
     } else if (payload.eventType === 'DELETE') {
         // Call removed
