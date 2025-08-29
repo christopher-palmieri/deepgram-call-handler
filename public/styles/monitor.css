@@ -497,6 +497,13 @@ body {
     margin: 4px 0;
 }
 
+.event-command {
+    color: #64748b;
+    font-size: 11px;
+    margin: 2px 0;
+    font-family: monospace;
+}
+
 .monitor-btn {
     padding: 6px 16px;
     background: #008d6f;

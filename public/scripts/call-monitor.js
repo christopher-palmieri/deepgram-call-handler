@@ -238,38 +238,16 @@ async function displayCallClassifications(pendingCall) {
 async function loadIvrEventsForClassification(classification, session) {
     try {
         console.log('Loading IVR events for classification:', classification.id);
-        console.log('Classification pre_call_sid:', classification.pre_call_sid);
-        console.log('Session call_id:', session.call_id);
+        console.log('Using session call_id:', session.call_id);
         
-        // Try both call_id sources - first the session call_id, then classification pre_call_sid
-        let events = null;
-        let error = null;
+        // Use direct relationship: call_sessions.call_id = ivr_events.call_id
+        const { data: events, error } = await supabase
+            .from('ivr_events')
+            .select('*')
+            .eq('call_id', session.call_id)
+            .order('created_at', { ascending: true }); // Use created_at since timing_ms might not exist
         
-        // First try with session call_id
-        if (session.call_id) {
-            const result1 = await supabase
-                .from('ivr_events')
-                .select('*')
-                .eq('call_id', session.call_id)
-                .order('timing_ms', { ascending: true });
-            
-            console.log('IVR events query with session.call_id:', result1);
-            events = result1.data;
-            error = result1.error;
-        }
-        
-        // If no events found with session call_id, try with classification pre_call_sid
-        if ((!events || events.length === 0) && classification.pre_call_sid) {
-            const result2 = await supabase
-                .from('ivr_events')
-                .select('*')
-                .eq('call_id', classification.pre_call_sid)
-                .order('timing_ms', { ascending: true });
-            
-            console.log('IVR events query with classification.pre_call_sid:', result2);
-            events = result2.data;
-            error = result2.error;
-        }
+        console.log('IVR events query result:', { events, error });
         
         const container = document.getElementById(`ivrEvents_${classification.id}`);
         
@@ -280,7 +258,7 @@ async function loadIvrEventsForClassification(classification, session) {
         }
         
         if (!events || events.length === 0) {
-            container.innerHTML = '<h6>IVR Events</h6><p class="empty-state">No IVR events found for this classification (tried both session.call_id and classification.pre_call_sid).</p>';
+            container.innerHTML = '<h6>IVR Events</h6><p class="empty-state">No IVR events found for call_id: ' + session.call_id + '</p>';
             return;
         }
         
@@ -321,7 +299,7 @@ async function loadIvrEventsForSession(session) {
             .from('ivr_events')
             .select('*')
             .eq('call_id', session.call_id)
-            .order('timing_ms', { ascending: true });
+            .order('created_at', { ascending: true });
         
         console.log('IVR events query for session:', { events, error });
         
@@ -344,13 +322,14 @@ async function loadIvrEventsForSession(session) {
             html += `
                 <div class="event-item">
                     <div class="event-header">
-                        <span class="event-timing">${event.timing_ms}ms</span>
+                        <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
                         <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
                         ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
                     </div>
                     ${event.transcript ? `<div class="event-transcript">"${event.transcript}"</div>` : ''}
                     ${event.ai_reply ? `<div class="event-ai-reply">AI: ${event.ai_reply}</div>` : ''}
                     ${event.client_state ? `<div class="event-state">State: ${event.client_state}</div>` : ''}
+                    ${event.command_id ? `<div class="event-command">Command ID: ${event.command_id}</div>` : ''}
                 </div>
             `;
         });
