@@ -124,7 +124,7 @@ body {
     border-radius: 20px;
     box-shadow: 0 20px 60px rgba(0,0,0,0.3);
     width: 100%;
-    max-width: 1200px;
+    max-width: 1600px;
     overflow: hidden;
     display: none;
 }
@@ -605,6 +605,57 @@ body {
     color: #111827;
 }
 
+.call-summary-section {
+    margin-top: 20px;
+    padding: 15px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+}
+
+.call-summary-section h4 {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.summary-content {
+    font-size: 14px;
+    color: #111827;
+    line-height: 1.6;
+}
+
+.structured-data-section {
+    margin-top: 20px;
+    padding: 15px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+}
+
+.structured-data-section h4 {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.structured-data-content {
+    font-size: 12px;
+    color: #111827;
+    background: #f9fafb;
+    padding: 10px;
+    border-radius: 4px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
 .status {
     padding: 20px 30px;
     background: #f8f9fa;
@@ -867,6 +918,19 @@ body {
     display: grid;
     grid-template-columns: 1fr;
     gap: 12px;
+}
+
+.workflow-metadata-content {
+    font-size: 12px;
+    color: #475569;
+    background: #f8fafc;
+    padding: 12px;
+    border-radius: 4px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    line-height: 1.5;
+    font-family: 'Courier New', monospace;
 }
 
 .panel {

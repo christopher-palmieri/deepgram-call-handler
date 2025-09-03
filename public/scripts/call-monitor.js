@@ -104,6 +104,22 @@ async function loadCallDetails(pendingCallId) {
             pendingCall.appointment_time ? 
             new Date(pendingCall.appointment_time).toLocaleString() : '-';
         document.getElementById('infoWorkflow').textContent = pendingCall.workflow_state || '-';
+        document.getElementById('infoSuccessEval').textContent = pendingCall.success_evaluation || '-';
+        
+        // Display summary if exists
+        if (pendingCall.summary) {
+            document.getElementById('infoSummary').textContent = pendingCall.summary;
+            document.getElementById('callSummarySection').style.display = 'block';
+        }
+        
+        // Display structured data if exists
+        if (pendingCall.structured_data) {
+            document.getElementById('infoStructuredData').textContent = 
+                typeof pendingCall.structured_data === 'object' ? 
+                JSON.stringify(pendingCall.structured_data, null, 2) : 
+                pendingCall.structured_data;
+            document.getElementById('structuredDataSection').style.display = 'block';
+        }
         
         document.getElementById('callInfoPanel').style.display = 'block';
         document.getElementById('callInfoPanel').classList.add('has-data');
@@ -233,6 +249,20 @@ async function showSessionDetails(session) {
             </div>
         </div>
     `;
+    
+    // Display workflow metadata if it exists
+    if (session.workflow_metadata) {
+        html += `
+            <div class="session-detail-section">
+                <h4>Workflow Metadata</h4>
+                <pre class="workflow-metadata-content">${
+                    typeof session.workflow_metadata === 'object' ? 
+                    JSON.stringify(session.workflow_metadata, null, 2) : 
+                    session.workflow_metadata
+                }</pre>
+            </div>
+        `;
+    }
     
     // Display classification if it exists
     if (session.call_classifications) {
