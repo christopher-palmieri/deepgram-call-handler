@@ -92,12 +92,32 @@
         </div>
         
         <div class="main-content">
-            <div class="panel">
-                <h3>Call Classifications & Events</h3>
-                <div id="classificationsContainer">
-                    <div class="empty-state">
-                        <p>Loading call sessions and classifications...</p>
-                    </div>
+            <div class="sessions-table-container">
+                <h3>Call Sessions</h3>
+                <table id="sessionsTable" class="sessions-table">
+                    <thead>
+                        <tr>
+                            <th>Date & Time</th>
+                            <th>IVR State</th>
+                            <th>Confidence</th>
+                            <th>Call Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sessionsTableBody">
+                        <tr class="empty-state">
+                            <td colspan="4">Loading call sessions...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="detailsPanel" class="details-panel">
+                <div class="details-panel-header">
+                    <h3>Session Details</h3>
+                    <button class="close-panel-btn" onclick="closeDetailsPanel()">×</button>
+                </div>
+                <div class="details-panel-content" id="detailsPanelContent">
+                    <p class="empty-state">Select a session to view details</p>
                 </div>
             </div>
         </div>

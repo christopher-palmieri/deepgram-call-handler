@@ -137,101 +137,263 @@ async function loadCallDetails(pendingCallId) {
     }
 }
 
-// Display call sessions with their classifications and IVR events
+// Display call sessions in a table format
 async function displayCallClassifications(pendingCall) {
-    const container = document.getElementById('classificationsContainer');
+    const tableBody = document.getElementById('sessionsTableBody');
     
     if (!pendingCall.call_sessions || pendingCall.call_sessions.length === 0) {
-        container.innerHTML = '<div class="empty-state"><p>No call sessions found for this pending call.</p></div>';
+        tableBody.innerHTML = '<tr class="empty-state"><td colspan="4">No call sessions found for this pending call.</td></tr>';
         return;
     }
+    
+    // Store sessions globally for detail view
+    window.currentSessions = pendingCall.call_sessions;
     
     let html = '';
     
     for (const session of pendingCall.call_sessions) {
-        html += `
-            <div class="call-session-card">
-                <div class="session-header">
-                    <h4>Call Session: ${session.call_id}</h4>
-                    <span class="session-status status-${session.call_status}">${session.call_status}</span>
-                </div>
-                <div class="session-details">
-                    <div class="detail-item">
-                        <span class="detail-label">Created:</span>
-                        <span class="detail-value">${new Date(session.created_at).toLocaleString()}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Status:</span>
-                        <span class="detail-value">${session.call_status || '-'}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">IVR State:</span>
-                        <span class="detail-value">${session.ivr_detection_state || '-'}</span>
-                    </div>
-                </div>
-        `;
+        const createdDate = new Date(session.created_at);
+        const dateStr = createdDate.toLocaleDateString();
+        const timeStr = createdDate.toLocaleTimeString();
         
-        // Display classification if it exists
-        if (session.call_classifications) {
-            const classification = session.call_classifications;
-            html += `
-                <div class="classification-section">
-                    <h5>Classification</h5>
-                    <div class="classification-details">
-                        <div class="detail-item">
-                            <span class="detail-label">Type:</span>
-                            <span class="detail-value classification-type">${classification.classification_type || '-'}</span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Confidence:</span>
-                            <span class="detail-value">${classification.classification_confidence ? (classification.classification_confidence * 100).toFixed(1) + '%' : '-'}</span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Duration:</span>
-                            <span class="detail-value">${classification.classification_duration_ms ? classification.classification_duration_ms + 'ms' : '-'}</span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Expires:</span>
-                            <span class="detail-value">${classification.classification_expires_at ? new Date(classification.classification_expires_at).toLocaleDateString() : '-'}</span>
-                        </div>
-                    </div>
-                    
-                    ${classification.ivr_actions ? `
-                        <div class="ivr-actions">
-                            <h6>IVR Actions</h6>
-                            <pre class="actions-json">${JSON.stringify(classification.ivr_actions, null, 2)}</pre>
-                        </div>
-                    ` : ''}
-                    
-                    <div id="ivrEvents_${classification.id}" class="ivr-events-section">
-                        <h6>Loading IVR Events...</h6>
-                    </div>
-                </div>
-            `;
-            
-            // Load IVR events for this classification
-            loadIvrEventsForClassification(classification, session);
-        } else {
-            html += `
-                <div class="classification-section">
-                    <div class="empty-state">
-                        <p>No classification available for this session.</p>
-                    </div>
-                    
-                    <div id="ivrEvents_session_${session.id}" class="ivr-events-section">
-                        <h6>Loading IVR Events for Session...</h6>
-                    </div>
-                </div>
-            `;
-            
-            // Load IVR events directly for the session
-            loadIvrEventsForSession(session);
+        // Get confidence score from classification if exists
+        let confidenceHtml = '-';
+        if (session.call_classifications?.classification_confidence) {
+            const confidence = session.call_classifications.classification_confidence * 100;
+            const confidenceClass = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+            confidenceHtml = `<span class="confidence-badge confidence-${confidenceClass}">${confidence.toFixed(1)}%</span>`;
+        } else if (session.ivr_confidence_score) {
+            const confidence = session.ivr_confidence_score * 100;
+            const confidenceClass = confidence >= 80 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+            confidenceHtml = `<span class="confidence-badge confidence-${confidenceClass}">${confidence.toFixed(1)}%</span>`;
         }
         
-        html += '</div>'; // Close call-session-card
+        html += `
+            <tr data-session-id="${session.id}" onclick="selectSession('${session.id}')">
+                <td>${dateStr} ${timeStr}</td>
+                <td>${session.ivr_detection_state || '-'}</td>
+                <td>${confidenceHtml}</td>
+                <td><span class="session-status status-${session.call_status}">${session.call_status}</span></td>
+            </tr>
+        `;
     }
     
+    tableBody.innerHTML = html;
+}
+
+// Handle session selection and show details
+function selectSession(sessionId) {
+    // Remove previous selection
+    document.querySelectorAll('.sessions-table tbody tr').forEach(row => {
+        row.classList.remove('selected');
+    });
+    
+    // Add selection to clicked row
+    const selectedRow = document.querySelector(`tr[data-session-id="${sessionId}"]`);
+    if (selectedRow) {
+        selectedRow.classList.add('selected');
+    }
+    
+    // Find the session data
+    const session = window.currentSessions?.find(s => s.id === sessionId);
+    if (!session) return;
+    
+    // Open the details panel
+    const detailsPanel = document.getElementById('detailsPanel');
+    detailsPanel.classList.add('open');
+    
+    // Populate the details
+    showSessionDetails(session);
+}
+
+// Show session details in the side panel
+async function showSessionDetails(session) {
+    const container = document.getElementById('detailsPanelContent');
+    
+    let html = `
+        <div class="session-detail-section">
+            <h4>Session Information</h4>
+            <div class="detail-grid">
+                <div class="detail-item">
+                    <span class="detail-label">Call ID:</span>
+                    <span class="detail-value">${session.call_id}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Created:</span>
+                    <span class="detail-value">${new Date(session.created_at).toLocaleString()}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Status:</span>
+                    <span class="detail-value"><span class="session-status status-${session.call_status}">${session.call_status}</span></span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">IVR State:</span>
+                    <span class="detail-value">${session.ivr_detection_state || '-'}</span>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Display classification if it exists
+    if (session.call_classifications) {
+        const classification = session.call_classifications;
+        html += `
+            <div class="session-detail-section">
+                <h4>Classification</h4>
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <span class="detail-label">Type:</span>
+                        <span class="detail-value classification-type">${classification.classification_type || '-'}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Confidence:</span>
+                        <span class="detail-value">${classification.classification_confidence ? (classification.classification_confidence * 100).toFixed(1) + '%' : '-'}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Duration:</span>
+                        <span class="detail-value">${classification.classification_duration_ms ? classification.classification_duration_ms + 'ms' : '-'}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Expires:</span>
+                        <span class="detail-value">${classification.classification_expires_at ? new Date(classification.classification_expires_at).toLocaleDateString() : '-'}</span>
+                    </div>
+                </div>
+                
+                ${classification.ivr_actions ? `
+                    <div class="ivr-actions">
+                        <h5>IVR Actions</h5>
+                        <pre class="actions-json">${JSON.stringify(classification.ivr_actions, null, 2)}</pre>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+    
+    // Add placeholder for IVR events
+    html += `
+        <div class="session-detail-section">
+            <div id="detailIvrEvents" class="ivr-events-section">
+                <h4>Loading IVR Events...</h4>
+            </div>
+        </div>
+    `;
+    
     container.innerHTML = html;
+    
+    // Load IVR events
+    if (session.call_classifications) {
+        await loadIvrEventsForDetail(session.call_classifications, session);
+    } else {
+        await loadIvrEventsForSessionDetail(session);
+    }
+}
+
+// Load IVR events for the detail panel
+async function loadIvrEventsForDetail(classification, session) {
+    try {
+        const { data: events, error } = await supabase
+            .from('ivr_events')
+            .select('*')
+            .eq('call_id', session.call_id)
+            .order('created_at', { ascending: true });
+        
+        const container = document.getElementById('detailIvrEvents');
+        
+        if (error) {
+            container.innerHTML = '<h4>IVR Events</h4><p class="error">Error loading events: ' + error.message + '</p>';
+            return;
+        }
+        
+        if (!events || events.length === 0) {
+            container.innerHTML = '<h4>IVR Events</h4><p class="empty-state">No IVR events found</p>';
+            return;
+        }
+        
+        let html = '<h4>IVR Events (' + events.length + ')</h4><div class="events-list">';
+        
+        events.forEach(event => {
+            html += `
+                <div class="event-item">
+                    <div class="event-header">
+                        <span class="event-timing">${event.timing_ms || 0}ms</span>
+                        <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
+                        ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
+                    </div>
+                    ${event.transcript ? `<div class="event-transcript">"${event.transcript}"</div>` : ''}
+                    ${event.ai_reply ? `<div class="event-ai-reply">AI: ${event.ai_reply}</div>` : ''}
+                    ${event.client_state ? `<div class="event-state">State: ${event.client_state}</div>` : ''}
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error loading IVR events:', error);
+        const container = document.getElementById('detailIvrEvents');
+        container.innerHTML = '<h4>IVR Events</h4><p class="error">Error loading events.</p>';
+    }
+}
+
+// Load IVR events for session without classification
+async function loadIvrEventsForSessionDetail(session) {
+    try {
+        const { data: events, error } = await supabase
+            .from('ivr_events')
+            .select('*')
+            .eq('call_id', session.call_id)
+            .order('created_at', { ascending: true });
+        
+        const container = document.getElementById('detailIvrEvents');
+        
+        if (error) {
+            container.innerHTML = '<h4>IVR Events</h4><p class="error">Error loading events: ' + error.message + '</p>';
+            return;
+        }
+        
+        if (!events || events.length === 0) {
+            container.innerHTML = '<h4>IVR Events</h4><p class="empty-state">No IVR events found</p>';
+            return;
+        }
+        
+        let html = '<h4>IVR Events (' + events.length + ')</h4><div class="events-list">';
+        
+        events.forEach(event => {
+            html += `
+                <div class="event-item">
+                    <div class="event-header">
+                        <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
+                        <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
+                        ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
+                    </div>
+                    ${event.transcript ? `<div class="event-transcript">"${event.transcript}"</div>` : ''}
+                    ${event.ai_reply ? `<div class="event-ai-reply">AI: ${event.ai_reply}</div>` : ''}
+                    ${event.client_state ? `<div class="event-state">State: ${event.client_state}</div>` : ''}
+                    ${event.command_id ? `<div class="event-command">Command ID: ${event.command_id}</div>` : ''}
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error loading IVR events:', error);
+        const container = document.getElementById('detailIvrEvents');
+        container.innerHTML = '<h4>IVR Events</h4><p class="error">Error loading events.</p>';
+    }
+}
+
+// Close the details panel
+function closeDetailsPanel() {
+    const detailsPanel = document.getElementById('detailsPanel');
+    detailsPanel.classList.remove('open');
+    
+    // Remove selection from table
+    document.querySelectorAll('.sessions-table tbody tr').forEach(row => {
+        row.classList.remove('selected');
+    });
 }
 
 // Load IVR events for a specific classification
@@ -1045,3 +1207,5 @@ window.toggleAudio = toggleAudio;
 window.setVolume = setVolume;
 window.goToDashboard = goToDashboard;
 window.logout = logout;
+window.selectSession = selectSession;
+window.closeDetailsPanel = closeDetailsPanel;
