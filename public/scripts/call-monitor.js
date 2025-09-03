@@ -312,18 +312,31 @@ async function loadIvrEventsForDetail(classification, session) {
         let html = '<h4>IVR Events (' + events.length + ')</h4><div class="events-list">';
         
         events.forEach(event => {
-            html += `
-                <div class="event-item">
-                    <div class="event-header">
-                        <span class="event-timing">${event.timing_ms || 0}ms</span>
-                        <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
-                        ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
+            // Only show transcript prominently if it exists
+            if (event.transcript) {
+                html += `
+                    <div class="event-item">
+                        <div class="event-transcript">${event.transcript}</div>
+                        <div class="event-header">
+                            <span class="event-timing">${event.timing_ms || 0}ms</span>
+                            <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
+                            ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
+                        </div>
+                        ${event.ai_reply ? `<div class="event-ai-reply">AI Response: ${event.ai_reply}</div>` : ''}
                     </div>
-                    ${event.transcript ? `<div class="event-transcript">"${event.transcript}"</div>` : ''}
-                    ${event.ai_reply ? `<div class="event-ai-reply">AI: ${event.ai_reply}</div>` : ''}
-                    ${event.client_state ? `<div class="event-state">State: ${event.client_state}</div>` : ''}
-                </div>
-            `;
+                `;
+            } else {
+                html += `
+                    <div class="event-item">
+                        <div class="event-header">
+                            <span class="event-timing">${event.timing_ms || 0}ms</span>
+                            <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
+                            ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
+                        </div>
+                        ${event.ai_reply ? `<div class="event-ai-reply">AI Response: ${event.ai_reply}</div>` : ''}
+                    </div>
+                `;
+            }
         });
         
         html += '</div>';
@@ -360,19 +373,31 @@ async function loadIvrEventsForSessionDetail(session) {
         let html = '<h4>IVR Events (' + events.length + ')</h4><div class="events-list">';
         
         events.forEach(event => {
-            html += `
-                <div class="event-item">
-                    <div class="event-header">
-                        <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
-                        <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
-                        ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
+            // Only show transcript prominently if it exists
+            if (event.transcript) {
+                html += `
+                    <div class="event-item">
+                        <div class="event-transcript">${event.transcript}</div>
+                        <div class="event-header">
+                            <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
+                            <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
+                            ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
+                        </div>
+                        ${event.ai_reply ? `<div class="event-ai-reply">AI Response: ${event.ai_reply}</div>` : ''}
                     </div>
-                    ${event.transcript ? `<div class="event-transcript">"${event.transcript}"</div>` : ''}
-                    ${event.ai_reply ? `<div class="event-ai-reply">AI: ${event.ai_reply}</div>` : ''}
-                    ${event.client_state ? `<div class="event-state">State: ${event.client_state}</div>` : ''}
-                    ${event.command_id ? `<div class="event-command">Command ID: ${event.command_id}</div>` : ''}
-                </div>
-            `;
+                `;
+            } else {
+                html += `
+                    <div class="event-item">
+                        <div class="event-header">
+                            <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
+                            <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
+                            ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
+                        </div>
+                        ${event.ai_reply ? `<div class="event-ai-reply">AI Response: ${event.ai_reply}</div>` : ''}
+                    </div>
+                `;
+            }
         });
         
         html += '</div>';
@@ -481,19 +506,31 @@ async function loadIvrEventsForSession(session) {
         let html = '<h6>IVR Events (' + events.length + ')</h6><div class="events-list">';
         
         events.forEach(event => {
-            html += `
-                <div class="event-item">
-                    <div class="event-header">
-                        <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
-                        <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
-                        ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
+            // Only show transcript prominently if it exists
+            if (event.transcript) {
+                html += `
+                    <div class="event-item">
+                        <div class="event-transcript">${event.transcript}</div>
+                        <div class="event-header">
+                            <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
+                            <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
+                            ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
+                        </div>
+                        ${event.ai_reply ? `<div class="event-ai-reply">AI Response: ${event.ai_reply}</div>` : ''}
                     </div>
-                    ${event.transcript ? `<div class="event-transcript">"${event.transcript}"</div>` : ''}
-                    ${event.ai_reply ? `<div class="event-ai-reply">AI: ${event.ai_reply}</div>` : ''}
-                    ${event.client_state ? `<div class="event-state">State: ${event.client_state}</div>` : ''}
-                    ${event.command_id ? `<div class="event-command">Command ID: ${event.command_id}</div>` : ''}
-                </div>
-            `;
+                `;
+            } else {
+                html += `
+                    <div class="event-item">
+                        <div class="event-header">
+                            <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
+                            <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
+                            ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
+                        </div>
+                        ${event.ai_reply ? `<div class="event-ai-reply">AI Response: ${event.ai_reply}</div>` : ''}
+                    </div>
+                `;
+            }
         });
         
         html += '</div>';
