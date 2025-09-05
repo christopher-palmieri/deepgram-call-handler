@@ -47,11 +47,13 @@ window.addEventListener('DOMContentLoaded', async () => {
     currentUser = session.user;
     document.getElementById('userEmailDash').textContent = currentUser.email;
     
-    // Load calls initially
-    loadPendingCalls();
-    
-    // Set up real-time subscriptions immediately like the test
+    // Set up real-time subscriptions FIRST, before loading data
     setupRealtimeSubscription();
+    
+    // Wait a brief moment, then load calls initially
+    setTimeout(() => {
+        loadPendingCalls();
+    }, 500);
     
     // Set up fallback polling (every 10 seconds) if realtime fails
     setupFallbackPolling();
