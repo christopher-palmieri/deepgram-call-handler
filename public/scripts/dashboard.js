@@ -5,6 +5,8 @@ let currentUser = null;
 let allCalls = [];
 let currentFilter = 'all';
 let realtimeChannel = null;
+let pollingInterval = null;
+let isRealtimeWorking = false;
 
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', async () => {
@@ -49,6 +51,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     
     // Set up real-time subscriptions
     setupRealtimeSubscription();
+    
+    // Set up fallback polling (every 10 seconds) if realtime fails
+    setupFallbackPolling();
 });
 
 // Load pending calls
@@ -101,7 +106,7 @@ function renderCallsTable() {
     }
     
     if (filteredCalls.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="empty-table">No calls found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" class="empty-table">No calls found</td></tr>';
         return;
     }
     
@@ -138,10 +143,32 @@ function setupRealtimeSubscription() {
             schema: 'public',
             table: 'call_sessions'
         }, handleCallSessionUpdate)
-        .subscribe((status) => {
+        .subscribe((status, error) => {
             console.log('Real-time subscription status:', status);
+            if (error) {
+                console.error('Real-time subscription error:', error);
+            }
             console.log('Subscribed to channels:', ['pending_calls', 'call_sessions']);
             updateConnectionStatus(status === 'SUBSCRIBED');
+            
+            // Debug: Check if realtime is working
+            if (status === 'SUBSCRIBED') {
+                isRealtimeWorking = true;
+                console.log('✅ Real-time subscription active. Updates should appear automatically.');
+                console.log('Debug: If updates are not appearing, check:');
+                console.log('1. Supabase Realtime is enabled for pending_calls table');
+                console.log('2. RLS policies allow SELECT for authenticated users');
+                console.log('3. Browser console for any errors');
+                
+                // Stop polling if realtime is working
+                if (pollingInterval) {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                    console.log('🛑 Stopped fallback polling - using real-time updates');
+                }
+            } else {
+                isRealtimeWorking = false;
+            }
         });
 }
 
@@ -247,6 +274,9 @@ function createCallRowHtml(call) {
     const lastAttempt = call.last_attempt_at ? 
         new Date(call.last_attempt_at).toLocaleString() : '-';
     
+    const nextAction = call.next_action_at ? 
+        new Date(call.next_action_at).toLocaleString() : '-';
+    
     const activeSession = call.call_sessions && 
         call.call_sessions.find(s => s.call_status === 'active');
     
@@ -265,6 +295,7 @@ function createCallRowHtml(call) {
         <td><span class="workflow-badge workflow-${call.workflow_state}">${call.workflow_state}</span></td>
         <td>${call.retry_count || 0}/${call.max_retries || 3}</td>
         <td>${lastAttempt}</td>
+        <td>${nextAction}</td>
         <td>${call.success_evaluation || '-'}</td>
         <td>${buttonHtml}</td>
     </tr>`;
@@ -302,10 +333,29 @@ function updateConnectionStatus(connected) {
     }
 }
 
+// Set up fallback polling mechanism
+function setupFallbackPolling() {
+    // Wait 5 seconds to see if realtime connects
+    setTimeout(() => {
+        if (!isRealtimeWorking && !pollingInterval) {
+            console.log('⚠️ Real-time not working, starting fallback polling (every 10 seconds)');
+            pollingInterval = setInterval(() => {
+                if (!isRealtimeWorking) {
+                    console.log('🔄 Polling for updates...');
+                    loadPendingCalls();
+                }
+            }, 10000); // Poll every 10 seconds
+        }
+    }, 5000);
+}
+
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {
     if (realtimeChannel) {
         supabase.removeChannel(realtimeChannel);
+    }
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
     }
 });
 
@@ -314,6 +364,11 @@ async function logout() {
     // Clean up real-time subscription before logout
     if (realtimeChannel) {
         supabase.removeChannel(realtimeChannel);
+    }
+    
+    // Clean up polling interval
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
     }
     
     await supabase.auth.signOut();
