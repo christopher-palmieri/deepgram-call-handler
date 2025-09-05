@@ -50,8 +50,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     // Load calls initially
     loadPendingCalls();
     
-    // Set up real-time subscriptions
-    setupRealtimeSubscription();
+    // Set up real-time subscriptions after a brief delay to ensure client is ready
+    setTimeout(() => {
+        console.log('🔧 Setting up real-time subscriptions...');
+        setupRealtimeSubscription();
+    }, 1000);
     
     // Set up fallback polling (every 10 seconds) if realtime fails
     setupFallbackPolling();
@@ -134,23 +137,27 @@ function setupRealtimeSubscription() {
         supabase.removeChannel(callSessionsChannel);
     }
     
-    // Create separate channel for pending_calls (like the working test)
+    // Create separate channel for pending_calls (EXACTLY like the working test)
+    console.log('Creating pending_calls channel...');
     realtimeChannel = supabase
-        .channel('pending-calls-updates')
+        .channel('pending-calls-test')
         .on('postgres_changes', {
             event: '*',
             schema: 'public',
             table: 'pending_calls'
-        }, handleRealtimeUpdate)
-        .subscribe((status, error) => {
-            console.log('🔔 Pending calls subscription status:', status);
-            if (error) {
-                console.error('Pending calls subscription error:', error);
-            }
+        }, (payload) => {
+            console.log('🔔 MAIN CHANNEL Real-time update received!');
+            console.log('Event type:', payload.eventType);
+            console.log('Table:', payload.table);
+            console.log('Full payload:', payload);
+            handleRealtimeUpdate(payload);
+        })
+        .subscribe((status) => {
+            console.log('🔔 Main pending calls subscription status:', status);
             
             if (status === 'SUBSCRIBED') {
                 isRealtimeWorking = true;
-                console.log('✅ Pending calls real-time active!');
+                console.log('✅ MAIN CHANNEL Pending calls real-time active!');
                 
                 // Stop polling if realtime is working
                 if (pollingInterval) {
@@ -158,6 +165,8 @@ function setupRealtimeSubscription() {
                     pollingInterval = null;
                     console.log('🛑 Stopped fallback polling - using real-time updates');
                 }
+            } else {
+                isRealtimeWorking = false;
             }
             
             updateConnectionStatus(status === 'SUBSCRIBED');
@@ -181,10 +190,7 @@ function setupRealtimeSubscription() {
 
 // Handle real-time updates for pending_calls
 async function handleRealtimeUpdate(payload) {
-    console.log('🔔 Real-time update received!');
-    console.log('Event type:', payload.eventType);
-    console.log('Table:', payload.table);
-    console.log('Full payload:', payload);
+    console.log('📋 Processing update...');
     console.log('Current filter:', currentFilter);
     console.log('Total calls before update:', allCalls.length);
     
