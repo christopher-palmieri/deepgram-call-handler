@@ -5,6 +5,7 @@ let currentUser = null;
 let allCalls = [];
 let currentFilter = 'all';
 let realtimeChannel = null;
+let callSessionsChannel = null;
 let pollingInterval = null;
 let isRealtimeWorking = false;
 
@@ -125,40 +126,31 @@ function monitorCall(pendingCallId, callId) {
 
 // Set up real-time subscriptions
 function setupRealtimeSubscription() {
-    // Clean up any existing subscription
+    // Clean up any existing subscriptions
     if (realtimeChannel) {
         supabase.removeChannel(realtimeChannel);
     }
+    if (callSessionsChannel) {
+        supabase.removeChannel(callSessionsChannel);
+    }
     
-    // Subscribe to pending_calls table changes
+    // Create separate channel for pending_calls (like the working test)
     realtimeChannel = supabase
-        .channel('dashboard_updates')
+        .channel('pending-calls-updates')
         .on('postgres_changes', {
             event: '*',
             schema: 'public',
             table: 'pending_calls'
         }, handleRealtimeUpdate)
-        .on('postgres_changes', {
-            event: '*',
-            schema: 'public',
-            table: 'call_sessions'
-        }, handleCallSessionUpdate)
         .subscribe((status, error) => {
-            console.log('Real-time subscription status:', status);
+            console.log('🔔 Pending calls subscription status:', status);
             if (error) {
-                console.error('Real-time subscription error:', error);
+                console.error('Pending calls subscription error:', error);
             }
-            console.log('Subscribed to channels:', ['pending_calls', 'call_sessions']);
-            updateConnectionStatus(status === 'SUBSCRIBED');
             
-            // Debug: Check if realtime is working
             if (status === 'SUBSCRIBED') {
                 isRealtimeWorking = true;
-                console.log('✅ Real-time subscription active. Updates should appear automatically.');
-                console.log('Debug: If updates are not appearing, check:');
-                console.log('1. Supabase Realtime is enabled for pending_calls table');
-                console.log('2. RLS policies allow SELECT for authenticated users');
-                console.log('3. Browser console for any errors');
+                console.log('✅ Pending calls real-time active!');
                 
                 // Stop polling if realtime is working
                 if (pollingInterval) {
@@ -166,8 +158,23 @@ function setupRealtimeSubscription() {
                     pollingInterval = null;
                     console.log('🛑 Stopped fallback polling - using real-time updates');
                 }
-            } else {
-                isRealtimeWorking = false;
+            }
+            
+            updateConnectionStatus(status === 'SUBSCRIBED');
+        });
+    
+    // Create separate channel for call_sessions
+    callSessionsChannel = supabase
+        .channel('call-sessions-updates')
+        .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'call_sessions'
+        }, handleCallSessionUpdate)
+        .subscribe((status, error) => {
+            console.log('📞 Call sessions subscription status:', status);
+            if (error) {
+                console.error('Call sessions subscription error:', error);
             }
         });
 }
@@ -357,6 +364,9 @@ window.addEventListener('beforeunload', () => {
     if (realtimeChannel) {
         supabase.removeChannel(realtimeChannel);
     }
+    if (callSessionsChannel) {
+        supabase.removeChannel(callSessionsChannel);
+    }
     if (pollingInterval) {
         clearInterval(pollingInterval);
     }
@@ -403,9 +413,12 @@ async function testRealtimeConnection() {
 
 // Logout
 async function logout() {
-    // Clean up real-time subscription before logout
+    // Clean up real-time subscriptions before logout
     if (realtimeChannel) {
         supabase.removeChannel(realtimeChannel);
+    }
+    if (callSessionsChannel) {
+        supabase.removeChannel(callSessionsChannel);
     }
     
     // Clean up polling interval
