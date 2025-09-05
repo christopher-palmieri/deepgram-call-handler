@@ -29,10 +29,15 @@ async function loadConfig() {
                         persistSession: true,
                         autoRefreshToken: true,
                         detectSessionInUrl: false
+                    },
+                    realtime: {
+                        params: {
+                            eventsPerSecond: 10
+                        }
                     }
                 }
             );
-            console.log('Supabase client created');
+            console.log('Supabase client created with realtime support');
             
             // Make it globally available
             window.supabaseClient = supabase;
