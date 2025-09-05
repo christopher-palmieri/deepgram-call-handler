@@ -127,65 +127,61 @@ function monitorCall(pendingCallId, callId) {
     window.location.href = `/monitor.html?pendingCallId=${pendingCallId}&callId=${callId}&autoConnect=true`;
 }
 
-// Set up real-time subscriptions
+// Set up real-time subscriptions - SIMPLE VERSION LIKE TEST
 function setupRealtimeSubscription() {
+    console.log('🚀 Setting up realtime subscription...');
+    
     // Clean up any existing subscriptions
     if (realtimeChannel) {
+        console.log('Removing old channel...');
         supabase.removeChannel(realtimeChannel);
-    }
-    if (callSessionsChannel) {
-        supabase.removeChannel(callSessionsChannel);
+        realtimeChannel = null;
     }
     
-    // Create separate channel for pending_calls (EXACTLY like the working test)
-    console.log('Creating pending_calls channel...');
+    // Use EXACTLY the same code as the working test
+    console.log('Creating channel exactly like working test...');
     realtimeChannel = supabase
-        .channel('pending-calls-test')
-        .on('postgres_changes', {
-            event: '*',
-            schema: 'public',
-            table: 'pending_calls'
-        }, (payload) => {
-            console.log('🔔 MAIN CHANNEL Real-time update received!');
-            console.log('Event type:', payload.eventType);
-            console.log('Table:', payload.table);
-            console.log('Full payload:', payload);
-            handleRealtimeUpdate(payload);
-        })
-        .subscribe((status) => {
-            console.log('🔔 Main pending calls subscription status:', status);
-            
-            if (status === 'SUBSCRIBED') {
-                isRealtimeWorking = true;
-                console.log('✅ MAIN CHANNEL Pending calls real-time active!');
+        .channel('pending-calls-test-main')
+        .on('postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'pending_calls'
+            },
+            (payload) => {
+                console.log('🎯 DASHBOARD UPDATE RECEIVED!');
+                console.log(`Event: ${payload.eventType}`);
+                console.log(`Table: ${payload.table}`);
+                console.log(`Payload:`, payload);
                 
-                // Stop polling if realtime is working
-                if (pollingInterval) {
-                    clearInterval(pollingInterval);
-                    pollingInterval = null;
-                    console.log('🛑 Stopped fallback polling - using real-time updates');
-                }
-            } else {
-                isRealtimeWorking = false;
+                // Process the update
+                handleRealtimeUpdate(payload);
             }
-            
-            updateConnectionStatus(status === 'SUBSCRIBED');
+        )
+        .subscribe((status, error) => {
+            if (error) {
+                console.error('Dashboard subscription error:', error);
+                isRealtimeWorking = false;
+            } else {
+                console.log(`Dashboard subscription status: ${status}`);
+                
+                if (status === 'SUBSCRIBED') {
+                    isRealtimeWorking = true;
+                    console.log('✅ Dashboard realtime ACTIVE - updates should work now!');
+                    
+                    // Stop polling
+                    if (pollingInterval) {
+                        clearInterval(pollingInterval);
+                        pollingInterval = null;
+                        console.log('🛑 Stopped fallback polling');
+                    }
+                }
+                
+                updateConnectionStatus(status === 'SUBSCRIBED');
+            }
         });
     
-    // Create separate channel for call_sessions
-    callSessionsChannel = supabase
-        .channel('call-sessions-updates')
-        .on('postgres_changes', {
-            event: '*',
-            schema: 'public',
-            table: 'call_sessions'
-        }, handleCallSessionUpdate)
-        .subscribe((status, error) => {
-            console.log('📞 Call sessions subscription status:', status);
-            if (error) {
-                console.error('Call sessions subscription error:', error);
-            }
-        });
+    console.log('Subscription setup complete');
 }
 
 // Handle real-time updates for pending_calls
