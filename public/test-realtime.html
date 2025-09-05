@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Realtime Test</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="/scripts/config.js"></script>
     <style>
         body {
             font-family: monospace;
@@ -51,7 +52,6 @@
     <div id="logs"></div>
 
     <script>
-        let supabase;
         let channel;
         
         function log(message, type = 'info') {
@@ -64,14 +64,14 @@
         }
         
         async function initSupabase() {
-            const config = await fetch('/config.json').then(r => r.json());
-            supabase = createClient(config.supabaseUrl, config.supabaseAnonKey, {
-                realtime: {
-                    params: {
-                        eventsPerSecond: 10
-                    }
-                }
-            });
+            // Load config using the config.js script
+            await loadConfig();
+            
+            if (!supabase) {
+                log('Failed to initialize Supabase', 'error');
+                return;
+            }
+            
             log('Supabase initialized', 'success');
             
             // Check auth
