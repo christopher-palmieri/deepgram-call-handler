@@ -1,0 +1,1 @@
+- For any migration (.sql), please add the date is the following format at the beginning of the file name YYYYMMDD

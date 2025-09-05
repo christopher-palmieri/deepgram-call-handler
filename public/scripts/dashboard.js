@@ -174,7 +174,10 @@ function setupRealtimeSubscription() {
 
 // Handle real-time updates for pending_calls
 async function handleRealtimeUpdate(payload) {
-    console.log('Real-time update:', payload);
+    console.log('🔔 Real-time update received!');
+    console.log('Event type:', payload.eventType);
+    console.log('Table:', payload.table);
+    console.log('Full payload:', payload);
     console.log('Current filter:', currentFilter);
     console.log('Total calls before update:', allCalls.length);
     
@@ -358,6 +361,45 @@ window.addEventListener('beforeunload', () => {
         clearInterval(pollingInterval);
     }
 });
+
+// Test realtime connection
+async function testRealtimeConnection() {
+    console.log('🧪 Testing real-time connection...');
+    
+    // Check if channel is subscribed
+    const channels = supabase.getChannels();
+    console.log('Active channels:', channels);
+    
+    if (realtimeChannel) {
+        console.log('Channel state:', realtimeChannel.state);
+        console.log('Channel topic:', realtimeChannel.topic);
+        console.log('Channel params:', realtimeChannel.params);
+    }
+    
+    // Test a manual update to see if it triggers
+    console.log('📝 To test: Go to Supabase and update any field in pending_calls table');
+    console.log('You should see "🔔 Real-time update received!" in the console');
+    
+    // Also show current subscription status
+    console.log('Is realtime working?', isRealtimeWorking);
+    console.log('Is polling active?', pollingInterval !== null);
+    
+    // Try to manually fetch to ensure data access works
+    try {
+        const { data, error } = await supabase
+            .from('pending_calls')
+            .select('id, employee_name')
+            .limit(1);
+        
+        if (error) {
+            console.error('❌ Error fetching data:', error);
+        } else {
+            console.log('✅ Manual fetch successful:', data);
+        }
+    } catch (e) {
+        console.error('❌ Exception during fetch:', e);
+    }
+}
 
 // Logout
 async function logout() {
