@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Realtime Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #0f0;
+        }
+        .log {
+            background: #000;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #0f0;
+            white-space: pre-wrap;
+        }
+        button {
+            background: #0f0;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            font-family: monospace;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #0a0;
+        }
+        .error { color: #f00; }
+        .success { color: #0f0; }
+        .info { color: #ff0; }
+    </style>
+</head>
+<body>
+    <h1>Supabase Realtime Diagnostic Tool</h1>
+    
+    <div>
+        <button onclick="testConnection()">1. Test Connection</button>
+        <button onclick="testSimpleSubscription()">2. Test Simple Subscription</button>
+        <button onclick="testTableSubscription()">3. Test Table Subscription</button>
+        <button onclick="testDirectChannel()">4. Test Direct Channel</button>
+        <button onclick="clearLogs()">Clear Logs</button>
+    </div>
+    
+    <div id="logs"></div>
+
+    <script>
+        let supabase;
+        let channel;
+        
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const logDiv = document.createElement('div');
+            logDiv.className = `log ${type}`;
+            logDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logs.insertBefore(logDiv, logs.firstChild);
+            console.log(message);
+        }
+        
+        async function initSupabase() {
+            const config = await fetch('/config.json').then(r => r.json());
+            supabase = createClient(config.supabaseUrl, config.supabaseAnonKey, {
+                realtime: {
+                    params: {
+                        eventsPerSecond: 10
+                    }
+                }
+            });
+            log('Supabase initialized', 'success');
+            
+            // Check auth
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                log(`Authenticated as: ${session.user.email}`, 'success');
+            } else {
+                log('Not authenticated - redirecting to login', 'error');
+                setTimeout(() => window.location.href = '/login.html', 2000);
+            }
+        }
+        
+        async function testConnection() {
+            log('Testing basic connection...', 'info');
+            
+            try {
+                const { data, error } = await supabase
+                    .from('pending_calls')
+                    .select('id')
+                    .limit(1);
+                
+                if (error) throw error;
+                
+                log(`✓ Database connection OK - Found ${data.length} records`, 'success');
+                
+                // Test auth
+                const { data: { user } } = await supabase.auth.getUser();
+                log(`✓ Auth OK - User: ${user.email}`, 'success');
+                
+            } catch (error) {
+                log(`✗ Connection failed: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testSimpleSubscription() {
+            log('Testing simple subscription without table...', 'info');
+            
+            if (channel) {
+                supabase.removeChannel(channel);
+                log('Removed previous channel', 'info');
+            }
+            
+            channel = supabase
+                .channel('test-channel')
+                .on('broadcast', { event: 'test' }, (payload) => {
+                    log(`Broadcast received: ${JSON.stringify(payload)}`, 'success');
+                })
+                .on('presence', { event: 'sync' }, () => {
+                    log('Presence sync', 'info');
+                })
+                .subscribe((status, error) => {
+                    if (error) {
+                        log(`Subscribe error: ${error.message}`, 'error');
+                    } else {
+                        log(`Channel status: ${status}`, status === 'SUBSCRIBED' ? 'success' : 'info');
+                        
+                        if (status === 'SUBSCRIBED') {
+                            // Send a test broadcast
+                            channel.send({
+                                type: 'broadcast',
+                                event: 'test',
+                                payload: { message: 'Hello from test!' }
+                            });
+                            log('Sent test broadcast', 'info');
+                        }
+                    }
+                });
+        }
+        
+        async function testTableSubscription() {
+            log('Testing pending_calls table subscription...', 'info');
+            
+            if (channel) {
+                supabase.removeChannel(channel);
+                log('Removed previous channel', 'info');
+            }
+            
+            channel = supabase
+                .channel('pending-calls-test')
+                .on('postgres_changes',
+                    {
+                        event: '*',
+                        schema: 'public',
+                        table: 'pending_calls'
+                    },
+                    (payload) => {
+                        log(`🔔 TABLE UPDATE RECEIVED!`, 'success');
+                        log(`Event: ${payload.eventType}`, 'success');
+                        log(`Table: ${payload.table}`, 'success');
+                        log(`New: ${JSON.stringify(payload.new)}`, 'success');
+                        log(`Old: ${JSON.stringify(payload.old)}`, 'success');
+                    }
+                )
+                .subscribe((status, error) => {
+                    if (error) {
+                        log(`Subscribe error: ${error.message}`, 'error');
+                    } else {
+                        log(`Table subscription status: ${status}`, status === 'SUBSCRIBED' ? 'success' : 'info');
+                        
+                        if (status === 'SUBSCRIBED') {
+                            log('✓ Subscribed to pending_calls changes', 'success');
+                            log('Now update any record in pending_calls table in Supabase', 'info');
+                        }
+                    }
+                });
+        }
+        
+        async function testDirectChannel() {
+            log('Testing with direct WebSocket inspection...', 'info');
+            
+            // Get all channels
+            const channels = supabase.getChannels();
+            log(`Active channels: ${channels.length}`, 'info');
+            
+            channels.forEach((ch, i) => {
+                log(`Channel ${i}: ${ch.topic}, State: ${ch.state}`, 'info');
+                
+                // Check bindings
+                const bindings = ch.bindings;
+                log(`  Bindings: ${Object.keys(bindings).length}`, 'info');
+                
+                // Check socket
+                if (ch.socket) {
+                    log(`  Socket state: ${ch.socket.readyState}`, 'info');
+                    log(`  Socket URL: ${ch.socket.endpointURL()}`, 'info');
+                }
+            });
+            
+            // Create a raw channel with all events
+            if (channel) {
+                supabase.removeChannel(channel);
+            }
+            
+            channel = supabase.channel('raw-test', {
+                config: {
+                    broadcast: { ack: true },
+                    presence: { key: '' }
+                }
+            });
+            
+            // Listen to ALL possible events
+            channel
+                .on('system', {}, (payload) => log(`System: ${JSON.stringify(payload)}`, 'info'))
+                .on('postgres_changes', { event: '*', schema: '*', table: '*' }, (payload) => {
+                    log(`🎯 POSTGRES CHANGE: ${JSON.stringify(payload)}`, 'success');
+                })
+                .on('broadcast', { event: '*' }, (payload) => log(`Broadcast: ${JSON.stringify(payload)}`, 'info'))
+                .on('presence', { event: '*' }, (payload) => log(`Presence: ${JSON.stringify(payload)}`, 'info'))
+                .subscribe((status) => {
+                    log(`Raw channel status: ${status}`, status === 'SUBSCRIBED' ? 'success' : 'info');
+                });
+        }
+        
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+            log('Logs cleared', 'info');
+        }
+        
+        // Initialize on load
+        window.addEventListener('DOMContentLoaded', initSupabase);
+    </script>
+</body>
+</html>
