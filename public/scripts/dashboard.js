@@ -144,7 +144,8 @@ function setupRealtimeSubscription() {
         
         realtimeChannel = supabase
             .channel('dashboard-main-subscription')
-            .on('postgres_changes',
+            .on(
+                'postgres_changes',
                 {
                     event: '*',
                     schema: 'public',
@@ -161,7 +162,31 @@ function setupRealtimeSubscription() {
                     handleRealtimeUpdate(payload);
                 }
             )
+            .on(
+                'system',
+                {},
+                (payload) => {
+                    console.log('🔧 SYSTEM EVENT:', payload);
+                }
+            )
+            .on(
+                'broadcast',
+                { event: '*' },
+                (payload) => {
+                    console.log('🔧 BROADCAST EVENT:', payload);
+                }
+            )
             .subscribe((status, error) => {
+                // Add raw event listener to catch everything
+                if (realtimeChannel.socket) {
+                    const originalOnMessage = realtimeChannel.socket.onMessage;
+                    realtimeChannel.socket.onMessage = function(event) {
+                        console.log('🔧 RAW WEBSOCKET MESSAGE:', event);
+                        if (originalOnMessage) {
+                            originalOnMessage.call(this, event);
+                        }
+                    };
+                }
                 if (error) {
                     console.error('❌ Main subscription error:', error);
                     isRealtimeWorking = false;
@@ -417,29 +442,10 @@ async function testRealtimeConnection() {
         console.error('❌ Exception during fetch:', e);
     }
     
-    // Create a test channel exactly like the working test-realtime.html
-    console.log('🔬 Creating test channel like the working test...');
-    const testChannel = supabase
-        .channel('dashboard-test-channel')
-        .on('postgres_changes', {
-            event: '*',
-            schema: 'public',
-            table: 'pending_calls'
-        }, (payload) => {
-            console.log('🎯 TEST CHANNEL UPDATE!', payload);
-            console.log('This proves realtime works - the main subscription has an issue');
-        })
-        .subscribe((status) => {
-            console.log('Test channel status:', status);
-            if (status === 'SUBSCRIBED') {
-                console.log('✅ Test channel subscribed - now update a record!');
-                // Clean up after 30 seconds
-                setTimeout(() => {
-                    supabase.removeChannel(testChannel);
-                    console.log('🗑️ Test channel cleaned up');
-                }, 30000);
-            }
-        });
+    // TEMPORARILY DISABLED - Testing if multiple channels conflict
+    console.log('🚫 Test channel temporarily disabled to test main subscription');
+    console.log('📝 Main subscription should now be the ONLY subscription');
+    console.log('📝 Update a record and look for: 🎯 MAIN SUBSCRIPTION UPDATE!');
 }
 
 // Logout
