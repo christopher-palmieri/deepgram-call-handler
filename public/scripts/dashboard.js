@@ -50,11 +50,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     // Load calls initially
     loadPendingCalls();
     
-    // Set up real-time subscriptions after a brief delay to ensure client is ready
-    setTimeout(() => {
-        console.log('🔧 Setting up real-time subscriptions...');
-        setupRealtimeSubscription();
-    }, 1000);
+    // Set up real-time subscriptions immediately like the test
+    setupRealtimeSubscription();
     
     // Set up fallback polling (every 10 seconds) if realtime fails
     setupFallbackPolling();
@@ -127,21 +124,19 @@ function monitorCall(pendingCallId, callId) {
     window.location.href = `/monitor.html?pendingCallId=${pendingCallId}&callId=${callId}&autoConnect=true`;
 }
 
-// Set up real-time subscriptions - SIMPLE VERSION LIKE TEST
+// Set up real-time subscriptions - IDENTICAL TO WORKING TEST
 function setupRealtimeSubscription() {
-    console.log('🚀 Setting up realtime subscription...');
+    console.log('Testing pending_calls table subscription...', 'info');
     
     // Clean up any existing subscriptions
     if (realtimeChannel) {
-        console.log('Removing old channel...');
         supabase.removeChannel(realtimeChannel);
-        realtimeChannel = null;
+        console.log('Removed previous channel');
     }
     
     // Use EXACTLY the same code as the working test
-    console.log('Creating channel exactly like working test...');
     realtimeChannel = supabase
-        .channel('pending-calls-test-main')
+        .channel('pending-calls-test')
         .on('postgres_changes',
             {
                 event: '*',
@@ -149,10 +144,11 @@ function setupRealtimeSubscription() {
                 table: 'pending_calls'
             },
             (payload) => {
-                console.log('🎯 DASHBOARD UPDATE RECEIVED!');
+                console.log('🔔 TABLE UPDATE RECEIVED!');
                 console.log(`Event: ${payload.eventType}`);
                 console.log(`Table: ${payload.table}`);
-                console.log(`Payload:`, payload);
+                console.log(`New: ${JSON.stringify(payload.new)}`);
+                console.log(`Old: ${JSON.stringify(payload.old)}`);
                 
                 // Process the update
                 handleRealtimeUpdate(payload);
@@ -160,14 +156,15 @@ function setupRealtimeSubscription() {
         )
         .subscribe((status, error) => {
             if (error) {
-                console.error('Dashboard subscription error:', error);
+                console.log(`Subscribe error: ${error.message}`);
                 isRealtimeWorking = false;
             } else {
-                console.log(`Dashboard subscription status: ${status}`);
+                console.log(`Table subscription status: ${status}`);
                 
                 if (status === 'SUBSCRIBED') {
                     isRealtimeWorking = true;
-                    console.log('✅ Dashboard realtime ACTIVE - updates should work now!');
+                    console.log('✓ Subscribed to pending_calls changes');
+                    console.log('Now update any record in pending_calls table in Supabase');
                     
                     // Stop polling
                     if (pollingInterval) {
@@ -180,8 +177,6 @@ function setupRealtimeSubscription() {
                 updateConnectionStatus(status === 'SUBSCRIBED');
             }
         });
-    
-    console.log('Subscription setup complete');
 }
 
 // Handle real-time updates for pending_calls
