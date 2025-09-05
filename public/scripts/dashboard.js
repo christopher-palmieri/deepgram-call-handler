@@ -138,7 +138,7 @@ function setupRealtimeSubscription() {
     
     // Use EXACTLY the same code as the working test
     realtimeChannel = supabase
-        .channel('pending-calls-test')
+        .channel('dashboard-pending-calls')
         .on('postgres_changes',
             {
                 event: '*',
