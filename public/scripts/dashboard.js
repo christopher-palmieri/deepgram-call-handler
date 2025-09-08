@@ -47,13 +47,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     currentUser = session.user;
     document.getElementById('userEmailDash').textContent = currentUser.email;
     
-    // Set up real-time subscriptions FIRST, before loading data
-    setupRealtimeSubscription();
+    // Load calls first to display data immediately
+    await loadPendingCalls();
     
-    // Wait a brief moment, then load calls initially
-    setTimeout(() => {
-        loadPendingCalls();
-    }, 500);
+    // Then set up real-time subscriptions
+    setupRealtimeSubscription();
     
     // Set up fallback polling (every 10 seconds) if realtime fails
     setupFallbackPolling();
@@ -126,11 +124,9 @@ function monitorCall(pendingCallId, callId) {
     window.location.href = `/monitor.html?pendingCallId=${pendingCallId}&callId=${callId}&autoConnect=true`;
 }
 
-// Set up real-time subscriptions - DEBUG VERSION
+// Set up real-time subscriptions - SIMPLIFIED VERSION
 function setupRealtimeSubscription() {
-    console.log('🔧 DEBUG: Setting up main subscription...');
-    console.log('🔧 DEBUG: Using supabase client:', !!supabase);
-    console.log('🔧 DEBUG: Supabase channels before:', supabase.getChannels().length);
+    console.log('🚀 Setting up realtime subscription...');
     
     // Clean up any existing subscriptions
     if (realtimeChannel) {
@@ -138,80 +134,52 @@ function setupRealtimeSubscription() {
         console.log('Removed previous channel');
     }
     
-    // Add a small delay to ensure WebSocket is ready
-    setTimeout(() => {
-        console.log('🔧 DEBUG: Creating subscription after delay...');
-        
-        realtimeChannel = supabase
-            .channel('dashboard-main-subscription')
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'pending_calls'
-                },
-                (payload) => {
-                    console.log('🎯 MAIN SUBSCRIPTION UPDATE!');
-                    console.log(`Event: ${payload.eventType}`);
-                    console.log(`Table: ${payload.table}`);
-                    console.log(`New: ${JSON.stringify(payload.new)}`);
-                    console.log(`Old: ${JSON.stringify(payload.old)}`);
+    // Create subscription immediately without delay (like test-realtime.html)
+    console.log('Creating subscription exactly like working test...');
+    
+    realtimeChannel = supabase
+        .channel('pending-calls-dashboard')  // Simple channel name like test
+        .on(
+            'postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'pending_calls'
+            },
+            (payload) => {
+                console.log('🔔 DASHBOARD UPDATE RECEIVED!');
+                console.log(`Event: ${payload.eventType}`);
+                console.log(`Table: ${payload.table}`);
+                console.log(`New: ${JSON.stringify(payload.new)}`);
+                console.log(`Old: ${JSON.stringify(payload.old)}`);
+                
+                // Process the update
+                handleRealtimeUpdate(payload);
+            }
+        )
+        .subscribe((status, error) => {
+            if (error) {
+                console.error('❌ Subscription error:', error);
+                isRealtimeWorking = false;
+            } else {
+                console.log(`Dashboard subscription status: ${status}`);
+                
+                if (status === 'SUBSCRIBED') {
+                    isRealtimeWorking = true;
+                    console.log('✅ Dashboard realtime ACTIVE - updates should work now!');
+                    console.log('Now update any pending_calls record in Supabase to test');
                     
-                    // Process the update
-                    handleRealtimeUpdate(payload);
-                }
-            )
-            .on(
-                'system',
-                {},
-                (payload) => {
-                    console.log('🔧 SYSTEM EVENT:', payload);
-                }
-            )
-            .on(
-                'broadcast',
-                { event: '*' },
-                (payload) => {
-                    console.log('🔧 BROADCAST EVENT:', payload);
-                }
-            )
-            .subscribe((status, error) => {
-                // Add raw event listener to catch everything
-                if (realtimeChannel.socket) {
-                    const originalOnMessage = realtimeChannel.socket.onMessage;
-                    realtimeChannel.socket.onMessage = function(event) {
-                        console.log('🔧 RAW WEBSOCKET MESSAGE:', event);
-                        if (originalOnMessage) {
-                            originalOnMessage.call(this, event);
-                        }
-                    };
-                }
-                if (error) {
-                    console.error('❌ Main subscription error:', error);
-                    isRealtimeWorking = false;
-                } else {
-                    console.log(`🔧 Main subscription status: ${status}`);
-                    
-                    if (status === 'SUBSCRIBED') {
-                        isRealtimeWorking = true;
-                        console.log('✅ MAIN SUBSCRIPTION IS ACTIVE!');
-                        console.log('🔧 DEBUG: Channels after subscription:', supabase.getChannels().length);
-                        
-                        // Stop polling
-                        if (pollingInterval) {
-                            clearInterval(pollingInterval);
-                            pollingInterval = null;
-                            console.log('🛑 Stopped fallback polling');
-                        }
+                    // Stop polling
+                    if (pollingInterval) {
+                        clearInterval(pollingInterval);
+                        pollingInterval = null;
+                        console.log('🛑 Stopped fallback polling');
                     }
-                    
-                    updateConnectionStatus(status === 'SUBSCRIBED');
                 }
-            });
-            
-        console.log('🔧 DEBUG: Subscription created, waiting for status...');
-    }, 100);
+                
+                updateConnectionStatus(status === 'SUBSCRIBED');
+            }
+        });
 }
 
 // Handle real-time updates for pending_calls
