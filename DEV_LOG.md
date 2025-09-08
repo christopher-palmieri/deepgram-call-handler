@@ -79,11 +79,39 @@ The main subscription connects successfully (`SUBSCRIBED` status) and receives s
 
 But no postgres_changes events despite database updates.
 
-### Next Critical Steps
-1. Check if RLS policies block real-time events differently than direct queries
-2. Test with a completely different table to isolate pending_calls-specific issues  
-3. Compare exact WebSocket traffic between working test button and failing main subscription
-4. Investigate if Supabase real-time has table-specific or user-specific filtering
+### September 8, 2025 - Continued Debugging
+
+#### Latest Build Status (Commit: 2fd716e)
+**Still Not Working** - Dashboard subscription connects but doesn't receive postgres_changes events
+
+#### Changes Attempted:
+1. **Simplified subscription pattern** - Matched exact test-realtime.html pattern
+2. **Fixed timing** - Set up subscription BEFORE loading data (1-second delay)
+3. **Added extensive debugging** - WebSocket message interception, auth context logging
+4. **Created test function** - `window.createTestSubscription()` for isolated testing
+5. **Fixed isJoined() error** - Added safety checks for method existence
+
+#### Current Behavior:
+- Subscription shows `SUBSCRIBED` status ✅
+- WebSocket connects successfully ✅
+- System events received ✅
+- **postgres_changes events NOT received** ❌
+- Test page (`/test-realtime.html`) still works perfectly ✅
+
+#### TODO - Need Console Logs:
+**User needs to provide latest console output showing:**
+1. Full subscription setup logs
+2. Channel details after SUBSCRIBED status
+3. WebSocket state and message logs
+4. Any errors or warnings
+5. Output when updating a record in Supabase
+
+#### Next Critical Steps
+1. Analyze console logs to identify WebSocket message patterns
+2. Check if postgres_changes events are being sent but filtered
+3. Test with `window.createTestSubscription()` to see if isolated subscription works
+4. Consider if Supabase has connection/channel limits per client
+5. Check if RLS policies block real-time events differently than direct queries
 
 ### Files Modified
 - `public/dashboard.html` - Added Next Action column
