@@ -142,7 +142,7 @@ function setupRealtimeSubscription() {
     console.log('Existing channels before subscription:', existingChannels.map(ch => ({
         topic: ch.topic,
         state: ch.state,
-        joined: ch.isJoined()
+        joined: ch.isJoined ? ch.isJoined() : 'N/A'
     })));
     
     // Create subscription with extensive debugging
@@ -200,7 +200,7 @@ function setupRealtimeSubscription() {
                 console.log('Channel details:', {
                     topic: realtimeChannel.topic,
                     state: realtimeChannel.state,
-                    joined: realtimeChannel.isJoined(),
+                    joined: realtimeChannel.isJoined ? realtimeChannel.isJoined() : 'N/A',
                     socket: !!realtimeChannel.socket
                 });
                 
@@ -507,14 +507,14 @@ async function testRealtimeConnection() {
     console.log('Active channels:', channels.map(ch => ({
         topic: ch.topic,
         state: ch.state,
-        joined: ch.isJoined()
+        joined: ch.isJoined ? ch.isJoined() : 'N/A'
     })));
     
     if (realtimeChannel) {
         console.log('Main channel details:', {
             state: realtimeChannel.state,
             topic: realtimeChannel.topic,
-            joined: realtimeChannel.isJoined(),
+            joined: realtimeChannel.isJoined ? realtimeChannel.isJoined() : 'N/A',
             bindings: Object.keys(realtimeChannel.bindings || {})
         });
     }
