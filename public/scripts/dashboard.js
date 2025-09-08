@@ -47,14 +47,16 @@ window.addEventListener('DOMContentLoaded', async () => {
     currentUser = session.user;
     document.getElementById('userEmailDash').textContent = currentUser.email;
     
-    // Load calls first to display data immediately
-    await loadPendingCalls();
-    
-    // Then set up real-time subscriptions
+    // CRITICAL: Set up subscription BEFORE any data operations
+    // This ensures WebSocket is established before any queries
     setupRealtimeSubscription();
     
-    // Set up fallback polling (every 10 seconds) if realtime fails
-    setupFallbackPolling();
+    // Wait for subscription to establish before loading data
+    setTimeout(async () => {
+        await loadPendingCalls();
+        // Only set up polling after everything else
+        setupFallbackPolling();
+    }, 1000);
 });
 
 // Load pending calls
