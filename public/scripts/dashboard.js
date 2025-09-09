@@ -209,31 +209,27 @@ function setupRealtimeSubscription() {
                     console.log('Channel bindings:', Object.keys(realtimeChannel.bindings));
                 }
                 
-                // Monitor WebSocket directly
-                if (realtimeChannel.socket) {
-                    console.log('WebSocket state:', realtimeChannel.socket.readyState);
+                // Monitor WebSocket through Supabase realtime client
+                const realtimeClient = supabase.realtime;
+                if (realtimeClient && realtimeClient.conn) {
+                    console.log('WebSocket connection state:', realtimeClient.conn.readyState);
+                    console.log('WebSocket URL:', realtimeClient.endpointURL);
                     
-                    // Intercept messages to see what's coming through
-                    const originalOnMessage = realtimeChannel.socket.onmessage;
-                    let messageCount = 0;
-                    realtimeChannel.socket.onmessage = function(event) {
-                        messageCount++;
-                        try {
-                            const data = JSON.parse(event.data);
-                            if (data.event === 'postgres_changes' || data.payload?.type === 'postgres_changes') {
-                                console.log(`🎯 WebSocket postgres_changes message #${messageCount}:`, data);
-                            }
-                            // Log first 5 messages of any type for debugging
-                            if (messageCount <= 5) {
-                                console.log(`📨 WebSocket message #${messageCount} type:`, data.event || data.type, 'topic:', data.topic);
-                            }
-                        } catch (e) {
-                            // Not JSON, ignore
-                        }
-                        if (originalOnMessage) {
-                            originalOnMessage.call(this, event);
-                        }
-                    };
+                    // Monitor connection state changes
+                    if (realtimeClient.conn.readyState === 1) {
+                        console.log('✅ WebSocket is OPEN');
+                    } else {
+                        console.log('⚠️ WebSocket state:', ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][realtimeClient.conn.readyState]);
+                    }
+                    
+                    // Log channel subscription details
+                    console.log('Channel subscriptions:', realtimeClient.channels.map(ch => ({
+                        topic: ch.topic,
+                        state: ch.state,
+                        joined: ch.isJoined()
+                    })));
+                } else {
+                    console.log('⚠️ No WebSocket connection found');
                 }
                 
                 // Stop polling
@@ -501,6 +497,46 @@ async function testRealtimeConnection() {
     // Check AAL level
     const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
     console.log('MFA level:', aalData);
+    
+    // Test with a simple update to trigger realtime
+    console.log('📝 Attempting to update a call to trigger realtime...');
+    
+    // Get the first call to update
+    const { data: calls, error: fetchError } = await supabase
+        .from('pending_calls')
+        .select('*')
+        .limit(1);
+    
+    if (fetchError) {
+        console.error('Failed to fetch call for test:', fetchError);
+        return;
+    }
+    
+    if (!calls || calls.length === 0) {
+        console.log('No calls found to test with');
+        return;
+    }
+    
+    const testCall = calls[0];
+    console.log('Testing with call:', testCall.id);
+    
+    // Update the call with a test timestamp
+    const testTimestamp = new Date().toISOString();
+    const { data: updateData, error: updateError } = await supabase
+        .from('pending_calls')
+        .update({ 
+            last_updated: testTimestamp,
+            workflow_state: testCall.workflow_state || 'pending' // Keep same state
+        })
+        .eq('id', testCall.id)
+        .select();
+    
+    if (updateError) {
+        console.error('❌ Update failed:', updateError);
+    } else {
+        console.log('✅ Update successful:', updateData);
+        console.log('⏳ Watch for realtime event above...');
+    }
     
     // Check if channel is subscribed
     const channels = supabase.getChannels();
