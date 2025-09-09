@@ -323,19 +323,14 @@ function createCallRowHtml(call) {
     const nextAction = call.next_action_at ? 
         new Date(call.next_action_at).toLocaleString() : '-';
     
-    const activeSession = call.call_sessions && 
-        call.call_sessions.find(s => s.call_status === 'active');
-    
-    let buttonHtml = '';
-    if (activeSession) {
-        buttonHtml = `<button class="monitor-btn" onclick="event.stopPropagation(); monitorCall('${call.id}', '${activeSession.call_id}')">Monitor Live</button>`;
-    } else {
-        buttonHtml = `<button class="monitor-btn" onclick="event.stopPropagation(); viewCallDetails('${call.id}')">View Details</button>`;
-    }
+    const appointmentTime = call.appointment_time ? 
+        new Date(call.appointment_time).toLocaleString() : '-';
     
     return `<tr class="clickable" data-call-id="${call.id}" onclick="viewCallDetails('${call.id}')">
         <td>${call.employee_name || '-'}</td>
+        <td>${call.client_name || '-'}</td>
         <td>${call.clinic_name || '-'}</td>
+        <td>${appointmentTime}</td>
         <td>${call.phone || '-'}</td>
         <td><span class="task-type-badge">${call.task_type || 'records_request'}</span></td>
         <td><span class="workflow-badge workflow-${call.workflow_state}">${call.workflow_state}</span></td>
@@ -343,7 +338,6 @@ function createCallRowHtml(call) {
         <td>${lastAttempt}</td>
         <td>${nextAction}</td>
         <td>${call.success_evaluation || '-'}</td>
-        <td>${buttonHtml}</td>
     </tr>`;
 }
 

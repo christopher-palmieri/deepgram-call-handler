@@ -30,8 +30,10 @@
                     <button class="filter-btn" onclick="filterCalls('pending')">Pending</button>
                     <button class="filter-btn" onclick="filterCalls('completed')">Completed</button>
                 </div>
+                <!-- Buttons hidden for production
                 <button class="refresh-btn" onclick="loadPendingCalls()">Refresh</button>
                 <button class="refresh-btn" onclick="testRealtimeConnection()" style="margin-left: 10px;">Test Realtime</button>
+                -->
             </div>
             
             <div class="calls-table">
@@ -39,7 +41,9 @@
                     <thead>
                         <tr>
                             <th>Employee Name</th>
+                            <th>Client</th>
                             <th>Clinic</th>
+                            <th>Appointment</th>
                             <th>Phone</th>
                             <th>Task Type</th>
                             <th>Workflow State</th>
@@ -47,12 +51,11 @@
                             <th>Last Attempt</th>
                             <th>Next Action</th>
                             <th>Success</th>
-                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="callsTableBody">
                         <tr>
-                            <td colspan="10" class="empty-table">Loading calls...</td>
+                            <td colspan="11" class="empty-table">Loading calls...</td>
                         </tr>
                     </tbody>
                 </table>
