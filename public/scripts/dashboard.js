@@ -226,7 +226,7 @@ function setupRealtimeSubscription() {
                     console.log('Channel subscriptions:', realtimeClient.channels.map(ch => ({
                         topic: ch.topic,
                         state: ch.state,
-                        joined: ch.isJoined()
+                        joined: ch.isJoined ? ch.isJoined() : ch.state === 'joined'
                     })));
                 } else {
                     console.log('⚠️ No WebSocket connection found');
@@ -525,7 +525,7 @@ async function testRealtimeConnection() {
     const { data: updateData, error: updateError } = await supabase
         .from('pending_calls')
         .update({ 
-            last_updated: testTimestamp,
+            updated_at: testTimestamp,
             workflow_state: testCall.workflow_state || 'pending' // Keep same state
         })
         .eq('id', testCall.id)
