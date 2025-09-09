@@ -61,6 +61,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     // Initialize dropdown filters
     initializeDropdownFilters();
     
+    // Load saved filters from localStorage
+    loadSavedFilters();
+    
     // CRITICAL: Set up subscription BEFORE any data operations
     // This ensures WebSocket is established before any queries
     setupRealtimeSubscription();
@@ -864,6 +867,7 @@ function handleFilterChange(filterType, value, checked) {
     }
     
     updateFilterDisplay(filterType);
+    saveFiltersToStorage();
     renderCallsTable();
 }
 
@@ -957,6 +961,60 @@ function applyFilters(calls) {
         
         return true;
     });
+}
+
+// Save current filter state to localStorage
+function saveFiltersToStorage() {
+    try {
+        const filterState = {
+            status: currentFilters.status,
+            dateRange: currentFilters.dateRange,
+            taskType: currentFilters.taskType,
+            savedAt: new Date().toISOString()
+        };
+        localStorage.setItem('dashboardFilters', JSON.stringify(filterState));
+        console.log('Filters saved to localStorage:', filterState);
+    } catch (error) {
+        console.warn('Failed to save filters to localStorage:', error);
+    }
+}
+
+// Load saved filter state from localStorage
+function loadSavedFilters() {
+    try {
+        const saved = localStorage.getItem('dashboardFilters');
+        if (!saved) {
+            console.log('No saved filters found');
+            return;
+        }
+        
+        const filterState = JSON.parse(saved);
+        console.log('Loading saved filters:', filterState);
+        
+        // Restore filter state
+        if (filterState.status) currentFilters.status = filterState.status;
+        if (filterState.dateRange) currentFilters.dateRange = filterState.dateRange;
+        if (filterState.taskType) currentFilters.taskType = filterState.taskType;
+        
+        // Update UI to reflect loaded filters
+        updateCheckboxes('status', currentFilters.status);
+        updateCheckboxes('dateRange', currentFilters.dateRange);
+        updateCheckboxes('taskType', currentFilters.taskType);
+        
+        updateFilterDisplay('status');
+        updateFilterDisplay('dateRange');
+        updateFilterDisplay('taskType');
+        
+        console.log('Filters restored from localStorage');
+    } catch (error) {
+        console.warn('Failed to load filters from localStorage:', error);
+        // Reset to defaults if loading fails
+        currentFilters = {
+            status: ['all'],
+            dateRange: ['all'],
+            taskType: ['all']
+        };
+    }
 }
 
 function matchesDateRange(appointmentTime, dateRanges) {
