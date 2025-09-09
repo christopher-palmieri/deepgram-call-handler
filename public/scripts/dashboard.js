@@ -349,33 +349,22 @@ function createCallRowHtml(call) {
 
 // Update connection status indicator
 function updateConnectionStatus(connected) {
-    const header = document.querySelector('.header');
-    let statusIndicator = document.getElementById('realtimeStatus');
+    const statusDot = document.querySelector('.status-dot');
+    const statusText = document.querySelector('.status-text');
     
-    if (!statusIndicator) {
-        statusIndicator = document.createElement('div');
-        statusIndicator.id = 'realtimeStatus';
-        statusIndicator.style.cssText = `
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: bold;
-        `;
-        header.style.position = 'relative';
-        header.appendChild(statusIndicator);
-    }
-    
-    if (connected) {
-        statusIndicator.textContent = '● Live';
-        statusIndicator.style.backgroundColor = '#10b981';
-        statusIndicator.style.color = 'white';
-    } else {
-        statusIndicator.textContent = '● Offline';
-        statusIndicator.style.backgroundColor = '#ef4444';
-        statusIndicator.style.color = 'white';
+    if (statusDot && statusText) {
+        if (connected) {
+            statusDot.classList.remove('disconnected');
+            statusDot.classList.add('connected');
+            statusText.textContent = 'Live';
+        } else if (pollingInterval) {
+            statusDot.classList.remove('connected', 'disconnected');
+            statusText.textContent = 'Polling';
+        } else {
+            statusDot.classList.remove('connected');
+            statusDot.classList.add('disconnected');
+            statusText.textContent = 'Offline';
+        }
     }
 }
 

@@ -9,10 +9,82 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
     background: linear-gradient(135deg, #008d6f 0%, #00614d 100%);
     min-height: 100vh;
+    margin: 0;
+    padding: 0;
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+}
+
+/* Top Bar Styles */
+.top-bar {
+    background: #2d3748;
+    color: white;
+    padding: 10px 20px;
+    display: flex;
+    justify-content: space-between;
     align-items: center;
-    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.top-bar-title {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.top-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.top-bar .user-email {
+    color: #cbd5e0;
+    font-size: 14px;
+}
+
+.top-bar .logout-btn {
+    background: #e53e3e;
+    color: white;
+    border: none;
+    padding: 6px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.2s;
+}
+
+.top-bar .logout-btn:hover {
+    background: #c53030;
+}
+
+.top-bar .connection-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 4px;
+}
+
+.top-bar .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #fbbf24;
+}
+
+.top-bar .status-dot.connected {
+    background: #34d399;
+}
+
+.top-bar .status-dot.disconnected {
+    background: #f87171;
+}
+
+.top-bar .status-text {
+    font-size: 13px;
+    color: #e2e8f0;
 }
 
 /* Login Styles */
@@ -105,17 +177,16 @@ body {
 
 /* Dashboard Container */
 .dashboard-container {
-    background: white;
-    border-radius: 20px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    width: 100%;
-    max-width: 1400px;
-    overflow: hidden;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    overflow: auto;
     display: none;
 }
 
 .dashboard-container.authenticated {
-    display: block;
+    display: flex;
 }
 
 /* Call Details Container */
@@ -133,18 +204,9 @@ body {
     display: block;
 }
 
-/* Header Styles */
+/* Header Styles - Removed, now using top-bar */
 .header {
-    background: linear-gradient(135deg, #008d6f 0%, #00614d 100%);
-    color: white;
-    padding: 30px;
-    text-align: center;
-    position: relative;
-}
-
-.header h1 {
-    font-size: 28px;
-    margin-bottom: 10px;
+    display: none;
 }
 
 .header-nav {
@@ -169,36 +231,7 @@ body {
     background: rgba(255,255,255,0.3);
 }
 
-.user-info {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    background: rgba(255,255,255,0.2);
-    padding: 10px 20px;
-    border-radius: 20px;
-}
-
-.user-email {
-    font-size: 14px;
-}
-
-.logout-btn {
-    padding: 6px 15px;
-    background: white;
-    color: #008d6f;
-    border: none;
-    border-radius: 15px;
-    cursor: pointer;
-    font-weight: bold;
-    font-size: 12px;
-}
-
-.logout-btn:hover {
-    transform: scale(1.05);
-}
+/* User info and logout - now styled in top bar */
 
 /* Dashboard Table Styles */
 .dashboard-content {
@@ -263,18 +296,18 @@ body {
 
 .calls-table th {
     background: #f9fafb;
-    padding: 12px;
+    padding: 10px;
     text-align: left;
     font-weight: 600;
     color: #374151;
     border-bottom: 1px solid #e5e7eb;
-    font-size: 14px;
+    font-size: 13px;
 }
 
 .calls-table td {
-    padding: 12px;
+    padding: 10px;
     border-bottom: 1px solid #f3f4f6;
-    font-size: 14px;
+    font-size: 13px;
 }
 
 .calls-table tr:hover {

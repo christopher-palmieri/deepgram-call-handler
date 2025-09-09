@@ -9,17 +9,19 @@
     <link rel="stylesheet" href="/styles/monitor.css">
 </head>
 <body>
-    <div class="dashboard-container authenticated">
-        <div class="header">
-            <div class="user-info">
-                <span class="user-email" id="userEmailDash">-</span>
-                <button class="logout-btn" onclick="logout()">Sign Out</button>
+    <div class="top-bar">
+        <h1 class="top-bar-title">IVR Monitor Dashboard</h1>
+        <div class="top-bar-right">
+            <div class="connection-status" id="connectionStatus">
+                <span class="status-dot"></span>
+                <span class="status-text">Connecting...</span>
             </div>
-            
-            <h1>IVR Monitor Dashboard</h1>
-            <p>Active and pending calls overview</p>
+            <span class="user-email" id="userEmailDash">-</span>
+            <button class="logout-btn" onclick="logout()">Sign Out</button>
         </div>
-        
+    </div>
+    
+    <div class="dashboard-container authenticated">
         <div class="dashboard-content">
             <div class="dashboard-controls">
                 <div class="status-filter">
