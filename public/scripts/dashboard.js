@@ -321,6 +321,27 @@ function updateSingleCallRow(call) {
     }
 }
 
+// Format phone number to (XXX) XXX-XXXX format
+function formatPhoneNumber(phone) {
+    if (!phone) return '-';
+    
+    // Remove all non-digit characters
+    const cleaned = phone.replace(/\D/g, '');
+    
+    // Check if it's a US phone number (10 digits) or international with country code
+    if (cleaned.length === 10) {
+        // Format as (XXX) XXX-XXXX
+        return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+    } else if (cleaned.length === 11 && cleaned.startsWith('1')) {
+        // US number with country code, remove the 1
+        const usNumber = cleaned.slice(1);
+        return `(${usNumber.slice(0, 3)}) ${usNumber.slice(3, 6)}-${usNumber.slice(6)}`;
+    } else {
+        // Return as-is for international or non-standard numbers
+        return phone;
+    }
+}
+
 // Create HTML for a single call row
 function createCallRowHtml(call) {
     const lastAttempt = call.last_attempt_at ? 
@@ -332,18 +353,20 @@ function createCallRowHtml(call) {
     const appointmentTime = call.appointment_time ? 
         new Date(call.appointment_time).toLocaleString() : '-';
     
+    const formattedPhone = formatPhoneNumber(call.phone);
+    
     return `<tr class="clickable" data-call-id="${call.id}" onclick="viewCallDetails('${call.id}')">
         <td>${call.employee_name || '-'}</td>
-        <td>${call.client_name || '-'}</td>
-        <td>${call.clinic_name || '-'}</td>
         <td>${appointmentTime}</td>
-        <td>${call.phone || '-'}</td>
         <td><span class="task-type-badge">${call.task_type || 'records_request'}</span></td>
         <td><span class="workflow-badge workflow-${call.workflow_state}">${call.workflow_state}</span></td>
+        <td>${call.success_evaluation || '-'}</td>
         <td>${call.retry_count || 0}/${call.max_retries || 3}</td>
+        <td>${call.client_name || '-'}</td>
+        <td>${call.clinic_name || '-'}</td>
+        <td>${formattedPhone}</td>
         <td>${lastAttempt}</td>
         <td>${nextAction}</td>
-        <td>${call.success_evaluation || '-'}</td>
     </tr>`;
 }
 
