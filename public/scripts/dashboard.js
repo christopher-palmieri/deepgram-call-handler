@@ -13,6 +13,7 @@ let callSessionsChannel = null;
 let pollingInterval = null;
 let isRealtimeWorking = false;
 let currentSort = { field: null, direction: 'asc' };
+let searchQuery = '';
 
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', async () => {
@@ -67,6 +68,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     // Load saved filter presets
     loadFilterPresets();
     
+    // Initialize search functionality
+    initializeSearch();
+    
     // CRITICAL: Set up subscription BEFORE any data operations
     // This ensures WebSocket is established before any queries
     setupRealtimeSubscription();
@@ -110,6 +114,7 @@ function renderCallsTable() {
     const tbody = document.getElementById('callsTableBody');
     
     let filteredCalls = applyFilters(allCalls);
+    filteredCalls = applySearch(filteredCalls);
     
     if (filteredCalls.length === 0) {
         tbody.innerHTML = '<tr><td colspan="11" class="empty-table">No calls found</td></tr>';
@@ -1267,6 +1272,73 @@ document.addEventListener('keydown', (e) => {
         closeSaveFilterModal();
     }
 });
+
+// Search Functionality
+function initializeSearch() {
+    const searchInput = document.getElementById('searchInput');
+    const searchClear = document.getElementById('searchClear');
+    
+    searchInput.addEventListener('input', (e) => {
+        searchQuery = e.target.value.trim();
+        
+        if (searchQuery) {
+            searchClear.style.display = 'flex';
+        } else {
+            searchClear.style.display = 'none';
+        }
+        
+        renderCallsTable();
+    });
+    
+    // Also trigger search on Enter key
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            renderCallsTable();
+        }
+    });
+}
+
+function clearSearch() {
+    const searchInput = document.getElementById('searchInput');
+    const searchClear = document.getElementById('searchClear');
+    
+    searchInput.value = '';
+    searchQuery = '';
+    searchClear.style.display = 'none';
+    
+    renderCallsTable();
+    searchInput.focus();
+}
+
+function applySearch(calls) {
+    if (!searchQuery) {
+        return calls;
+    }
+    
+    const query = searchQuery.toLowerCase();
+    
+    return calls.filter(call => {
+        // Search in all visible text fields
+        const searchableFields = [
+            call.employee_name,
+            call.client_name,
+            call.clinic_name,
+            call.phone,
+            call.task_type,
+            call.workflow_state,
+            call.success_evaluation,
+            formatPhoneNumber(call.phone),
+            formatDate(call.appointment_time),
+            formatDate(call.last_attempt_at),
+            formatDate(call.next_action_at)
+        ];
+        
+        return searchableFields.some(field => {
+            if (!field) return false;
+            return field.toString().toLowerCase().includes(query);
+        });
+    });
+}
 
 function matchesDateRange(appointmentTime, dateRanges) {
     if (!appointmentTime) return false;

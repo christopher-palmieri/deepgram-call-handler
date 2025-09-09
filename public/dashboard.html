@@ -24,7 +24,8 @@
     <div class="dashboard-container authenticated">
         <div class="dashboard-content">
             <div class="dashboard-controls">
-                <div class="filters-container">
+                <div class="left-controls">
+                    <div class="filters-container">
                     <!-- Workflow Status Filter -->
                     <div class="filter-group">
                         <label class="filter-label">Status:</label>
@@ -125,11 +126,20 @@
                     </div>
                 </div>
                 
-                <!-- Filter Presets Section -->
-                <div class="filter-presets-section">
-                    <button class="save-filter-btn" onclick="showSaveFilterModal()">Save Filter</button>
-                    <div class="saved-presets" id="savedPresets">
-                        <!-- Saved filter presets will appear here -->
+                    <!-- Filter Presets Section -->
+                    <div class="filter-presets-section">
+                        <button class="save-filter-btn" onclick="showSaveFilterModal()">Save Filter</button>
+                        <div class="saved-presets" id="savedPresets">
+                            <!-- Saved filter presets will appear here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Search Section -->
+                <div class="search-section">
+                    <div class="search-container">
+                        <input type="text" id="searchInput" placeholder="Search calls..." class="search-input">
+                        <button class="search-clear" id="searchClear" onclick="clearSearch()" style="display: none;">&times;</button>
                     </div>
                 </div>
                 
@@ -191,7 +201,7 @@
         <img src="https://nmshealth.com/wp-content/uploads/2021/12/nms-health-logo-white-18-300x84.png" alt="NMS Health Logo" class="footer-logo">
     </footer>
     
-    <script src="/scripts/config.js?v=20250109-6"></script>
-    <script src="/scripts/dashboard.js?v=20250109-6"></script>
+    <script src="/scripts/config.js?v=20250109-7"></script>
+    <script src="/scripts/dashboard.js?v=20250109-7"></script>
 </body>
 </html>
