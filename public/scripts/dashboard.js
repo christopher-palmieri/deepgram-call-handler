@@ -130,12 +130,36 @@ function monitorCall(pendingCallId, callId) {
 function setupRealtimeSubscription() {
     console.log('🚀 Setting up realtime subscription...');
     
-    // Remove any existing subscription
-    if (realtimeChannel) {
-        console.log('Removing existing channel');
-        supabase.removeChannel(realtimeChannel);
-        realtimeChannel = null;
+    // CRITICAL: Remove ALL existing channels to avoid conflicts
+    const allChannels = supabase.getChannels();
+    console.log(`Found ${allChannels.length} existing channels`);
+    allChannels.forEach(channel => {
+        console.log(`Removing channel: ${channel.topic}`);
+        supabase.removeChannel(channel);
+    });
+    
+    // Force reconnect the realtime connection
+    if (supabase.realtime) {
+        console.log('Disconnecting existing realtime connection...');
+        supabase.realtime.disconnect();
+        
+        // Small delay to ensure disconnection
+        setTimeout(() => {
+            console.log('Reconnecting realtime...');
+            supabase.realtime.connect();
+            
+            // Create subscription after reconnection
+            setTimeout(() => {
+                createDashboardSubscription();
+            }, 500);
+        }, 500);
+    } else {
+        createDashboardSubscription();
     }
+}
+
+function createDashboardSubscription() {
+    console.log('Creating fresh subscription...');
     
     // Create subscription EXACTLY like the working test page
     realtimeChannel = supabase
@@ -166,6 +190,13 @@ function setupRealtimeSubscription() {
                     isRealtimeWorking = true;
                     console.log('✅ Subscribed to pending_calls changes');
                     console.log('Now update any record in pending_calls table');
+                    
+                    // Log final state
+                    const channels = supabase.getChannels();
+                    console.log(`Active channels after setup: ${channels.length}`);
+                    channels.forEach(ch => {
+                        console.log(`- ${ch.topic}: ${ch.state}`);
+                    });
                     
                     // Stop polling when realtime is working
                     if (pollingInterval) {
@@ -431,44 +462,88 @@ async function testRealtimeConnection() {
     const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
     console.log('MFA level:', aalData);
     
-    // Test with a simple update to trigger realtime
-    console.log('📝 Attempting to update a call to trigger realtime...');
+    // Create a SEPARATE test channel to isolate the issue
+    console.log('🔬 Creating isolated test channel...');
     
-    // Get the first call to update
-    const { data: calls, error: fetchError } = await supabase
-        .from('pending_calls')
-        .select('*')
-        .limit(1);
+    // Remove any existing test channel
+    const existingChannels = supabase.getChannels();
+    const testChannels = existingChannels.filter(ch => ch.topic.includes('test'));
+    testChannels.forEach(ch => {
+        console.log(`Removing test channel: ${ch.topic}`);
+        supabase.removeChannel(ch);
+    });
     
-    if (fetchError) {
-        console.error('Failed to fetch call for test:', fetchError);
-        return;
-    }
+    // Create new test subscription
+    const testChannel = supabase
+        .channel('test-isolated-' + Date.now())
+        .on('postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'pending_calls'
+            },
+            (payload) => {
+                console.log('🎯 TEST CHANNEL RECEIVED UPDATE!');
+                console.log('Payload:', payload);
+            }
+        )
+        .subscribe((status, error) => {
+            if (error) {
+                console.error('Test channel error:', error);
+            } else {
+                console.log(`Test channel status: ${status}`);
+                if (status === 'SUBSCRIBED') {
+                    console.log('✅ Test channel ready');
+                    performTestUpdate();
+                }
+            }
+        });
     
-    if (!calls || calls.length === 0) {
-        console.log('No calls found to test with');
-        return;
-    }
-    
-    const testCall = calls[0];
-    console.log('Testing with call:', testCall.id);
-    
-    // Update the call with a test timestamp
-    const testTimestamp = new Date().toISOString();
-    const { data: updateData, error: updateError } = await supabase
-        .from('pending_calls')
-        .update({ 
-            updated_at: testTimestamp,
-            workflow_state: testCall.workflow_state || 'pending' // Keep same state
-        })
-        .eq('id', testCall.id)
-        .select();
-    
-    if (updateError) {
-        console.error('❌ Update failed:', updateError);
-    } else {
-        console.log('✅ Update successful:', updateData);
-        console.log('⏳ Watch for realtime event above...');
+    async function performTestUpdate() {
+        console.log('📝 Performing test update...');
+        
+        // Get the first call to update
+        const { data: calls, error: fetchError } = await supabase
+            .from('pending_calls')
+            .select('*')
+            .limit(1);
+        
+        if (fetchError) {
+            console.error('Failed to fetch call:', fetchError);
+            return;
+        }
+        
+        if (!calls || calls.length === 0) {
+            console.log('No calls found to test with');
+            return;
+        }
+        
+        const testCall = calls[0];
+        console.log('Updating call:', testCall.id);
+        
+        // Update the call
+        const testTimestamp = new Date().toISOString();
+        const { data: updateData, error: updateError } = await supabase
+            .from('pending_calls')
+            .update({ 
+                updated_at: testTimestamp,
+                workflow_state: testCall.workflow_state || 'pending'
+            })
+            .eq('id', testCall.id)
+            .select();
+        
+        if (updateError) {
+            console.error('❌ Update failed:', updateError);
+        } else {
+            console.log('✅ Update successful');
+            console.log('⏳ Waiting for realtime event...');
+            
+            // After 3 seconds, clean up test channel
+            setTimeout(() => {
+                console.log('🧹 Cleaning up test channel');
+                supabase.removeChannel(testChannel);
+            }, 3000);
+        }
     }
     
     // Check if channel is subscribed
