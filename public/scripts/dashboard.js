@@ -129,33 +129,18 @@ function monitorCall(pendingCallId, callId) {
 // Set up real-time subscriptions - DEBUG VERSION
 function setupRealtimeSubscription() {
     console.log('🚀 Setting up realtime subscription...');
-    console.log('Current auth state:', currentUser?.email);
     
-    // Clean up any existing subscriptions
+    // Remove any existing subscription
     if (realtimeChannel) {
-        console.log('Cleaning up existing channel:', realtimeChannel.topic);
+        console.log('Removing existing channel');
         supabase.removeChannel(realtimeChannel);
+        realtimeChannel = null;
     }
     
-    // Log all existing channels
-    const existingChannels = supabase.getChannels();
-    console.log('Existing channels before subscription:', existingChannels.map(ch => ({
-        topic: ch.topic,
-        state: ch.state,
-        joined: ch.isJoined ? ch.isJoined() : 'N/A'
-    })));
-    
-    // Create subscription with extensive debugging
-    console.log('Creating new subscription...');
-    
-    // Try with a unique timestamp in channel name to avoid conflicts
-    const channelName = `pending-calls-${Date.now()}`;
-    console.log('Using channel name:', channelName);
-    
+    // Create subscription EXACTLY like the working test page
     realtimeChannel = supabase
-        .channel(channelName)
-        .on(
-            'postgres_changes',
+        .channel('pending-calls-dashboard')
+        .on('postgres_changes',
             {
                 event: '*',
                 schema: 'public',
@@ -163,88 +148,36 @@ function setupRealtimeSubscription() {
             },
             (payload) => {
                 console.log('🔔 DASHBOARD UPDATE RECEIVED!');
-                console.log('Full payload:', JSON.stringify(payload, null, 2));
+                console.log(`Event: ${payload.eventType}`);
+                console.log(`Table: ${payload.table}`);
+                console.log('New:', payload.new);
+                console.log('Old:', payload.old);
                 handleRealtimeUpdate(payload);
             }
-        );
-    
-    // Add system event listener to debug
-    realtimeChannel.on('system', {}, (payload) => {
-        console.log('📡 System event:', payload);
-    });
-    
-    // Add presence sync to verify connection
-    realtimeChannel.on('presence', { event: 'sync' }, () => {
-        console.log('👥 Presence sync received');
-    });
-    
-    // Subscribe and monitor
-    realtimeChannel.subscribe((status, error) => {
-        console.log('📊 Subscription callback - Status:', status, 'Error:', error);
-        
-        if (error) {
-            console.error('❌ Subscription error details:', {
-                message: error.message,
-                code: error.code,
-                details: error
-            });
-            isRealtimeWorking = false;
-        } else {
-            console.log(`Dashboard subscription status changed to: ${status}`);
-            
-            if (status === 'SUBSCRIBED') {
-                isRealtimeWorking = true;
-                console.log('✅ Dashboard realtime ACTIVE!');
+        )
+        .subscribe((status, error) => {
+            if (error) {
+                console.error('Subscribe error:', error.message);
+                isRealtimeWorking = false;
+            } else {
+                console.log(`Subscription status: ${status}`);
                 
-                // Log channel details
-                console.log('Channel details:', {
-                    topic: realtimeChannel.topic,
-                    state: realtimeChannel.state,
-                    joined: realtimeChannel.isJoined ? realtimeChannel.isJoined() : 'N/A',
-                    socket: !!realtimeChannel.socket
-                });
-                
-                // Check bindings
-                if (realtimeChannel.bindings) {
-                    console.log('Channel bindings:', Object.keys(realtimeChannel.bindings));
-                }
-                
-                // Monitor WebSocket through Supabase realtime client
-                const realtimeClient = supabase.realtime;
-                if (realtimeClient && realtimeClient.conn) {
-                    console.log('WebSocket connection state:', realtimeClient.conn.readyState);
-                    console.log('WebSocket URL:', realtimeClient.endpointURL);
+                if (status === 'SUBSCRIBED') {
+                    isRealtimeWorking = true;
+                    console.log('✅ Subscribed to pending_calls changes');
+                    console.log('Now update any record in pending_calls table');
                     
-                    // Monitor connection state changes
-                    if (realtimeClient.conn.readyState === 1) {
-                        console.log('✅ WebSocket is OPEN');
-                    } else {
-                        console.log('⚠️ WebSocket state:', ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][realtimeClient.conn.readyState]);
+                    // Stop polling when realtime is working
+                    if (pollingInterval) {
+                        clearInterval(pollingInterval);
+                        pollingInterval = null;
+                        console.log('🛑 Stopped fallback polling');
                     }
-                    
-                    // Log channel subscription details
-                    console.log('Channel subscriptions:', realtimeClient.channels.map(ch => ({
-                        topic: ch.topic,
-                        state: ch.state,
-                        joined: ch.isJoined ? ch.isJoined() : ch.state === 'joined'
-                    })));
-                } else {
-                    console.log('⚠️ No WebSocket connection found');
                 }
                 
-                // Stop polling
-                if (pollingInterval) {
-                    clearInterval(pollingInterval);
-                    pollingInterval = null;
-                    console.log('🛑 Stopped fallback polling');
-                }
+                updateConnectionStatus(status === 'SUBSCRIBED');
             }
-            
-            updateConnectionStatus(status === 'SUBSCRIBED');
-        }
-    });
-    
-    console.log('Subscription setup complete, waiting for status...');
+        });
 }
 
 // Handle real-time updates for pending_calls
