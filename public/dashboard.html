@@ -125,6 +125,14 @@
                     </div>
                 </div>
                 
+                <!-- Filter Presets Section -->
+                <div class="filter-presets-section">
+                    <button class="save-filter-btn" onclick="showSaveFilterModal()">Save Filter</button>
+                    <div class="saved-presets" id="savedPresets">
+                        <!-- Saved filter presets will appear here -->
+                    </div>
+                </div>
+                
                 <!-- Buttons hidden for production
                 <button class="refresh-btn" onclick="loadPendingCalls()">Refresh</button>
                 <button class="refresh-btn" onclick="testRealtimeConnection()" style="margin-left: 10px;">Test Realtime</button>
@@ -158,11 +166,32 @@
         </div>
     </div>
     
+    <!-- Save Filter Modal -->
+    <div id="saveFilterModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Save Filter Preset</h3>
+                <button class="modal-close" onclick="closeSaveFilterModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Give this filter combination a name:</p>
+                <input type="text" id="filterPresetName" placeholder="e.g., Today's Failed Calls" maxlength="50">
+                <div class="current-filters-preview" id="currentFiltersPreview">
+                    <!-- Current filter summary will appear here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" onclick="closeSaveFilterModal()">Cancel</button>
+                <button class="modal-btn primary" onclick="saveFilterPreset()">Save Preset</button>
+            </div>
+        </div>
+    </div>
+    
     <footer class="footer">
         <img src="https://nmshealth.com/wp-content/uploads/2021/12/nms-health-logo-white-18-300x84.png" alt="NMS Health Logo" class="footer-logo">
     </footer>
     
-    <script src="/scripts/config.js?v=20250109-5"></script>
-    <script src="/scripts/dashboard.js?v=20250109-5"></script>
+    <script src="/scripts/config.js?v=20250109-6"></script>
+    <script src="/scripts/dashboard.js?v=20250109-6"></script>
 </body>
 </html>

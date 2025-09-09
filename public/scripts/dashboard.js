@@ -64,6 +64,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     // Load saved filters from localStorage
     loadSavedFilters();
     
+    // Load saved filter presets
+    loadFilterPresets();
+    
     // CRITICAL: Set up subscription BEFORE any data operations
     // This ensures WebSocket is established before any queries
     setupRealtimeSubscription();
@@ -1016,6 +1019,254 @@ function loadSavedFilters() {
         };
     }
 }
+
+// Filter Presets System
+function showSaveFilterModal() {
+    const modal = document.getElementById('saveFilterModal');
+    const previewContainer = document.getElementById('currentFiltersPreview');
+    const nameInput = document.getElementById('filterPresetName');
+    
+    // Clear previous input
+    nameInput.value = '';
+    
+    // Show current filter summary
+    const summary = generateFilterSummary(currentFilters);
+    previewContainer.innerHTML = `
+        <h4>Current Filter Settings:</h4>
+        <div class="filter-summary">${summary}</div>
+    `;
+    
+    modal.style.display = 'flex';
+    nameInput.focus();
+}
+
+function closeSaveFilterModal() {
+    document.getElementById('saveFilterModal').style.display = 'none';
+}
+
+function generateFilterSummary(filters) {
+    const parts = [];
+    
+    // Status
+    if (!filters.status.includes('all')) {
+        const statusLabels = filters.status.map(s => formatFilterValue(s));
+        parts.push(`Status: ${statusLabels.join(', ')}`);
+    }
+    
+    // Date Range
+    if (!filters.dateRange.includes('all')) {
+        const dateLabels = filters.dateRange.map(d => formatFilterValue(d));
+        parts.push(`Date: ${dateLabels.join(', ')}`);
+    }
+    
+    // Task Type
+    if (!filters.taskType.includes('all')) {
+        const taskLabels = filters.taskType.map(t => formatFilterValue(t));
+        parts.push(`Task: ${taskLabels.join(', ')}`);
+    }
+    
+    return parts.length > 0 ? parts.join(' • ') : 'All filters (no restrictions)';
+}
+
+function saveFilterPreset() {
+    const nameInput = document.getElementById('filterPresetName');
+    const name = nameInput.value.trim();
+    
+    if (!name) {
+        alert('Please enter a name for this filter preset');
+        nameInput.focus();
+        return;
+    }
+    
+    try {
+        // Get existing presets
+        const existingPresets = JSON.parse(localStorage.getItem('filterPresets') || '{}');
+        
+        // Check if name already exists
+        if (existingPresets[name]) {
+            if (!confirm(`A preset named "${name}" already exists. Overwrite it?`)) {
+                return;
+            }
+        }
+        
+        // Save new preset
+        existingPresets[name] = {
+            filters: {
+                status: [...currentFilters.status],
+                dateRange: [...currentFilters.dateRange],
+                taskType: [...currentFilters.taskType]
+            },
+            createdAt: new Date().toISOString()
+        };
+        
+        localStorage.setItem('filterPresets', JSON.stringify(existingPresets));
+        console.log('Filter preset saved:', name, existingPresets[name]);
+        
+        // Refresh preset display
+        loadFilterPresets();
+        
+        // Close modal
+        closeSaveFilterModal();
+        
+        // Show success message
+        showToast(`Filter preset "${name}" saved!`);
+        
+    } catch (error) {
+        console.error('Failed to save filter preset:', error);
+        alert('Failed to save filter preset. Please try again.');
+    }
+}
+
+function loadFilterPresets() {
+    try {
+        const presets = JSON.parse(localStorage.getItem('filterPresets') || '{}');
+        const container = document.getElementById('savedPresets');
+        
+        if (Object.keys(presets).length === 0) {
+            container.innerHTML = '';
+            return;
+        }
+        
+        const presetButtons = Object.entries(presets).map(([name, data]) => {
+            return `
+                <div class="preset-button" onclick="applyFilterPreset('${name.replace(/'/g, "\\'")}')">
+                    <span>${name}</span>
+                    <button class="preset-delete" onclick="event.stopPropagation(); deleteFilterPreset('${name.replace(/'/g, "\\'")}')">×</button>
+                </div>
+            `;
+        }).join('');
+        
+        container.innerHTML = presetButtons;
+        console.log('Loaded filter presets:', Object.keys(presets));
+        
+    } catch (error) {
+        console.error('Failed to load filter presets:', error);
+    }
+}
+
+function applyFilterPreset(name) {
+    try {
+        const presets = JSON.parse(localStorage.getItem('filterPresets') || '{}');
+        const preset = presets[name];
+        
+        if (!preset) {
+            console.error('Preset not found:', name);
+            return;
+        }
+        
+        // Apply the preset filters
+        currentFilters = {
+            status: [...preset.filters.status],
+            dateRange: [...preset.filters.dateRange],
+            taskType: [...preset.filters.taskType]
+        };
+        
+        // Update UI
+        updateCheckboxes('status', currentFilters.status);
+        updateCheckboxes('dateRange', currentFilters.dateRange);
+        updateCheckboxes('taskType', currentFilters.taskType);
+        
+        updateFilterDisplay('status');
+        updateFilterDisplay('dateRange');
+        updateFilterDisplay('taskType');
+        
+        // Save as current filters and re-render table
+        saveFiltersToStorage();
+        renderCallsTable();
+        
+        // Visual feedback
+        highlightActivePreset(name);
+        showToast(`Applied filter preset "${name}"`);
+        
+        console.log('Applied filter preset:', name, currentFilters);
+        
+    } catch (error) {
+        console.error('Failed to apply filter preset:', error);
+        alert('Failed to apply filter preset. Please try again.');
+    }
+}
+
+function deleteFilterPreset(name) {
+    if (!confirm(`Delete filter preset "${name}"?`)) {
+        return;
+    }
+    
+    try {
+        const presets = JSON.parse(localStorage.getItem('filterPresets') || '{}');
+        delete presets[name];
+        localStorage.setItem('filterPresets', JSON.stringify(presets));
+        
+        // Refresh display
+        loadFilterPresets();
+        showToast(`Filter preset "${name}" deleted`);
+        
+        console.log('Deleted filter preset:', name);
+        
+    } catch (error) {
+        console.error('Failed to delete filter preset:', error);
+        alert('Failed to delete filter preset. Please try again.');
+    }
+}
+
+function highlightActivePreset(activeName) {
+    // Remove active class from all presets
+    document.querySelectorAll('.preset-button').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Add active class to the applied preset
+    const activeBtn = Array.from(document.querySelectorAll('.preset-button')).find(btn => {
+        const nameSpan = btn.querySelector('span');
+        return nameSpan && nameSpan.textContent === activeName;
+    });
+    
+    if (activeBtn) {
+        activeBtn.classList.add('active');
+        // Remove active class after a delay
+        setTimeout(() => {
+            activeBtn.classList.remove('active');
+        }, 2000);
+    }
+}
+
+function showToast(message) {
+    // Simple toast notification
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #10b981;
+        color: white;
+        padding: 12px 20px;
+        border-radius: 6px;
+        font-size: 14px;
+        z-index: 1001;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    `;
+    toast.textContent = message;
+    
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.remove();
+    }, 3000);
+}
+
+// Close modal when clicking outside
+document.addEventListener('click', (e) => {
+    const modal = document.getElementById('saveFilterModal');
+    if (e.target === modal) {
+        closeSaveFilterModal();
+    }
+});
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeSaveFilterModal();
+    }
+});
 
 function matchesDateRange(appointmentTime, dateRanges) {
     if (!appointmentTime) return false;
