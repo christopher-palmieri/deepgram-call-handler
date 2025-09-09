@@ -284,14 +284,17 @@ body {
     width: 100%;
     background: white;
     border-radius: 10px;
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: visible;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    position: relative;
 }
 
 .calls-table table {
-    width: 100%;
-    min-width: 800px;
-    border-collapse: collapse;
+    width: max-content;
+    min-width: 1200px;
+    border-collapse: separate;
+    border-spacing: 0;
 }
 
 .calls-table th {
@@ -309,6 +312,38 @@ body {
 .calls-table th:not(:last-child) {
     border-right: 1px solid #e5e7eb;
 }
+
+/* Frozen first column */
+.calls-table th:first-child,
+.calls-table td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: #f9fafb;
+    box-shadow: 2px 0 4px rgba(0,0,0,0.1);
+}
+
+.calls-table td:first-child {
+    background: white;
+    font-weight: 600;
+}
+
+.calls-table tr:hover td:first-child {
+    background: #f9fafb;
+}
+
+/* Default column widths for better spacing */
+.calls-table th:nth-child(1) { width: 150px; } /* Employee Name */
+.calls-table th:nth-child(2) { width: 200px; } /* Client */
+.calls-table th:nth-child(3) { width: 180px; } /* Clinic */
+.calls-table th:nth-child(4) { width: 160px; } /* Appointment */
+.calls-table th:nth-child(5) { width: 120px; } /* Phone */
+.calls-table th:nth-child(6) { width: 120px; } /* Task Type */
+.calls-table th:nth-child(7) { width: 130px; } /* Workflow State */
+.calls-table th:nth-child(8) { width: 100px; } /* Retry Count */
+.calls-table th:nth-child(9) { width: 150px; } /* Last Attempt */
+.calls-table th:nth-child(10) { width: 150px; } /* Next Action */
+.calls-table th:nth-child(11) { width: 120px; } /* Success */
 
 .calls-table th .resize-handle {
     position: absolute;
