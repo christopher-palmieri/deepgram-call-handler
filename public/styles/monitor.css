@@ -408,6 +408,40 @@ body:has(.login-container) {
     border-right-color: #3b82f6;
 }
 
+/* Sortable column styles */
+.calls-table th.sortable {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.calls-table th.sortable:hover {
+    background: #f3f4f6;
+}
+
+.sort-arrow {
+    display: inline-block;
+    margin-left: 5px;
+    font-size: 10px;
+    opacity: 0.5;
+}
+
+.sort-arrow:after {
+    content: '↕';
+    color: #9ca3af;
+}
+
+.calls-table th.sort-asc .sort-arrow:after {
+    content: '↑';
+    color: #3b82f6;
+    opacity: 1;
+}
+
+.calls-table th.sort-desc .sort-arrow:after {
+    content: '↓';
+    color: #3b82f6;
+    opacity: 1;
+}
+
 .calls-table td {
     padding: 4px 10px;
     border-bottom: 1px solid #f3f4f6;

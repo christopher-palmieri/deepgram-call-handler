@@ -8,6 +8,7 @@ let realtimeChannel = null;
 let callSessionsChannel = null;
 let pollingInterval = null;
 let isRealtimeWorking = false;
+let currentSort = { field: null, direction: 'asc' };
 
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', async () => {
@@ -49,6 +50,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     
     // Initialize column resizing
     initializeColumnResizing();
+    
+    // Initialize column sorting
+    initializeColumnSorting();
     
     // CRITICAL: Set up subscription BEFORE any data operations
     // This ensures WebSocket is established before any queries
@@ -697,4 +701,85 @@ function reinitializeColumnResizing() {
     
     // Re-initialize
     initializeColumnResizing();
+}
+
+// Column Sorting Functionality
+function initializeColumnSorting() {
+    const sortableHeaders = document.querySelectorAll('.sortable');
+    
+    sortableHeaders.forEach(header => {
+        header.addEventListener('click', (e) => {
+            // Don't sort if clicking on resize handle
+            if (e.target.classList.contains('resize-handle')) {
+                return;
+            }
+            
+            const field = header.getAttribute('data-sort');
+            sortTable(field);
+        });
+    });
+}
+
+function sortTable(field) {
+    // Toggle direction if same field, otherwise default to asc
+    if (currentSort.field === field) {
+        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort.field = field;
+        currentSort.direction = 'asc';
+    }
+    
+    // Remove sort classes from all headers
+    document.querySelectorAll('.sortable').forEach(header => {
+        header.classList.remove('sort-asc', 'sort-desc');
+    });
+    
+    // Add sort class to current header
+    const currentHeader = document.querySelector(`[data-sort="${field}"]`);
+    currentHeader.classList.add(currentSort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
+    
+    // Sort the data
+    allCalls.sort((a, b) => {
+        let aValue = getNestedValue(a, field);
+        let bValue = getNestedValue(b, field);
+        
+        // Handle different data types
+        const result = compareValues(aValue, bValue, field);
+        
+        return currentSort.direction === 'asc' ? result : -result;
+    });
+    
+    // Re-render table
+    renderCallsTable();
+}
+
+function getNestedValue(obj, path) {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+}
+
+function compareValues(a, b, field) {
+    // Handle null/undefined values
+    if (a == null && b == null) return 0;
+    if (a == null) return -1;
+    if (b == null) return 1;
+    
+    // Date fields
+    if (['appointment_time', 'last_attempt_at', 'next_action_at'].includes(field)) {
+        const dateA = new Date(a);
+        const dateB = new Date(b);
+        return dateA.getTime() - dateB.getTime();
+    }
+    
+    // Numeric fields
+    if (field === 'retry_count') {
+        return parseInt(a) - parseInt(b);
+    }
+    
+    // String fields (case insensitive)
+    const strA = String(a).toLowerCase();
+    const strB = String(b).toLowerCase();
+    
+    if (strA < strB) return -1;
+    if (strA > strB) return 1;
+    return 0;
 }
