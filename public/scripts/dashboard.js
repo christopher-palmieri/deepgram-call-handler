@@ -47,6 +47,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     currentUser = session.user;
     document.getElementById('userEmailDash').textContent = currentUser.email;
     
+    // Initialize column resizing
+    initializeColumnResizing();
+    
     // CRITICAL: Set up subscription BEFORE any data operations
     // This ensures WebSocket is established before any queries
     setupRealtimeSubscription();
@@ -109,11 +112,14 @@ function renderCallsTable() {
     }
     
     if (filteredCalls.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="empty-table">No calls found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="empty-table">No calls found</td></tr>';
         return;
     }
     
     tbody.innerHTML = filteredCalls.map(call => createCallRowHtml(call)).join('');
+    
+    // Re-initialize column resizing after table update
+    reinitializeColumnResizing();
 }
 
 // View call details
@@ -601,4 +607,71 @@ async function logout() {
     
     await supabase.auth.signOut();
     window.location.href = '/login.html';
+}
+
+// Column Resizing Functionality
+function initializeColumnResizing() {
+    const table = document.querySelector('.calls-table table');
+    if (!table) return;
+    
+    // Add resize handles to all headers except the last one
+    const headers = table.querySelectorAll('th');
+    headers.forEach((header, index) => {
+        if (index < headers.length - 1) { // Skip last column
+            const resizeHandle = document.createElement('div');
+            resizeHandle.className = 'resize-handle';
+            header.appendChild(resizeHandle);
+            
+            let isResizing = false;
+            let startX = 0;
+            let startWidth = 0;
+            
+            resizeHandle.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                startX = e.pageX;
+                startWidth = header.offsetWidth;
+                resizeHandle.classList.add('resizing');
+                
+                // Prevent text selection during resize
+                document.body.style.userSelect = 'none';
+                
+                e.preventDefault();
+            });
+            
+            document.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+                
+                const diff = e.pageX - startX;
+                const newWidth = Math.max(50, startWidth + diff); // Minimum 50px
+                header.style.width = newWidth + 'px';
+                
+                // Also set width on corresponding cells in the column
+                const columnIndex = Array.from(header.parentNode.children).indexOf(header);
+                const rows = table.querySelectorAll('tbody tr');
+                rows.forEach(row => {
+                    const cell = row.children[columnIndex];
+                    if (cell) {
+                        cell.style.width = newWidth + 'px';
+                    }
+                });
+            });
+            
+            document.addEventListener('mouseup', () => {
+                if (isResizing) {
+                    isResizing = false;
+                    resizeHandle.classList.remove('resizing');
+                    document.body.style.userSelect = '';
+                }
+            });
+        }
+    });
+}
+
+// Re-initialize column resizing after table updates
+function reinitializeColumnResizing() {
+    // Remove existing resize handles
+    document.querySelectorAll('.resize-handle').forEach(handle => handle.remove());
+    
+    // Re-initialize
+    initializeColumnResizing();
 }

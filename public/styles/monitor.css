@@ -302,6 +302,28 @@ body {
     color: #374151;
     border-bottom: 1px solid #e5e7eb;
     font-size: 13px;
+    position: relative;
+    user-select: none;
+}
+
+.calls-table th:not(:last-child) {
+    border-right: 1px solid #e5e7eb;
+}
+
+.calls-table th .resize-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: col-resize;
+    background: transparent;
+    border-right: 2px solid transparent;
+}
+
+.calls-table th .resize-handle:hover,
+.calls-table th .resize-handle.resizing {
+    border-right-color: #3b82f6;
 }
 
 .calls-table td {
