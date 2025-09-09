@@ -24,12 +24,104 @@
     <div class="dashboard-container authenticated">
         <div class="dashboard-content">
             <div class="dashboard-controls">
-                <div class="status-filter">
-                    <button class="filter-btn active" onclick="filterCalls('all')">All</button>
-                    <button class="filter-btn" onclick="filterCalls('active')">Active</button>
-                    <button class="filter-btn" onclick="filterCalls('pending')">Pending</button>
-                    <button class="filter-btn" onclick="filterCalls('completed')">Completed</button>
+                <div class="filters-container">
+                    <!-- Workflow Status Filter -->
+                    <div class="filter-group">
+                        <label class="filter-label">Status:</label>
+                        <div class="dropdown-filter">
+                            <button class="dropdown-toggle" id="statusFilterToggle">
+                                <span class="filter-text">All Statuses</span>
+                                <span class="dropdown-arrow">▼</span>
+                            </button>
+                            <div class="dropdown-menu" id="statusFilterMenu">
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="all" checked> All
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="new"> New
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="ready_to_call"> Ready to Call
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="calling"> Calling
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="classifying"> Classifying
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="completed"> Completed
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="failed"> Failed
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="retry_pending"> Retry Pending
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Appointment Range Filter -->
+                    <div class="filter-group">
+                        <label class="filter-label">Appointment:</label>
+                        <div class="dropdown-filter">
+                            <button class="dropdown-toggle" id="dateFilterToggle">
+                                <span class="filter-text">All Dates</span>
+                                <span class="dropdown-arrow">▼</span>
+                            </button>
+                            <div class="dropdown-menu" id="dateFilterMenu">
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="all" checked> All Dates
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="today"> Today
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="tomorrow"> Tomorrow
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="yesterday"> Yesterday
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="last7days"> Last 7 Days
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="last30days"> Last 30 Days
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="older30days"> Older than 30 Days
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Task Type Filter -->
+                    <div class="filter-group">
+                        <label class="filter-label">Task:</label>
+                        <div class="dropdown-filter">
+                            <button class="dropdown-toggle" id="taskFilterToggle">
+                                <span class="filter-text">All Tasks</span>
+                                <span class="dropdown-arrow">▼</span>
+                            </button>
+                            <div class="dropdown-menu" id="taskFilterMenu">
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="all" checked> All Tasks
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="records_request"> Records Request
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="schedule"> Schedule
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="kit_confirmation"> Kit Confirmation
+                                </label>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+                
                 <!-- Buttons hidden for production
                 <button class="refresh-btn" onclick="loadPendingCalls()">Refresh</button>
                 <button class="refresh-btn" onclick="testRealtimeConnection()" style="margin-left: 10px;">Test Realtime</button>

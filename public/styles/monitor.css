@@ -281,14 +281,113 @@ body:has(.login-container) {
 
 /* Dashboard Table Styles */
 .dashboard-content {
-    padding: 30px;
+    padding: 20px;
 }
 
 .dashboard-controls {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
     margin-bottom: 20px;
+}
+
+.filters-container {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.filter-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 2px;
+}
+
+.dropdown-filter {
+    position: relative;
+}
+
+.dropdown-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: white;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    min-width: 140px;
+    transition: all 0.2s;
+}
+
+.dropdown-toggle:hover {
+    border-color: #d1d5db;
+    background: #f9fafb;
+}
+
+.dropdown-toggle.active {
+    border-color: #008d6f;
+    background: #f0fdfa;
+}
+
+.filter-text {
+    color: #374151;
+    font-weight: 500;
+}
+
+.dropdown-arrow {
+    color: #9ca3af;
+    font-size: 10px;
+    transition: transform 0.2s;
+}
+
+.dropdown-toggle.active .dropdown-arrow {
+    transform: rotate(180deg);
+}
+
+.dropdown-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+    max-height: 240px;
+    overflow-y: auto;
+    margin-top: 2px;
+    display: none;
+}
+
+.dropdown-menu.show {
+    display: block;
+}
+
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #374151;
+    transition: background-color 0.2s;
+}
+
+.dropdown-item:hover {
+    background: #f9fafb;
+}
+
+.dropdown-item input[type="checkbox"] {
+    margin-right: 8px;
+    cursor: pointer;
 }
 
 .refresh-btn {

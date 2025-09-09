@@ -3,7 +3,11 @@
 
 let currentUser = null;
 let allCalls = [];
-let currentFilter = 'all';
+let currentFilters = {
+    status: ['all'],
+    dateRange: ['all'],
+    taskType: ['all']
+};
 let realtimeChannel = null;
 let callSessionsChannel = null;
 let pollingInterval = null;
@@ -54,6 +58,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     // Initialize column sorting
     initializeColumnSorting();
     
+    // Initialize dropdown filters
+    initializeDropdownFilters();
+    
     // CRITICAL: Set up subscription BEFORE any data operations
     // This ensures WebSocket is established before any queries
     setupRealtimeSubscription();
@@ -87,33 +94,16 @@ async function loadPendingCalls() {
     }
 }
 
-// Filter calls
+// Legacy filter function - keeping for compatibility
 function filterCalls(filter) {
-    currentFilter = filter;
-    
-    // Update active button
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    event.target.classList.add('active');
-    
-    renderCallsTable();
+    console.log('Legacy filter function called:', filter);
 }
 
 // Render calls table
 function renderCallsTable() {
     const tbody = document.getElementById('callsTableBody');
     
-    let filteredCalls = allCalls;
-    if (currentFilter !== 'all') {
-        if (currentFilter === 'active') {
-            filteredCalls = allCalls.filter(c => ['calling', 'classifying'].includes(c.workflow_state));
-        } else if (currentFilter === 'pending') {
-            filteredCalls = allCalls.filter(c => ['new', 'ready_to_call', 'retry_pending'].includes(c.workflow_state));
-        } else if (currentFilter === 'completed') {
-            filteredCalls = allCalls.filter(c => ['completed', 'failed'].includes(c.workflow_state));
-        }
-    }
+    let filteredCalls = applyFilters(allCalls);
     
     if (filteredCalls.length === 0) {
         tbody.innerHTML = '<tr><td colspan="11" class="empty-table">No calls found</td></tr>';
@@ -782,4 +772,214 @@ function compareValues(a, b, field) {
     if (strA < strB) return -1;
     if (strA > strB) return 1;
     return 0;
+}
+
+// Dropdown Filter Functionality
+function initializeDropdownFilters() {
+    // Initialize each dropdown
+    initializeDropdown('statusFilterToggle', 'statusFilterMenu', 'status');
+    initializeDropdown('dateFilterToggle', 'dateFilterMenu', 'dateRange');
+    initializeDropdown('taskFilterToggle', 'taskFilterMenu', 'taskType');
+    
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.dropdown-filter')) {
+            closeAllDropdowns();
+        }
+    });
+}
+
+function initializeDropdown(toggleId, menuId, filterType) {
+    const toggle = document.getElementById(toggleId);
+    const menu = document.getElementById(menuId);
+    
+    if (!toggle || !menu) return;
+    
+    toggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = menu.classList.contains('show');
+        
+        closeAllDropdowns();
+        
+        if (!isOpen) {
+            menu.classList.add('show');
+            toggle.classList.add('active');
+        }
+    });
+    
+    // Handle checkbox changes
+    menu.addEventListener('change', (e) => {
+        if (e.target.type === 'checkbox') {
+            handleFilterChange(filterType, e.target.value, e.target.checked);
+        }
+    });
+}
+
+function closeAllDropdowns() {
+    document.querySelectorAll('.dropdown-menu').forEach(menu => {
+        menu.classList.remove('show');
+    });
+    document.querySelectorAll('.dropdown-toggle').forEach(toggle => {
+        toggle.classList.remove('active');
+    });
+}
+
+function handleFilterChange(filterType, value, checked) {
+    if (value === 'all') {
+        if (checked) {
+            // If "All" is checked, uncheck all others and set to ['all']
+            currentFilters[filterType] = ['all'];
+            updateCheckboxes(filterType, ['all']);
+        }
+    } else {
+        if (checked) {
+            // If a specific option is checked, remove 'all' and add this option
+            currentFilters[filterType] = currentFilters[filterType].filter(f => f !== 'all');
+            if (!currentFilters[filterType].includes(value)) {
+                currentFilters[filterType].push(value);
+            }
+        } else {
+            // If unchecked, remove from filters
+            currentFilters[filterType] = currentFilters[filterType].filter(f => f !== value);
+            
+            // If no filters left, default to 'all'
+            if (currentFilters[filterType].length === 0) {
+                currentFilters[filterType] = ['all'];
+                updateCheckboxes(filterType, ['all']);
+            }
+        }
+    }
+    
+    updateFilterDisplay(filterType);
+    renderCallsTable();
+}
+
+function updateCheckboxes(filterType, selectedValues) {
+    const menuId = filterType === 'status' ? 'statusFilterMenu' : 
+                   filterType === 'dateRange' ? 'dateFilterMenu' : 'taskFilterMenu';
+    const menu = document.getElementById(menuId);
+    
+    if (!menu) return;
+    
+    menu.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        checkbox.checked = selectedValues.includes(checkbox.value);
+    });
+}
+
+function updateFilterDisplay(filterType) {
+    const toggleId = filterType === 'status' ? 'statusFilterToggle' : 
+                     filterType === 'dateRange' ? 'dateFilterToggle' : 'taskFilterToggle';
+    const toggle = document.getElementById(toggleId);
+    
+    if (!toggle) return;
+    
+    const filterText = toggle.querySelector('.filter-text');
+    const selected = currentFilters[filterType];
+    
+    let displayText;
+    if (selected.includes('all') || selected.length === 0) {
+        displayText = filterType === 'status' ? 'All Statuses' :
+                     filterType === 'dateRange' ? 'All Dates' : 'All Tasks';
+    } else if (selected.length === 1) {
+        displayText = formatFilterValue(selected[0]);
+    } else {
+        displayText = `${selected.length} selected`;
+    }
+    
+    filterText.textContent = displayText;
+}
+
+function formatFilterValue(value) {
+    const formatMap = {
+        // Status values
+        'new': 'New',
+        'ready_to_call': 'Ready to Call',
+        'calling': 'Calling',
+        'classifying': 'Classifying',
+        'completed': 'Completed',
+        'failed': 'Failed',
+        'retry_pending': 'Retry Pending',
+        
+        // Date range values
+        'today': 'Today',
+        'tomorrow': 'Tomorrow',
+        'yesterday': 'Yesterday',
+        'last7days': 'Last 7 Days',
+        'last30days': 'Last 30 Days',
+        'older30days': 'Older than 30 Days',
+        
+        // Task type values
+        'records_request': 'Records Request',
+        'schedule': 'Schedule',
+        'kit_confirmation': 'Kit Confirmation'
+    };
+    
+    return formatMap[value] || value;
+}
+
+function applyFilters(calls) {
+    return calls.filter(call => {
+        // Status filter
+        if (!currentFilters.status.includes('all')) {
+            if (!currentFilters.status.includes(call.workflow_state)) {
+                return false;
+            }
+        }
+        
+        // Date range filter
+        if (!currentFilters.dateRange.includes('all')) {
+            if (!matchesDateRange(call.appointment_time, currentFilters.dateRange)) {
+                return false;
+            }
+        }
+        
+        // Task type filter
+        if (!currentFilters.taskType.includes('all')) {
+            const taskType = call.task_type || 'records_request';
+            if (!currentFilters.taskType.includes(taskType)) {
+                return false;
+            }
+        }
+        
+        return true;
+    });
+}
+
+function matchesDateRange(appointmentTime, dateRanges) {
+    if (!appointmentTime) return false;
+    
+    const appointmentDate = new Date(appointmentTime);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    return dateRanges.some(range => {
+        switch (range) {
+            case 'today':
+                return appointmentDate.toDateString() === today.toDateString();
+            case 'tomorrow':
+                return appointmentDate.toDateString() === tomorrow.toDateString();
+            case 'yesterday':
+                return appointmentDate.toDateString() === yesterday.toDateString();
+            case 'last7days':
+                return appointmentDate >= sevenDaysAgo && appointmentDate < today;
+            case 'last30days':
+                return appointmentDate >= thirtyDaysAgo && appointmentDate < today;
+            case 'older30days':
+                return appointmentDate < thirtyDaysAgo;
+            default:
+                return false;
+        }
+    });
 }
