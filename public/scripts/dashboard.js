@@ -214,38 +214,51 @@ function createDashboardSubscription() {
 // Handle real-time updates for pending_calls
 async function handleRealtimeUpdate(payload) {
     console.log('📋 Processing update...');
-    console.log('Current filter:', currentFilter);
     console.log('Total calls before update:', allCalls.length);
     
-    if (payload.eventType === 'INSERT') {
-        // New call added
-        const newCall = await fetchCallWithSessions(payload.new.id);
-        if (newCall) {
-            allCalls.unshift(newCall);
+    try {
+        if (payload.eventType === 'INSERT') {
+            // New call added
+            console.log('DEBUG: About to fetch new call');
+            const newCall = await fetchCallWithSessions(payload.new.id);
+            if (newCall) {
+                console.log('DEBUG: About to add call to allCalls');
+                allCalls.unshift(newCall);
+                console.log('DEBUG: About to call renderCallsTable');
+                renderCallsTable();
+            }
+        } else if (payload.eventType === 'UPDATE') {
+            // Call updated
+            console.log('DEBUG: UPDATE event - old:', payload.old);
+            console.log('DEBUG: UPDATE event - new:', payload.new);
+            console.log('DEBUG: About to fetch updated call');
+            const updatedCall = await fetchCallWithSessions(payload.new.id);
+            if (updatedCall) {
+                console.log('DEBUG: Fetched updated call:', updatedCall.workflow_state);
+                console.log('DEBUG: About to find call in allCalls');
+                const index = allCalls.findIndex(c => c.id === updatedCall.id);
+                if (index !== -1) {
+                    console.log('DEBUG: About to update call in allCalls');
+                    allCalls[index] = updatedCall;
+                    console.log('DEBUG: About to call updateSingleCallRow');
+                    updateSingleCallRow(updatedCall);
+                    console.log('Updated call at index:', index);
+                } else {
+                    console.log('Call not found in allCalls array');
+                }
+            } else {
+                console.log('Failed to fetch updated call');
+            }
+        } else if (payload.eventType === 'DELETE') {
+            // Call removed
+            console.log('DEBUG: About to filter allCalls for DELETE');
+            allCalls = allCalls.filter(c => c.id !== payload.old.id);
+            console.log('DEBUG: About to call renderCallsTable for DELETE');
             renderCallsTable();
         }
-    } else if (payload.eventType === 'UPDATE') {
-        // Call updated
-        console.log('UPDATE event - old:', payload.old);
-        console.log('UPDATE event - new:', payload.new);
-        const updatedCall = await fetchCallWithSessions(payload.new.id);
-        if (updatedCall) {
-            console.log('Fetched updated call:', updatedCall.workflow_state);
-            const index = allCalls.findIndex(c => c.id === updatedCall.id);
-            if (index !== -1) {
-                allCalls[index] = updatedCall;
-                updateSingleCallRow(updatedCall);
-                console.log('Updated call at index:', index);
-            } else {
-                console.log('Call not found in allCalls array');
-            }
-        } else {
-            console.log('Failed to fetch updated call');
-        }
-    } else if (payload.eventType === 'DELETE') {
-        // Call removed
-        allCalls = allCalls.filter(c => c.id !== payload.old.id);
-        renderCallsTable();
+    } catch (error) {
+        console.error('ERROR in handleRealtimeUpdate:', error);
+        console.error('Error stack:', error.stack);
     }
 }
 
@@ -892,6 +905,7 @@ function updateFilterDisplay(filterType) {
 function formatFilterValue(value) {
     const formatMap = {
         // Status values
+        'pending': 'Pending',
         'new': 'New',
         'ready_to_call': 'Ready to Call',
         'calling': 'Calling',
