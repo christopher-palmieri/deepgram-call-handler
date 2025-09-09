@@ -290,18 +290,25 @@ function updateSingleCallRow(call) {
     
     if (existingRow) {
         const newRowHtml = createCallRowHtml(call);
-        const tempDiv = document.createElement('div');
+        const tempDiv = document.createElement('tbody');
         tempDiv.innerHTML = newRowHtml;
-        const newRow = tempDiv.firstChild;
+        const newRow = tempDiv.firstElementChild;
         
-        // Add a brief highlight animation
-        newRow.style.backgroundColor = '#f0f9ff';
-        existingRow.replaceWith(newRow);
-        
-        // Remove highlight after animation
-        setTimeout(() => {
-            newRow.style.backgroundColor = '';
-        }, 1000);
+        if (newRow) {
+            // Add a brief highlight animation
+            newRow.style.backgroundColor = '#f0f9ff';
+            existingRow.replaceWith(newRow);
+            
+            // Remove highlight after animation
+            setTimeout(() => {
+                if (newRow && newRow.style) {
+                    newRow.style.backgroundColor = '';
+                }
+            }, 1000);
+        } else {
+            console.error('Failed to create new row element');
+            renderCallsTable();
+        }
     } else {
         // If row doesn't exist, re-render the entire table
         renderCallsTable();
