@@ -26,6 +26,57 @@ function getUrlParam(param) {
     return urlParams.get(param);
 }
 
+// Helper function to format phone number
+function formatPhoneNumber(phone) {
+    if (!phone) return '-';
+    // Remove all non-numeric characters
+    const cleaned = phone.replace(/\D/g, '');
+    // Format as (XXX) XXX-XXXX
+    if (cleaned.length === 10) {
+        return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+    } else if (cleaned.length === 11 && cleaned[0] === '1') {
+        // Handle 1-XXX-XXX-XXXX format
+        return `(${cleaned.slice(1, 4)}) ${cleaned.slice(4, 7)}-${cleaned.slice(7)}`;
+    }
+    return phone; // Return original if can't format
+}
+
+// Helper function to format structured data for display
+function formatStructuredData(data) {
+    if (!data || typeof data !== 'object') return '';
+    
+    let html = '<div class="structured-items">';
+    
+    // Process each key-value pair
+    for (const [key, value] of Object.entries(data)) {
+        // Skip task_type since it's already displayed above
+        if (key === 'task_type') continue;
+        
+        // Format the key to be more readable
+        const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        
+        // Format the value
+        let formattedValue = value;
+        if (value === null || value === undefined) {
+            formattedValue = '-';
+        } else if (typeof value === 'object') {
+            formattedValue = JSON.stringify(value, null, 2);
+        } else if (typeof value === 'boolean') {
+            formattedValue = value ? 'Yes' : 'No';
+        }
+        
+        html += `
+            <div class="structured-item">
+                <span class="structured-label">${formattedKey}:</span>
+                <span class="structured-value">${formattedValue}</span>
+            </div>
+        `;
+    }
+    
+    html += '</div>';
+    return html;
+}
+
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', async () => {
     await loadConfig(); // From config.js
@@ -116,26 +167,40 @@ async function loadCallDetails(pendingCallId) {
         // Display call info
         document.getElementById('infoEmployee').textContent = pendingCall.employee_name || '-';
         document.getElementById('infoClinic').textContent = pendingCall.clinic_name || '-';
-        document.getElementById('infoPhone').textContent = pendingCall.phone || '-';
+        document.getElementById('infoPhone').textContent = formatPhoneNumber(pendingCall.phone);
         document.getElementById('infoAppointment').textContent = 
             pendingCall.appointment_time ? 
             new Date(pendingCall.appointment_time).toLocaleString() : '-';
-        document.getElementById('infoWorkflow').textContent = pendingCall.workflow_state || '-';
-        document.getElementById('infoSuccessEval').textContent = pendingCall.success_evaluation || '-';
         
-        // Display summary if exists
-        if (pendingCall.summary) {
-            document.getElementById('infoSummary').textContent = pendingCall.summary;
-            document.getElementById('callSummarySection').style.display = 'block';
+        // Display task with badge styling
+        const taskBadge = document.querySelector('#infoTask .task-type-badge');
+        if (taskBadge) {
+            taskBadge.textContent = pendingCall.task_type || 'records_request';
         }
         
-        // Display structured data if exists
-        if (pendingCall.structured_data) {
-            document.getElementById('infoStructuredData').textContent = 
-                typeof pendingCall.structured_data === 'object' ? 
-                JSON.stringify(pendingCall.structured_data, null, 2) : 
-                pendingCall.structured_data;
-            document.getElementById('structuredDataSection').style.display = 'block';
+        // Display workflow state with badge
+        const workflowElement = document.getElementById('infoWorkflow');
+        workflowElement.innerHTML = `<span class="workflow-badge workflow-${pendingCall.workflow_state || 'pending'}">${pendingCall.workflow_state || '-'}</span>`;
+        
+        document.getElementById('infoSuccessEval').textContent = pendingCall.success_evaluation || '-';
+        
+        // Display combined summary and structured data
+        if (pendingCall.summary || pendingCall.structured_data) {
+            document.getElementById('callDetailsSection').style.display = 'block';
+            
+            // Display summary
+            if (pendingCall.summary) {
+                document.getElementById('infoSummary').innerHTML = `<p>${pendingCall.summary}</p>`;
+            } else {
+                document.getElementById('infoSummary').innerHTML = '';
+            }
+            
+            // Display structured data in formatted way
+            if (pendingCall.structured_data) {
+                document.getElementById('structuredDataDisplay').innerHTML = formatStructuredData(pendingCall.structured_data);
+            } else {
+                document.getElementById('structuredDataDisplay').innerHTML = '';
+            }
         }
         
         document.getElementById('callInfoPanel').style.display = 'block';
@@ -416,31 +481,36 @@ async function handlePendingCallUpdate(updatedPendingCall) {
     // Update the displayed info - using correct field names matching the database columns
     document.getElementById('infoEmployee').textContent = updatedPendingCall.employee_name || '-';
     document.getElementById('infoClinic').textContent = updatedPendingCall.clinic_name || '-';
-    document.getElementById('infoPhone').textContent = updatedPendingCall.phone || '-';  // Fixed: phone, not phone_number
-    document.getElementById('infoAppointment').textContent = updatedPendingCall.appointment_time ?  // Fixed: appointment_time, not appointment_datetime
+    document.getElementById('infoPhone').textContent = formatPhoneNumber(updatedPendingCall.phone);
+    document.getElementById('infoAppointment').textContent = updatedPendingCall.appointment_time ?
         new Date(updatedPendingCall.appointment_time).toLocaleString() : '-';
-    document.getElementById('infoWorkflow').textContent = updatedPendingCall.workflow_state || '-';
     
-    // Update success evaluation if present
-    if (updatedPendingCall.success_evaluation) {
-        document.getElementById('infoSuccessEval').textContent = updatedPendingCall.success_evaluation;
-    } else {
-        document.getElementById('infoSuccessEval').textContent = '-';
+    // Update task with badge styling
+    const taskBadge = document.querySelector('#infoTask .task-type-badge');
+    if (taskBadge) {
+        taskBadge.textContent = updatedPendingCall.task_type || 'records_request';
     }
     
-    // Update summary if present
-    if (updatedPendingCall.summary) {
-        document.getElementById('infoSummary').textContent = updatedPendingCall.summary;
-        document.getElementById('callSummarySection').style.display = 'block';
-    }
+    // Update workflow state with badge
+    const workflowElement = document.getElementById('infoWorkflow');
+    workflowElement.innerHTML = `<span class="workflow-badge workflow-${updatedPendingCall.workflow_state || 'pending'}">${updatedPendingCall.workflow_state || '-'}</span>`;
     
-    // Update structured data if present
-    if (updatedPendingCall.structured_data) {
-        document.getElementById('infoStructuredData').textContent = 
-            typeof updatedPendingCall.structured_data === 'object' ?
-            JSON.stringify(updatedPendingCall.structured_data, null, 2) :
-            updatedPendingCall.structured_data;
-        document.getElementById('structuredDataSection').style.display = 'block';
+    // Update success evaluation
+    document.getElementById('infoSuccessEval').textContent = updatedPendingCall.success_evaluation || '-';
+    
+    // Update combined summary and structured data
+    if (updatedPendingCall.summary || updatedPendingCall.structured_data) {
+        document.getElementById('callDetailsSection').style.display = 'block';
+        
+        // Update summary
+        if (updatedPendingCall.summary) {
+            document.getElementById('infoSummary').innerHTML = `<p>${updatedPendingCall.summary}</p>`;
+        }
+        
+        // Update structured data in formatted way
+        if (updatedPendingCall.structured_data) {
+            document.getElementById('structuredDataDisplay').innerHTML = formatStructuredData(updatedPendingCall.structured_data);
+        }
     }
     
     // Update the current pending call object

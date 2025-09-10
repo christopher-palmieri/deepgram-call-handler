@@ -40,7 +40,7 @@
         </div>
         
         <div class="call-info-panel" id="callInfoPanel" style="display: none;">
-            <div class="call-info-grid">
+            <div class="call-info-grid compact">
                 <div class="info-item">
                     <span class="info-label">Employee</span>
                     <span class="info-value" id="infoEmployee">-</span>
@@ -58,23 +58,25 @@
                     <span class="info-value" id="infoAppointment">-</span>
                 </div>
                 <div class="info-item">
-                    <span class="info-label">Workflow State</span>
+                    <span class="info-label">Task</span>
+                    <span class="info-value" id="infoTask"><span class="task-type-badge">-</span></span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Status</span>
                     <span class="info-value" id="infoWorkflow">-</span>
                 </div>
                 <div class="info-item">
-                    <span class="info-label">Success Evaluation</span>
+                    <span class="info-label">Success</span>
                     <span class="info-value" id="infoSuccessEval">-</span>
                 </div>
             </div>
             
-            <div class="call-summary-section" id="callSummarySection" style="display: none;">
-                <h4>Call Summary</h4>
-                <div class="summary-content" id="infoSummary">-</div>
-            </div>
-            
-            <div class="structured-data-section" id="structuredDataSection" style="display: none;">
-                <h4>Structured Data</h4>
-                <pre class="structured-data-content" id="infoStructuredData">-</pre>
+            <div class="call-details-section" id="callDetailsSection" style="display: none;">
+                <h4>Call Details</h4>
+                <div class="details-content">
+                    <div class="summary-content" id="infoSummary">-</div>
+                    <div class="structured-data-display" id="structuredDataDisplay"></div>
+                </div>
             </div>
         </div>
         
