@@ -16,6 +16,7 @@ let maxConnectionAttempts = 3;
 let realtimeChannel = null;
 let callSessionsChannel = null;
 let classificationsChannel = null;
+let currentSelectedSessionId = null;
 
 // Helper function to get URL parameters
 function getUrlParam(param) {
@@ -170,6 +171,23 @@ async function loadCallDetails(pendingCallId) {
     }
 }
 
+// Helper function to refresh the details panel if a session is selected
+function refreshSelectedSessionDetails() {
+    if (currentSelectedSessionId && window.currentSessions) {
+        const updatedSession = window.currentSessions.find(s => s.id === currentSelectedSessionId);
+        if (updatedSession) {
+            console.log('🔄 Refreshing details panel for session:', currentSelectedSessionId);
+            showSessionDetails(updatedSession);
+            
+            // Re-highlight the selected row
+            const selectedRow = document.querySelector(`tr[data-session-id="${currentSelectedSessionId}"]`);
+            if (selectedRow) {
+                selectedRow.classList.add('selected');
+            }
+        }
+    }
+}
+
 // Update connection status indicator
 function updateConnectionStatus(status) {
     const statusDot = document.querySelector('.status-dot');
@@ -311,9 +329,19 @@ function createMonitorSubscriptions(pendingCallId) {
                 console.log('Payload:', payload);
                 // Check if this classification belongs to a session of our pending call
                 if (payload.new && payload.new.session_id) {
+                    // Store the currently selected session ID before reloading
+                    const wasSelectedSessionId = currentSelectedSessionId;
+                    
                     // Reload the call details to get fresh data
                     if (currentPendingCall) {
                         await loadCallDetails(currentPendingCall.id);
+                        
+                        // If there was a selected session, reopen it after reload
+                        if (wasSelectedSessionId) {
+                            currentSelectedSessionId = wasSelectedSessionId;
+                            // Wait for the data to be loaded, then refresh the details panel
+                            setTimeout(refreshSelectedSessionDetails, 100);
+                        }
                     }
                 }
             }
@@ -367,9 +395,19 @@ async function handlePendingCallUpdate(updatedPendingCall) {
 async function handleCallSessionUpdate(payload) {
     console.log('Handling call session update:', payload);
     
+    // Store the currently selected session ID before reloading
+    const wasSelectedSessionId = currentSelectedSessionId;
+    
     // Reload the entire call details to get fresh data with relationships
     if (currentPendingCall) {
         await loadCallDetails(currentPendingCall.id);
+        
+        // If there was a selected session, reopen it after reload
+        if (wasSelectedSessionId) {
+            currentSelectedSessionId = wasSelectedSessionId;
+            // Wait for the data to be loaded, then refresh the details panel
+            setTimeout(refreshSelectedSessionDetails, 100);
+        }
     }
 }
 
@@ -433,6 +471,9 @@ function selectSession(sessionId) {
     // Find the session data
     const session = window.currentSessions?.find(s => s.id === sessionId);
     if (!session) return;
+    
+    // Track the currently selected session
+    currentSelectedSessionId = sessionId;
     
     // Open the details panel
     const detailsPanel = document.getElementById('detailsPanel');
@@ -664,6 +705,9 @@ async function loadIvrEventsForSessionDetail(session) {
 function closeDetailsPanel() {
     const detailsPanel = document.getElementById('detailsPanel');
     detailsPanel.classList.remove('open');
+    
+    // Clear the selected session tracking
+    currentSelectedSessionId = null;
     
     // Remove selection from table
     document.querySelectorAll('.sessions-table tbody tr').forEach(row => {
