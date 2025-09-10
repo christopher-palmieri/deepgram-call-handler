@@ -193,21 +193,44 @@ function updateConnectionStatus(status) {
 
 // Setup realtime subscriptions for pending call and call sessions
 function setupRealtimeSubscriptions(pendingCallId) {
-    console.log('Setting up realtime subscriptions for pending call:', pendingCallId);
+    console.log('🚀 Setting up realtime subscriptions for pending call:', pendingCallId);
     
-    // Clean up existing channels
-    if (realtimeChannel) {
-        supabase.removeChannel(realtimeChannel);
-        realtimeChannel = null;
+    // CRITICAL: Remove ALL existing channels to avoid conflicts
+    const allChannels = supabase.getChannels();
+    console.log(`Found ${allChannels.length} existing channels`);
+    allChannels.forEach(channel => {
+        console.log(`Removing channel: ${channel.topic}`);
+        supabase.removeChannel(channel);
+    });
+    
+    // Reset our channel references
+    realtimeChannel = null;
+    callSessionsChannel = null;
+    classificationsChannel = null;
+    
+    // Force reconnect the realtime connection
+    if (supabase.realtime) {
+        console.log('Disconnecting existing realtime connection...');
+        supabase.realtime.disconnect();
+        
+        // Small delay to ensure disconnection
+        setTimeout(() => {
+            console.log('Reconnecting realtime...');
+            supabase.realtime.connect();
+            
+            // Create subscriptions after reconnection
+            setTimeout(() => {
+                createMonitorSubscriptions(pendingCallId);
+            }, 500);
+        }, 500);
+    } else {
+        createMonitorSubscriptions(pendingCallId);
     }
-    if (callSessionsChannel) {
-        supabase.removeChannel(callSessionsChannel);
-        callSessionsChannel = null;
-    }
-    if (classificationsChannel) {
-        supabase.removeChannel(classificationsChannel);
-        classificationsChannel = null;
-    }
+}
+
+// Create the actual subscriptions
+function createMonitorSubscriptions(pendingCallId) {
+    console.log('Creating monitor subscriptions for pending call:', pendingCallId);
     
     // Subscribe to pending_calls updates
     realtimeChannel = supabase
@@ -220,18 +243,29 @@ function setupRealtimeSubscriptions(pendingCallId) {
                 filter: `id=eq.${pendingCallId}`
             },
             (payload) => {
-                console.log('Pending call update:', payload);
+                console.log('🔔 Realtime pending call update received!');
+                console.log('Event type:', payload.eventType);
+                console.log('Old:', payload.old);
+                console.log('New:', payload.new);
                 handlePendingCallUpdate(payload.new);
             }
         )
         .subscribe((status, error) => {
             if (error) {
-                console.error('Realtime subscription error:', error);
+                console.error('Realtime subscription error:', error.message);
                 updateConnectionStatus('disconnected');
             } else {
-                console.log('Realtime subscription status:', status);
+                console.log(`Pending calls subscription status: ${status}`);
                 if (status === 'SUBSCRIBED') {
+                    console.log('✅ Realtime subscription active for pending calls');
                     updateConnectionStatus('connected');
+                    
+                    // Log final state
+                    const channels = supabase.getChannels();
+                    console.log(`Active channels after setup: ${channels.length}`);
+                    channels.forEach(ch => {
+                        console.log(`- ${ch.topic}: ${ch.state}`);
+                    });
                 }
             }
         });
@@ -247,7 +281,9 @@ function setupRealtimeSubscriptions(pendingCallId) {
                 filter: `pending_call_id=eq.${pendingCallId}`
             },
             (payload) => {
-                console.log('Call session update:', payload);
+                console.log('🔔 Realtime call session update received!');
+                console.log('Event type:', payload.eventType);
+                console.log('Payload:', payload);
                 handleCallSessionUpdate(payload);
             }
         )
@@ -270,7 +306,9 @@ function setupRealtimeSubscriptions(pendingCallId) {
                 table: 'call_classifications'
             },
             async (payload) => {
-                console.log('Call classification update:', payload);
+                console.log('🔔 Realtime call classification update received!');
+                console.log('Event type:', payload.eventType);
+                console.log('Payload:', payload);
                 // Check if this classification belongs to a session of our pending call
                 if (payload.new && payload.new.session_id) {
                     // Reload the call details to get fresh data
@@ -1470,6 +1508,38 @@ window.addEventListener('beforeunload', () => {
     }
 });
 
+// Test realtime connection manually
+window.testRealtimeConnection = async function() {
+    console.log('🧪 Testing real-time connection...');
+    
+    // Check authentication first
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+        console.error('❌ Not authenticated');
+        return;
+    }
+    console.log('✅ Authenticated as:', session.user.email);
+    
+    // Check current channels
+    const channels = supabase.getChannels();
+    console.log('Current channels:', channels.map(ch => ({
+        topic: ch.topic,
+        state: ch.state
+    })));
+    
+    // Check if we have a pending call ID
+    if (!currentPendingCall) {
+        console.error('❌ No current pending call loaded');
+        return;
+    }
+    
+    console.log('Current pending call ID:', currentPendingCall.id);
+    
+    // Test update
+    console.log('📝 To test, update the pending call in the database');
+    console.log(`UPDATE pending_calls SET updated_at = NOW() WHERE id = '${currentPendingCall.id}';`);
+};
+
 // Export functions for global access
 window.toggleConnection = toggleConnection;
 window.toggleAudio = toggleAudio;
@@ -1478,3 +1548,4 @@ window.goToDashboard = goToDashboard;
 window.logout = logout;
 window.selectSession = selectSession;
 window.closeDetailsPanel = closeDetailsPanel;
+window.testRealtimeConnection = testRealtimeConnection;
