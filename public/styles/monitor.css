@@ -32,6 +32,15 @@ body {
     margin: 0;
 }
 
+.top-bar-title-link {
+    text-decoration: none;
+    color: inherit;
+}
+
+.top-bar-title-link:hover .top-bar-title {
+    opacity: 0.9;
+}
+
 .top-bar-right {
     display: flex;
     align-items: center;

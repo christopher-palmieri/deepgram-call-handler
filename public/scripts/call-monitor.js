@@ -13,6 +13,9 @@ let currentVolume = 0.5;
 let audioVisualizerInterval = null;
 let connectionAttempts = 0;
 let maxConnectionAttempts = 3;
+let realtimeChannel = null;
+let callSessionsChannel = null;
+let classificationsChannel = null;
 
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', async () => {
@@ -70,6 +73,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     
     // Setup keyboard shortcuts
     setupKeyboardShortcuts();
+    
+    // Setup realtime subscriptions if we have a pending call
+    if (pendingCallId) {
+        setupRealtimeSubscriptions(pendingCallId);
+    }
 });
 
 // Load call details from database
@@ -150,6 +158,171 @@ async function loadCallDetails(pendingCallId) {
         console.error('Error loading call details:', error);
         showError('Failed to load call details: ' + error.message);
         hideLoading();
+    }
+}
+
+// Update connection status indicator
+function updateConnectionStatus(status) {
+    const statusDot = document.querySelector('.status-dot');
+    const statusText = document.querySelector('.status-text');
+    
+    if (!statusDot || !statusText) return;
+    
+    if (status === 'connected') {
+        statusDot.classList.remove('disconnected');
+        statusDot.classList.add('connected');
+        statusText.textContent = 'Live Updates';
+    } else if (status === 'disconnected') {
+        statusDot.classList.remove('connected');
+        statusDot.classList.add('disconnected');
+        statusText.textContent = 'Disconnected';
+    } else {
+        statusDot.classList.remove('connected', 'disconnected');
+        statusText.textContent = 'Connecting...';
+    }
+}
+
+// Setup realtime subscriptions for pending call and call sessions
+function setupRealtimeSubscriptions(pendingCallId) {
+    console.log('Setting up realtime subscriptions for pending call:', pendingCallId);
+    
+    // Clean up existing channels
+    if (realtimeChannel) {
+        supabase.removeChannel(realtimeChannel);
+        realtimeChannel = null;
+    }
+    if (callSessionsChannel) {
+        supabase.removeChannel(callSessionsChannel);
+        callSessionsChannel = null;
+    }
+    if (classificationsChannel) {
+        supabase.removeChannel(classificationsChannel);
+        classificationsChannel = null;
+    }
+    
+    // Subscribe to pending_calls updates
+    realtimeChannel = supabase
+        .channel(`pending-call-${pendingCallId}`)
+        .on('postgres_changes',
+            {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'pending_calls',
+                filter: `id=eq.${pendingCallId}`
+            },
+            (payload) => {
+                console.log('Pending call update:', payload);
+                handlePendingCallUpdate(payload.new);
+            }
+        )
+        .subscribe((status, error) => {
+            if (error) {
+                console.error('Realtime subscription error:', error);
+                updateConnectionStatus('disconnected');
+            } else {
+                console.log('Realtime subscription status:', status);
+                if (status === 'SUBSCRIBED') {
+                    updateConnectionStatus('connected');
+                }
+            }
+        });
+    
+    // Subscribe to call_sessions updates for this pending call
+    callSessionsChannel = supabase
+        .channel(`call-sessions-${pendingCallId}`)
+        .on('postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'call_sessions',
+                filter: `pending_call_id=eq.${pendingCallId}`
+            },
+            (payload) => {
+                console.log('Call session update:', payload);
+                handleCallSessionUpdate(payload);
+            }
+        )
+        .subscribe((status, error) => {
+            if (error) {
+                console.error('Call sessions subscription error:', error);
+            } else {
+                console.log('Call sessions subscription status:', status);
+            }
+        });
+    
+    // Subscribe to call_classifications updates
+    // This will catch any classification updates for sessions related to this pending call
+    classificationsChannel = supabase
+        .channel(`classifications-${pendingCallId}`)
+        .on('postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'call_classifications'
+            },
+            async (payload) => {
+                console.log('Call classification update:', payload);
+                // Check if this classification belongs to a session of our pending call
+                if (payload.new && payload.new.session_id) {
+                    // Reload the call details to get fresh data
+                    if (currentPendingCall) {
+                        await loadCallDetails(currentPendingCall.id);
+                    }
+                }
+            }
+        )
+        .subscribe((status, error) => {
+            if (error) {
+                console.error('Classifications subscription error:', error);
+            } else {
+                console.log('Classifications subscription status:', status);
+            }
+        });
+}
+
+// Handle pending call updates
+async function handlePendingCallUpdate(updatedPendingCall) {
+    console.log('Handling pending call update:', updatedPendingCall);
+    
+    // Update the displayed info
+    document.getElementById('infoEmployee').textContent = updatedPendingCall.employee_name || '-';
+    document.getElementById('infoClinic').textContent = updatedPendingCall.clinic_name || '-';
+    document.getElementById('infoPhone').textContent = updatedPendingCall.phone_number || '-';
+    document.getElementById('infoAppointment').textContent = updatedPendingCall.appointment_datetime ? 
+        new Date(updatedPendingCall.appointment_datetime).toLocaleString() : '-';
+    document.getElementById('infoWorkflow').textContent = updatedPendingCall.workflow_state || '-';
+    
+    // Update success evaluation if present
+    if (updatedPendingCall.success_evaluation) {
+        document.getElementById('infoSuccessEval').textContent = updatedPendingCall.success_evaluation;
+    }
+    
+    // Update summary if present
+    if (updatedPendingCall.summary) {
+        document.getElementById('infoSummary').textContent = updatedPendingCall.summary;
+        document.getElementById('callSummarySection').style.display = 'block';
+    }
+    
+    // Update structured data if present
+    if (updatedPendingCall.structured_data) {
+        document.getElementById('infoStructuredData').textContent = 
+            JSON.stringify(updatedPendingCall.structured_data, null, 2);
+        document.getElementById('structuredDataSection').style.display = 'block';
+    }
+    
+    // Update the current pending call object
+    if (currentPendingCall) {
+        currentPendingCall = { ...currentPendingCall, ...updatedPendingCall };
+    }
+}
+
+// Handle call session updates
+async function handleCallSessionUpdate(payload) {
+    console.log('Handling call session update:', payload);
+    
+    // Reload the entire call details to get fresh data with relationships
+    if (currentPendingCall) {
+        await loadCallDetails(currentPendingCall.id);
     }
 }
 
@@ -1266,6 +1439,20 @@ async function logout() {
 // Clean up on page unload
 window.addEventListener('beforeunload', () => {
     disconnect();
+    
+    // Clean up realtime channels
+    if (realtimeChannel) {
+        supabase.removeChannel(realtimeChannel);
+        realtimeChannel = null;
+    }
+    if (callSessionsChannel) {
+        supabase.removeChannel(callSessionsChannel);
+        callSessionsChannel = null;
+    }
+    if (classificationsChannel) {
+        supabase.removeChannel(classificationsChannel);
+        classificationsChannel = null;
+    }
 });
 
 // Export functions for global access
