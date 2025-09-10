@@ -17,6 +17,12 @@ let realtimeChannel = null;
 let callSessionsChannel = null;
 let classificationsChannel = null;
 
+// Helper function to get URL parameters
+function getUrlParam(param) {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get(param);
+}
+
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', async () => {
     await loadConfig(); // From config.js
@@ -140,16 +146,19 @@ async function loadCallDetails(pendingCallId) {
         // Display call sessions and classifications
         await displayCallClassifications(pendingCall);
         
-        // Set up call ID input with active or most recent session
-        const activeSessions = pendingCall.call_sessions?.filter(s => s.call_status === 'active') || [];
-        if (activeSessions.length > 0) {
-            const callId = activeSessions[0].call_id;
-            document.getElementById('callIdInput').value = callId;
-            showInfo(`Found active call session: ${callId}`);
-        } else if (pendingCall.call_sessions?.length > 0) {
-            const recentSession = pendingCall.call_sessions[0]; // Most recent
-            document.getElementById('callIdInput').value = recentSession.call_id;
-            showInfo(`Found recent call session: ${recentSession.call_id} (${recentSession.call_status})`);
+        // Set up call ID input with active or most recent session (if the input exists)
+        const callIdInput = document.getElementById('callIdInput');
+        if (callIdInput) {
+            const activeSessions = pendingCall.call_sessions?.filter(s => s.call_status === 'active') || [];
+            if (activeSessions.length > 0) {
+                const callId = activeSessions[0].call_id;
+                callIdInput.value = callId;
+                showInfo(`Found active call session: ${callId}`);
+            } else if (pendingCall.call_sessions?.length > 0) {
+                const recentSession = pendingCall.call_sessions[0]; // Most recent
+                callIdInput.value = recentSession.call_id;
+                showInfo(`Found recent call session: ${recentSession.call_id} (${recentSession.call_status})`);
+            }
         }
         
         hideLoading();
@@ -1034,6 +1043,10 @@ function addTranscript(text, source, isHistorical = false, timestamp = null) {
 
 function addEvent(text, icon, className, isHistorical = false, timestamp = null) {
     const container = document.getElementById('events');
+    if (!container) {
+        console.log('Events container not found, skipping event:', text);
+        return;
+    }
     const emptyState = container.querySelector('.empty-state');
     if (emptyState) emptyState.remove();
     
@@ -1365,10 +1378,12 @@ function scrollToBottom(element) {
 }
 
 function showError(message) {
+    console.error('Error:', message);
     addEvent(message, '❌', 'event-error');
 }
 
 function showInfo(message) {
+    console.info('Info:', message);
     addEvent(message, 'ℹ️', 'event-info');
 }
 
