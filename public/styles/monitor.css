@@ -1181,9 +1181,38 @@ body:has(.login-container) {
     background: white;
     padding: 15px 20px;
     border-bottom: 1px solid #e5e7eb;
+    margin: 20px;
     margin-bottom: 10px;
     border-radius: 8px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.classification-status {
+    display: flex;
+    justify-content: flex-start;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.classification-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.classification-circle {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background-color: #10b981;
+    display: inline-block;
+}
+
+.classification-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
 }
 
 .call-info-grid {
@@ -1365,7 +1394,7 @@ body:has(.login-container) {
 
 .sessions-table-container h3 {
     margin: 0 0 15px 0;
-    color: #1e293b;
+    color: white;
     font-size: 18px;
     font-weight: 600;
 }
