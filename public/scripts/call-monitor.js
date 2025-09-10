@@ -16,7 +16,9 @@ let maxConnectionAttempts = 3;
 let realtimeChannel = null;
 let callSessionsChannel = null;
 let classificationsChannel = null;
+let ivrEventsChannel = null;
 let currentSelectedSessionId = null;
+let currentSelectedSessionCallId = null;
 
 // Helper function to get URL parameters
 function getUrlParam(param) {
@@ -177,6 +179,8 @@ function refreshSelectedSessionDetails() {
         const updatedSession = window.currentSessions.find(s => s.id === currentSelectedSessionId);
         if (updatedSession) {
             console.log('🔄 Refreshing details panel for session:', currentSelectedSessionId);
+            // Update the call_id tracking in case it changed
+            currentSelectedSessionCallId = updatedSession.call_id;
             showSessionDetails(updatedSession);
             
             // Re-highlight the selected row
@@ -225,6 +229,7 @@ function setupRealtimeSubscriptions(pendingCallId) {
     realtimeChannel = null;
     callSessionsChannel = null;
     classificationsChannel = null;
+    ivrEventsChannel = null;
     
     // Force reconnect the realtime connection
     if (supabase.realtime) {
@@ -353,6 +358,46 @@ function createMonitorSubscriptions(pendingCallId) {
                 console.log('Classifications subscription status:', status);
             }
         });
+    
+    // Subscribe to ivr_events updates
+    // This will catch any IVR event updates for sessions related to this pending call
+    ivrEventsChannel = supabase
+        .channel(`ivr-events-${pendingCallId}`)
+        .on('postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'ivr_events'
+            },
+            async (payload) => {
+                console.log('🔔 Realtime IVR event update received!');
+                console.log('Event type:', payload.eventType);
+                console.log('Payload:', payload);
+                
+                // Check if this event belongs to the currently selected session
+                if (currentSelectedSessionCallId && payload.new && 
+                    payload.new.call_id === currentSelectedSessionCallId) {
+                    console.log('📌 IVR event is for currently selected session');
+                    
+                    // Refresh just the IVR events section
+                    const selectedSession = window.currentSessions?.find(s => s.id === currentSelectedSessionId);
+                    if (selectedSession) {
+                        if (selectedSession.call_classifications) {
+                            await loadIvrEventsForDetail(selectedSession.call_classifications, selectedSession);
+                        } else {
+                            await loadIvrEventsForSessionDetail(selectedSession);
+                        }
+                    }
+                }
+            }
+        )
+        .subscribe((status, error) => {
+            if (error) {
+                console.error('IVR events subscription error:', error);
+            } else {
+                console.log('IVR events subscription status:', status);
+            }
+        });
 }
 
 // Handle pending call updates
@@ -405,6 +450,11 @@ async function handleCallSessionUpdate(payload) {
         // If there was a selected session, reopen it after reload
         if (wasSelectedSessionId) {
             currentSelectedSessionId = wasSelectedSessionId;
+            // Find and update the call_id
+            const reloadedSession = window.currentSessions?.find(s => s.id === wasSelectedSessionId);
+            if (reloadedSession) {
+                currentSelectedSessionCallId = reloadedSession.call_id;
+            }
             // Wait for the data to be loaded, then refresh the details panel
             setTimeout(refreshSelectedSessionDetails, 100);
         }
@@ -472,8 +522,9 @@ function selectSession(sessionId) {
     const session = window.currentSessions?.find(s => s.id === sessionId);
     if (!session) return;
     
-    // Track the currently selected session
+    // Track the currently selected session and its call_id
     currentSelectedSessionId = sessionId;
+    currentSelectedSessionCallId = session.call_id;
     
     // Open the details panel
     const detailsPanel = document.getElementById('detailsPanel');
@@ -708,6 +759,7 @@ function closeDetailsPanel() {
     
     // Clear the selected session tracking
     currentSelectedSessionId = null;
+    currentSelectedSessionCallId = null;
     
     // Remove selection from table
     document.querySelectorAll('.sessions-table tbody tr').forEach(row => {
@@ -1549,6 +1601,10 @@ window.addEventListener('beforeunload', () => {
     if (classificationsChannel) {
         supabase.removeChannel(classificationsChannel);
         classificationsChannel = null;
+    }
+    if (ivrEventsChannel) {
+        supabase.removeChannel(ivrEventsChannel);
+        ivrEventsChannel = null;
     }
 });
 
