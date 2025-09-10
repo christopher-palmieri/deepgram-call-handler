@@ -1642,6 +1642,25 @@ body:has(.login-container) {
     font-style: italic;
 }
 
+/* Visual feedback for pending call info updates */
+.call-info-panel.info-updated {
+    animation: infoHighlight 1.5s ease-out;
+}
+
+@keyframes infoHighlight {
+    0% {
+        background-color: #ffffff;
+    }
+    20% {
+        background-color: #e0f2fe;
+        box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+    }
+    100% {
+        background-color: #ffffff;
+        box-shadow: none;
+    }
+}
+
 .event-icon {
     width: 40px;
     height: 40px;

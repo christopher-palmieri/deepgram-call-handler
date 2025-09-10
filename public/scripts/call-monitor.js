@@ -413,17 +413,19 @@ function createMonitorSubscriptions(pendingCallId) {
 async function handlePendingCallUpdate(updatedPendingCall) {
     console.log('Handling pending call update:', updatedPendingCall);
     
-    // Update the displayed info
+    // Update the displayed info - using correct field names matching the database columns
     document.getElementById('infoEmployee').textContent = updatedPendingCall.employee_name || '-';
     document.getElementById('infoClinic').textContent = updatedPendingCall.clinic_name || '-';
-    document.getElementById('infoPhone').textContent = updatedPendingCall.phone_number || '-';
-    document.getElementById('infoAppointment').textContent = updatedPendingCall.appointment_datetime ? 
-        new Date(updatedPendingCall.appointment_datetime).toLocaleString() : '-';
+    document.getElementById('infoPhone').textContent = updatedPendingCall.phone || '-';  // Fixed: phone, not phone_number
+    document.getElementById('infoAppointment').textContent = updatedPendingCall.appointment_time ?  // Fixed: appointment_time, not appointment_datetime
+        new Date(updatedPendingCall.appointment_time).toLocaleString() : '-';
     document.getElementById('infoWorkflow').textContent = updatedPendingCall.workflow_state || '-';
     
     // Update success evaluation if present
     if (updatedPendingCall.success_evaluation) {
         document.getElementById('infoSuccessEval').textContent = updatedPendingCall.success_evaluation;
+    } else {
+        document.getElementById('infoSuccessEval').textContent = '-';
     }
     
     // Update summary if present
@@ -435,13 +437,24 @@ async function handlePendingCallUpdate(updatedPendingCall) {
     // Update structured data if present
     if (updatedPendingCall.structured_data) {
         document.getElementById('infoStructuredData').textContent = 
-            JSON.stringify(updatedPendingCall.structured_data, null, 2);
+            typeof updatedPendingCall.structured_data === 'object' ?
+            JSON.stringify(updatedPendingCall.structured_data, null, 2) :
+            updatedPendingCall.structured_data;
         document.getElementById('structuredDataSection').style.display = 'block';
     }
     
     // Update the current pending call object
     if (currentPendingCall) {
         currentPendingCall = { ...currentPendingCall, ...updatedPendingCall };
+    }
+    
+    // Add visual feedback for the update
+    const callInfoPanel = document.getElementById('callInfoPanel');
+    if (callInfoPanel) {
+        callInfoPanel.classList.add('info-updated');
+        setTimeout(() => {
+            callInfoPanel.classList.remove('info-updated');
+        }, 1500);
     }
 }
 
