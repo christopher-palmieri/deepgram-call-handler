@@ -374,10 +374,19 @@ function createMonitorSubscriptions(pendingCallId) {
                 console.log('Event type:', payload.eventType);
                 console.log('Payload:', payload);
                 
+                // Get the relevant call_id based on event type
+                let eventCallId = null;
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                    eventCallId = payload.new?.call_id;
+                } else if (payload.eventType === 'DELETE') {
+                    eventCallId = payload.old?.call_id;
+                }
+                
                 // Check if this event belongs to the currently selected session
-                if (currentSelectedSessionCallId && payload.new && 
-                    payload.new.call_id === currentSelectedSessionCallId) {
+                if (currentSelectedSessionCallId && eventCallId && 
+                    eventCallId === currentSelectedSessionCallId) {
                     console.log('📌 IVR event is for currently selected session');
+                    console.log(`Event type: ${payload.eventType}, Call ID: ${eventCallId}`);
                     
                     // Refresh just the IVR events section
                     const selectedSession = window.currentSessions?.find(s => s.id === currentSelectedSessionId);
@@ -651,13 +660,14 @@ async function loadIvrEventsForDetail(classification, session) {
             return;
         }
         
-        let html = '<h4>IVR Events (' + events.length + ')</h4><div class="events-list">';
+        let html = '<h4>IVR Events (' + events.length + ') <span class="realtime-indicator">🔴 LIVE</span></h4><div class="events-list">';
         
-        events.forEach(event => {
+        events.forEach((event, index) => {
+            const isNew = index === events.length - 1; // Mark the last event as new for visual emphasis
             // Only show transcript prominently if it exists
             if (event.transcript) {
                 html += `
-                    <div class="event-item">
+                    <div class="event-item ${isNew ? 'event-new' : ''}">
                         <div class="event-transcript">${event.transcript}</div>
                         <div class="event-header">
                             <span class="event-timing">${event.timing_ms || 0}ms</span>
@@ -665,17 +675,19 @@ async function loadIvrEventsForDetail(classification, session) {
                             ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
                         </div>
                         ${event.ai_reply ? `<div class="event-ai-reply">AI Response: ${event.ai_reply}</div>` : ''}
+                        <div class="event-timestamp">${new Date(event.created_at).toLocaleTimeString()}</div>
                     </div>
                 `;
             } else {
                 html += `
-                    <div class="event-item">
+                    <div class="event-item ${isNew ? 'event-new' : ''}">
                         <div class="event-header">
                             <span class="event-timing">${event.timing_ms || 0}ms</span>
                             <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
                             ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
                         </div>
                         ${event.ai_reply ? `<div class="event-ai-reply">AI Response: ${event.ai_reply}</div>` : ''}
+                        <div class="event-timestamp">${new Date(event.created_at).toLocaleTimeString()}</div>
                     </div>
                 `;
             }
@@ -683,6 +695,15 @@ async function loadIvrEventsForDetail(classification, session) {
         
         html += '</div>';
         container.innerHTML = html;
+        
+        // Animate the LIVE indicator
+        const indicator = container.querySelector('.realtime-indicator');
+        if (indicator) {
+            indicator.style.animation = 'pulse 1s ease-in-out';
+            setTimeout(() => {
+                if (indicator) indicator.style.animation = '';
+            }, 1000);
+        }
         
     } catch (error) {
         console.error('Error loading IVR events:', error);
@@ -712,13 +733,14 @@ async function loadIvrEventsForSessionDetail(session) {
             return;
         }
         
-        let html = '<h4>IVR Events (' + events.length + ')</h4><div class="events-list">';
+        let html = '<h4>IVR Events (' + events.length + ') <span class="realtime-indicator">🔴 LIVE</span></h4><div class="events-list">';
         
-        events.forEach(event => {
+        events.forEach((event, index) => {
+            const isNew = index === events.length - 1; // Mark the last event as new for visual emphasis
             // Only show transcript prominently if it exists
             if (event.transcript) {
                 html += `
-                    <div class="event-item">
+                    <div class="event-item ${isNew ? 'event-new' : ''}">
                         <div class="event-transcript">${event.transcript}</div>
                         <div class="event-header">
                             <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
@@ -730,7 +752,7 @@ async function loadIvrEventsForSessionDetail(session) {
                 `;
             } else {
                 html += `
-                    <div class="event-item">
+                    <div class="event-item ${isNew ? 'event-new' : ''}">
                         <div class="event-header">
                             <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
                             <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
@@ -744,6 +766,15 @@ async function loadIvrEventsForSessionDetail(session) {
         
         html += '</div>';
         container.innerHTML = html;
+        
+        // Animate the LIVE indicator
+        const indicator = container.querySelector('.realtime-indicator');
+        if (indicator) {
+            indicator.style.animation = 'pulse 1s ease-in-out';
+            setTimeout(() => {
+                if (indicator) indicator.style.animation = '';
+            }, 1000);
+        }
         
     } catch (error) {
         console.error('Error loading IVR events:', error);
