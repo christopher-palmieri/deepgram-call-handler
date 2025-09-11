@@ -5,7 +5,7 @@ let supabaseClient = null;
 
 // Wait for config to load
 window.addEventListener('DOMContentLoaded', async () => {
-    await loadConfig(); // From config.js
+    loadConfig(); // From config.js
     
     // Get the supabase client from global scope
     supabaseClient = window.supabaseClient || window.supabase || supabase;

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Config Test</title>
+</head>
+<body>
+    <h1>Configuration Test</h1>
+    <div id="config-display">
+        <h2>Injected Configuration:</h2>
+        <pre id="config-json">Loading...</pre>
+    </div>
+    
+    <script>
+        // Check if APP_CONFIG was injected
+        if (window.APP_CONFIG) {
+            document.getElementById('config-json').textContent = 
+                JSON.stringify(window.APP_CONFIG, null, 2);
+            console.log('Configuration successfully injected:', window.APP_CONFIG);
+        } else {
+            document.getElementById('config-json').textContent = 
+                'ERROR: Configuration not injected. window.APP_CONFIG is undefined.';
+            console.error('Configuration injection failed');
+        }
+    </script>
+</body>
+</html>

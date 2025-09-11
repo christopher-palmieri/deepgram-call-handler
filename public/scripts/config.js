@@ -1,61 +1,18 @@
 // public/scripts/config.js
-// Shared configuration loader - loaded by all pages
+// Shared configuration loader - uses injected window.APP_CONFIG
 
 let config = null;
 let supabase = null;
 
-async function loadConfig() {
+function loadConfig() {
     // Return existing config if already loaded
     if (config && supabase) {
         return config;
     }
     
-    try {
-        const response = await fetch('/api/config');
-        if (!response.ok) {
-            throw new Error('Failed to load configuration');
-        }
-        
-        config = await response.json();
-        console.log('Loaded config:', config);
-        
-        // Initialize Supabase client only once
-        if (!supabase && window.supabase && config.supabaseUrl && config.supabaseAnonKey) {
-            supabase = window.supabase.createClient(
-                config.supabaseUrl, 
-                config.supabaseAnonKey,
-                {
-                    auth: {
-                        persistSession: true,
-                        autoRefreshToken: true,
-                        detectSessionInUrl: false
-                    },
-                    realtime: {
-                        params: {
-                            eventsPerSecond: 10
-                        }
-                    }
-                }
-            );
-            console.log('Supabase client created with realtime support');
-            
-            // Make it globally available
-            window.supabaseClient = supabase;
-        } else if (window.supabaseClient) {
-            // Use existing client if available
-            supabase = window.supabaseClient;
-            console.log('Using existing Supabase client');
-        } else {
-            console.error('Failed to create Supabase client. Missing config or Supabase library.');
-            console.log('window.supabase:', window.supabase);
-            console.log('supabaseUrl:', config.supabaseUrl);
-            console.log('supabaseAnonKey:', config.supabaseAnonKey);
-        }
-        
-        return config;
-    } catch (error) {
-        console.error('Failed to load configuration:', error);
-        // Return default config to prevent complete failure
+    // Use the injected configuration from window.APP_CONFIG
+    if (!window.APP_CONFIG) {
+        console.error('Configuration not found. APP_CONFIG is not defined.');
         config = {
             supabaseUrl: '',
             supabaseAnonKey: '',
@@ -63,12 +20,50 @@ async function loadConfig() {
         };
         return config;
     }
+    
+    config = window.APP_CONFIG;
+    console.log('Using injected config:', config);
+    
+    // Initialize Supabase client only once
+    if (!supabase && window.supabase && config.supabaseUrl && config.supabaseAnonKey) {
+        supabase = window.supabase.createClient(
+            config.supabaseUrl, 
+            config.supabaseAnonKey,
+            {
+                auth: {
+                    persistSession: true,
+                    autoRefreshToken: true,
+                    detectSessionInUrl: false
+                },
+                realtime: {
+                    params: {
+                        eventsPerSecond: 10
+                    }
+                }
+            }
+        );
+        console.log('Supabase client created with realtime support');
+        
+        // Make it globally available
+        window.supabaseClient = supabase;
+    } else if (window.supabaseClient) {
+        // Use existing client if available
+        supabase = window.supabaseClient;
+        console.log('Using existing Supabase client');
+    } else {
+        console.error('Failed to create Supabase client. Missing config or Supabase library.');
+        console.log('window.supabase:', window.supabase);
+        console.log('supabaseUrl:', config.supabaseUrl);
+        console.log('supabaseAnonKey:', config.supabaseAnonKey);
+    }
+    
+    return config;
 }
 
 // Helper function to check authentication
 async function checkAuth() {
     if (!supabase) {
-        await loadConfig();
+        loadConfig();
     }
     
     if (!supabase) {
@@ -88,7 +83,13 @@ function getUrlParam(name) {
 
 // Auto-load configuration when script loads
 if (typeof window !== 'undefined') {
-    window.addEventListener('DOMContentLoaded', () => {
+    // Configuration is now injected, so we can load immediately
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', () => {
+            loadConfig();
+        });
+    } else {
+        // DOM already loaded
         loadConfig();
-    });
+    }
 }
