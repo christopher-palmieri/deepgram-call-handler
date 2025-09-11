@@ -1,4 +1,4 @@
-import { NextResponse } from '@vercel/edge';
+import { NextResponse } from 'next/server';
 
 export const config = {
   matcher: [
