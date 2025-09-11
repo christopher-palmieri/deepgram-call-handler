@@ -432,16 +432,22 @@ UI Update with Animation
 
 ## Deployment
 
+### Vercel Deployment
+- Deploy entire repository to Vercel
+- Edge Middleware automatically handles configuration injection
+- Set environment variables in Vercel dashboard
+- No need for separate config file management
+
 ### Static File Hosting
-- Serve only the `/public` directory
+- Serve the `/public` directory
 - Do not expose `/test-pages` directory
-- Can be hosted on any static file server
+- Edge middleware injects configuration at request time
 
 ### Configuration Management
-1. Copy `config.dev.json` to `config.json`
-2. Update with production values
-3. Never commit `config.json` to git
-4. Deploy separately from code
+1. Set environment variables in Vercel dashboard
+2. Edge middleware automatically injects them into HTML
+3. No config files to manage or deploy separately
+4. Configuration updates take effect immediately
 
 ### Browser Support
 - **Chrome**: Full support (recommended)
