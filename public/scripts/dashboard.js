@@ -17,7 +17,7 @@ let searchQuery = '';
 
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', async () => {
-    loadConfig(); // From config.js
+    await loadConfig(); // From config.js
     
     if (!supabase) {
         alert('Failed to initialize. Please refresh.');

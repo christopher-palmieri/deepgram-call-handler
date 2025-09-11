@@ -1,28 +1,47 @@
 // public/scripts/config.js
-// Shared configuration loader - uses injected window.APP_CONFIG
+// Shared configuration loader - fetches from API endpoint
 
 let config = null;
 let supabase = null;
+let configPromise = null;
 
-function loadConfig() {
+async function loadConfig() {
     // Return existing config if already loaded
     if (config && supabase) {
         return config;
     }
     
-    // Use the injected configuration from window.APP_CONFIG
-    if (!window.APP_CONFIG) {
-        console.error('Configuration not found. APP_CONFIG is not defined.');
-        config = {
-            supabaseUrl: '',
-            supabaseAnonKey: '',
-            wsUrl: 'ws://localhost:3000/monitor'
-        };
-        return config;
+    // If already fetching, wait for that promise
+    if (configPromise) {
+        return configPromise;
     }
     
-    config = window.APP_CONFIG;
-    console.log('Using injected config:', config);
+    // Start fetching configuration
+    configPromise = (async () => {
+        try {
+            // Try to fetch from API endpoint
+            const response = await fetch('/api/config');
+            if (response.ok) {
+                config = await response.json();
+                console.log('Loaded config from API:', config);
+            } else {
+                throw new Error('Failed to fetch config');
+            }
+        } catch (error) {
+            console.error('Error loading config:', error);
+            // Fallback configuration
+            config = {
+                supabaseUrl: '',
+                supabaseAnonKey: '',
+                wsUrl: 'ws://localhost:3000/monitor'
+            };
+        }
+        
+        return config;
+    })();
+    
+    config = await configPromise;
+    console.log('Using config:', config);
     
     // Initialize Supabase client only once
     if (!supabase && window.supabase && config.supabaseUrl && config.supabaseAnonKey) {
@@ -63,7 +82,7 @@ function loadConfig() {
 // Helper function to check authentication
 async function checkAuth() {
     if (!supabase) {
-        loadConfig();
+        await loadConfig();
     }
     
     if (!supabase) {
@@ -83,10 +102,10 @@ function getUrlParam(name) {
 
 // Auto-load configuration when script loads
 if (typeof window !== 'undefined') {
-    // Configuration is now injected, so we can load immediately
+    // Load configuration from API when DOM is ready
     if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', () => {
-            loadConfig();
+        window.addEventListener('DOMContentLoaded', async () => {
+            await loadConfig();
         });
     } else {
         // DOM already loaded
