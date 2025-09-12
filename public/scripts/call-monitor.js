@@ -26,6 +26,18 @@ function getUrlParam(param) {
     return urlParams.get(param);
 }
 
+// Function to dynamically adjust flyout positioning based on actual top bar height
+function adjustFlyoutPosition() {
+    const topBar = document.querySelector('.top-bar');
+    const detailsPanel = document.getElementById('detailsPanel');
+    
+    if (topBar && detailsPanel) {
+        const topBarHeight = topBar.offsetHeight;
+        detailsPanel.style.top = `${topBarHeight}px`;
+        detailsPanel.style.height = `calc(100vh - ${topBarHeight}px)`;
+    }
+}
+
 // Helper function to format phone number
 function formatPhoneNumber(phone) {
     if (!phone) return '-';
@@ -80,6 +92,12 @@ function formatStructuredData(data) {
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', async () => {
     await loadConfig(); // From config.js
+    
+    // Adjust flyout positioning based on actual top bar height
+    adjustFlyoutPosition();
+    
+    // Also adjust on window resize
+    window.addEventListener('resize', adjustFlyoutPosition);
     
     if (!supabase) {
         showError('Failed to initialize. Please refresh.');
