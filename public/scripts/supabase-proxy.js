@@ -203,6 +203,38 @@ class SupabaseProxy {
             
             return { data: { session }, error: null };
         },
+        refreshSession: async () => {
+            // Refresh the session by verifying the token is still valid
+            const accessToken = localStorage.getItem('sb-access-token');
+            const refreshToken = localStorage.getItem('sb-refresh-token');
+            
+            if (!accessToken) {
+                return { data: { session: null }, error: new Error('No session to refresh') };
+            }
+            
+            // Make a simple call to verify token
+            const response = await fetch('/api/auth?action=user', {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            });
+            
+            if (!response.ok) {
+                return { data: { session: null }, error: new Error('Session expired') };
+            }
+            
+            const data = await response.json();
+            const session = {
+                access_token: accessToken,
+                refresh_token: refreshToken,
+                user: data.user,
+                expires_at: null,
+                expires_in: null,
+                token_type: 'bearer'
+            };
+            
+            return { data: { session }, error: null };
+        },
         onAuthStateChange: (callback) => {
             const checkAuth = async () => {
                 const user = await this.getUser();
