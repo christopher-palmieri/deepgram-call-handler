@@ -1,21 +1,11 @@
 export default function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET');
   
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  
-  // Require authentication to access config
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-  
-  // Only return config to authenticated users
   const config = {
+    supabaseUrl: process.env.SUPABASE_URL || '',
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '',
     wsUrl: process.env.MONITOR_WS_URL || getDefaultMonitorUrl(),
     environment: process.env.NODE_ENV || 'development',
     version: process.env.VERCEL_GIT_COMMIT_SHA || 'local'
