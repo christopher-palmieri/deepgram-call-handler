@@ -124,13 +124,83 @@ class SupabaseProxy {
     }
 
     auth = {
-        getUser: () => this.getUser(),
-        signInWithPassword: ({ email, password }) => this.signIn(email, password),
-        signOut: () => this.signOut(),
+        getUser: async () => {
+            const user = await this.getUser();
+            return { data: { user }, error: null };
+        },
+        getSession: async () => {
+            // Reconstruct session from stored tokens
+            const accessToken = localStorage.getItem('sb-access-token');
+            const refreshToken = localStorage.getItem('sb-refresh-token');
+            
+            if (!accessToken) {
+                return { data: { session: null }, error: null };
+            }
+            
+            // Verify token is still valid by checking user
+            const user = await this.getUser();
+            if (!user) {
+                return { data: { session: null }, error: null };
+            }
+            
+            const session = {
+                access_token: accessToken,
+                refresh_token: refreshToken,
+                user: user,
+                expires_at: null, // We don't track expiry client-side
+                expires_in: null,
+                token_type: 'bearer'
+            };
+            
+            return { data: { session }, error: null };
+        },
+        signInWithPassword: async ({ email, password }) => {
+            const result = await this.signIn(email, password);
+            return result;
+        },
+        signOut: async () => {
+            await this.signOut();
+            return { error: null };
+        },
+        setSession: async ({ access_token, refresh_token }) => {
+            if (!access_token) {
+                this.token = null;
+                this.user = null;
+                localStorage.removeItem('sb-access-token');
+                localStorage.removeItem('sb-refresh-token');
+                return { data: { session: null }, error: null };
+            }
+            
+            this.token = access_token;
+            localStorage.setItem('sb-access-token', access_token);
+            if (refresh_token) {
+                localStorage.setItem('sb-refresh-token', refresh_token);
+            }
+            
+            // Verify and get user
+            const user = await this.getUser();
+            
+            const session = {
+                access_token,
+                refresh_token,
+                user,
+                expires_at: null,
+                expires_in: null,
+                token_type: 'bearer'
+            };
+            
+            // Update realtime client session if it exists
+            if (this.realtimeClient) {
+                await this.realtimeClient.auth.setSession({ access_token, refresh_token });
+            }
+            
+            return { data: { session }, error: null };
+        },
         onAuthStateChange: (callback) => {
             const checkAuth = async () => {
                 const user = await this.getUser();
-                callback(user ? 'SIGNED_IN' : 'SIGNED_OUT', { user });
+                const { data: { session } } = await this.auth.getSession();
+                callback(user ? 'SIGNED_IN' : 'SIGNED_OUT', session);
             };
             checkAuth();
             
