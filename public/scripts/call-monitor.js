@@ -644,6 +644,70 @@ function selectSession(sessionId) {
     showSessionDetails(session);
 }
 
+// Format workflow metadata into a structured UI
+function formatWorkflowMetadata(metadata) {
+    if (!metadata || typeof metadata !== 'object') {
+        return `
+            <div class="session-detail-section">
+                <h4>Workflow Metadata</h4>
+                <div class="metadata-item-simple">
+                    <span class="metadata-value">${metadata || 'No metadata available'}</span>
+                </div>
+            </div>
+        `;
+    }
+
+    let html = `
+        <div class="session-detail-section">
+            <h4>Workflow Metadata</h4>
+            <div class="metadata-grid">
+    `;
+
+    // Iterate through the metadata object and create structured display
+    for (const [key, value] of Object.entries(metadata)) {
+        const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        
+        if (typeof value === 'object' && value !== null) {
+            // Handle nested objects
+            html += `
+                <div class="metadata-item nested">
+                    <div class="metadata-label">${formattedKey}:</div>
+                    <div class="metadata-nested-content">
+            `;
+            
+            for (const [nestedKey, nestedValue] of Object.entries(value)) {
+                const formattedNestedKey = nestedKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                html += `
+                    <div class="metadata-nested-item">
+                        <span class="metadata-nested-label">${formattedNestedKey}:</span>
+                        <span class="metadata-nested-value">${nestedValue || '-'}</span>
+                    </div>
+                `;
+            }
+            
+            html += `
+                    </div>
+                </div>
+            `;
+        } else {
+            // Handle simple key-value pairs
+            html += `
+                <div class="metadata-item">
+                    <span class="metadata-label">${formattedKey}:</span>
+                    <span class="metadata-value">${value || '-'}</span>
+                </div>
+            `;
+        }
+    }
+
+    html += `
+            </div>
+        </div>
+    `;
+
+    return html;
+}
+
 // Show session details in the side panel
 async function showSessionDetails(session) {
     const container = document.getElementById('detailsPanelContent');
@@ -666,16 +730,7 @@ async function showSessionDetails(session) {
     
     // Display workflow metadata if it exists
     if (session.workflow_metadata) {
-        html += `
-            <div class="session-detail-section">
-                <h4>Workflow Metadata</h4>
-                <pre class="workflow-metadata-content">${
-                    typeof session.workflow_metadata === 'object' ? 
-                    JSON.stringify(session.workflow_metadata, null, 2) : 
-                    session.workflow_metadata
-                }</pre>
-            </div>
-        `;
+        html += formatWorkflowMetadata(session.workflow_metadata);
     }
     
     // Display classification if it exists
