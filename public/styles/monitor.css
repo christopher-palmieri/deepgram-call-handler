@@ -1701,6 +1701,139 @@ body:has(.login-container) {
     text-align: center;
 }
 
+/* Compact IVR Events Styling */
+.events-list-compact {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.event-item-compact {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 13px;
+    transition: all 0.2s ease;
+}
+
+.event-item-compact.event-new {
+    border-color: #3b82f6;
+    background: #eff6ff;
+}
+
+.event-compact-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.event-compact-time {
+    font-size: 11px;
+    color: #6b7280;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.event-compact-status {
+    font-size: 12px;
+}
+
+.event-compact-status.executed {
+    color: #059669;
+}
+
+.event-compact-status.pending {
+    color: #d97706;
+}
+
+.event-compact-action {
+    margin-bottom: 4px;
+}
+
+.event-action-type {
+    font-weight: 600;
+    color: #374151;
+    font-size: 12px;
+}
+
+.event-action-value {
+    color: #6b7280;
+    font-size: 12px;
+}
+
+.event-compact-transcript {
+    background: #f3f4f6;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-style: italic;
+    color: #4b5563;
+    font-size: 12px;
+    margin: 4px 0;
+    border-left: 3px solid #9ca3af;
+}
+
+.event-compact-ai-reply {
+    background: #ecfdf5;
+    padding: 6px 8px;
+    border-radius: 4px;
+    color: #065f46;
+    font-size: 12px;
+    margin: 4px 0;
+    border-left: 3px solid #34d399;
+}
+
+/* Calling Status Animation */
+@keyframes callingFlash {
+    0%, 100% { 
+        background-color: transparent; 
+        box-shadow: none;
+    }
+    50% { 
+        background-color: rgba(59, 130, 246, 0.1); 
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+}
+
+@keyframes callingPulse {
+    0%, 100% { 
+        opacity: 1; 
+    }
+    50% { 
+        opacity: 0.7; 
+    }
+}
+
+.sessions-table tbody tr.calling-active {
+    animation: callingFlash 2s ease-in-out infinite;
+    position: relative;
+}
+
+.sessions-table tbody tr.calling-active .session-status {
+    animation: callingPulse 1s ease-in-out infinite;
+}
+
+/* Add a subtle indicator dot for calling status */
+.sessions-table tbody tr.calling-active::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 6px;
+    height: 6px;
+    background: #3b82f6;
+    border-radius: 50%;
+    animation: callingPulse 1s ease-in-out infinite;
+    z-index: 1;
+}
+
+.sessions-table tbody tr.calling-active td:first-child {
+    padding-left: 24px;
+    position: relative;
+}
+
 .details-panel-content::-webkit-scrollbar {
     width: 6px;
 }

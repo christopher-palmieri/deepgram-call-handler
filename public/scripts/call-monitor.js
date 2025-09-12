@@ -572,6 +572,9 @@ async function handleCallSessionUpdate(payload) {
 }
 
 // Display call sessions in a table format
+// Store previous session states for status change detection
+let previousSessionStates = {};
+
 async function displayCallClassifications(pendingCall) {
     const tableBody = document.getElementById('sessionsTableBody');
     
@@ -602,17 +605,41 @@ async function displayCallClassifications(pendingCall) {
             confidenceHtml = `<span class="confidence-badge confidence-${confidenceClass}">${confidence.toFixed(1)}%</span>`;
         }
         
+        // Check if status changed to 'Calling' to trigger animation
+        const previousState = previousSessionStates[session.id];
+        const hasStatusChanged = previousState && 
+            previousState.call_status !== session.call_status && 
+            session.call_status === 'Calling';
+        
+        // Add calling-active class for animation if status is 'Calling'
+        const callingClass = session.call_status === 'Calling' ? ' calling-active' : '';
+        
         html += `
-            <tr data-session-id="${session.id}" onclick="selectSession('${session.id}')">
+            <tr data-session-id="${session.id}" class="${hasStatusChanged ? 'status-changed' : ''}${callingClass}" onclick="selectSession('${session.id}')">
                 <td>${dateStr} ${timeStr}</td>
                 <td>${session.ivr_detection_state || '-'}</td>
                 <td>${confidenceHtml}</td>
                 <td><span class="session-status status-${session.call_status}">${session.call_status}</span></td>
             </tr>
         `;
+        
+        // Update previous state
+        previousSessionStates[session.id] = {
+            call_status: session.call_status,
+            last_updated: new Date()
+        };
     }
     
     tableBody.innerHTML = html;
+    
+    // Trigger flash animation for newly changed to 'Calling' status
+    const changedRows = document.querySelectorAll('.sessions-table tbody tr.status-changed');
+    changedRows.forEach(row => {
+        // Remove the status-changed class after a brief delay
+        setTimeout(() => {
+            row.classList.remove('status-changed');
+        }, 100);
+    });
 }
 
 // Handle session selection and show details
@@ -808,37 +835,27 @@ async function loadIvrEventsForDetail(classification, session) {
             return;
         }
         
-        let html = '<h4>IVR Events (' + events.length + ') <span class="realtime-indicator">🔴 LIVE</span></h4><div class="events-list">';
+        let html = '<h4>IVR Events (' + events.length + ') <span class="realtime-indicator">🔴 LIVE</span></h4><div class="events-list-compact">';
         
         events.forEach((event, index) => {
             const isNew = index === events.length - 1; // Mark the last event as new for visual emphasis
-            // Only show transcript prominently if it exists
-            if (event.transcript) {
-                html += `
-                    <div class="event-item ${isNew ? 'event-new' : ''}">
-                        <div class="event-transcript">${event.transcript}</div>
-                        <div class="event-header">
-                            <span class="event-timing">${event.timing_ms || 0}ms</span>
-                            <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
-                            ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
-                        </div>
-                        ${event.ai_reply ? `<div class="event-ai-reply">AI Response: ${event.ai_reply}</div>` : ''}
-                        <div class="event-timestamp">${new Date(event.created_at).toLocaleTimeString()}</div>
+            const timestamp = new Date(event.created_at).toLocaleTimeString();
+            const statusIcon = event.executed ? '✓' : '⏳';
+            
+            html += `
+                <div class="event-item-compact ${isNew ? 'event-new' : ''}">
+                    <div class="event-compact-header">
+                        <span class="event-compact-time">${timestamp}</span>
+                        <span class="event-compact-status ${event.executed ? 'executed' : 'pending'}">${statusIcon}</span>
                     </div>
-                `;
-            } else {
-                html += `
-                    <div class="event-item ${isNew ? 'event-new' : ''}">
-                        <div class="event-header">
-                            <span class="event-timing">${event.timing_ms || 0}ms</span>
-                            <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
-                            ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
-                        </div>
-                        ${event.ai_reply ? `<div class="event-ai-reply">AI Response: ${event.ai_reply}</div>` : ''}
-                        <div class="event-timestamp">${new Date(event.created_at).toLocaleTimeString()}</div>
+                    <div class="event-compact-action">
+                        <span class="event-action-type">${event.action_type}</span>
+                        ${event.action_value ? `<span class="event-action-value">: ${event.action_value}</span>` : ''}
                     </div>
-                `;
-            }
+                    ${event.transcript ? `<div class="event-compact-transcript">"${event.transcript}"</div>` : ''}
+                    ${event.ai_reply ? `<div class="event-compact-ai-reply">→ ${event.ai_reply}</div>` : ''}
+                </div>
+            `;
         });
         
         html += '</div>';
@@ -881,35 +898,27 @@ async function loadIvrEventsForSessionDetail(session) {
             return;
         }
         
-        let html = '<h4>IVR Events (' + events.length + ') <span class="realtime-indicator">🔴 LIVE</span></h4><div class="events-list">';
+        let html = '<h4>IVR Events (' + events.length + ') <span class="realtime-indicator">🔴 LIVE</span></h4><div class="events-list-compact">';
         
         events.forEach((event, index) => {
             const isNew = index === events.length - 1; // Mark the last event as new for visual emphasis
-            // Only show transcript prominently if it exists
-            if (event.transcript) {
-                html += `
-                    <div class="event-item ${isNew ? 'event-new' : ''}">
-                        <div class="event-transcript">${event.transcript}</div>
-                        <div class="event-header">
-                            <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
-                            <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
-                            ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
-                        </div>
-                        ${event.ai_reply ? `<div class="event-ai-reply">AI Response: ${event.ai_reply}</div>` : ''}
+            const timestamp = new Date(event.created_at).toLocaleTimeString();
+            const statusIcon = event.executed ? '✓' : '⏳';
+            
+            html += `
+                <div class="event-item-compact ${isNew ? 'event-new' : ''}">
+                    <div class="event-compact-header">
+                        <span class="event-compact-time">${timestamp}</span>
+                        <span class="event-compact-status ${event.executed ? 'executed' : 'pending'}">${statusIcon}</span>
                     </div>
-                `;
-            } else {
-                html += `
-                    <div class="event-item ${isNew ? 'event-new' : ''}">
-                        <div class="event-header">
-                            <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
-                            <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
-                            ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
-                        </div>
-                        ${event.ai_reply ? `<div class="event-ai-reply">AI Response: ${event.ai_reply}</div>` : ''}
+                    <div class="event-compact-action">
+                        <span class="event-action-type">${event.action_type}</span>
+                        ${event.action_value ? `<span class="event-action-value">: ${event.action_value}</span>` : ''}
                     </div>
-                `;
-            }
+                    ${event.transcript ? `<div class="event-compact-transcript">"${event.transcript}"</div>` : ''}
+                    ${event.ai_reply ? `<div class="event-compact-ai-reply">→ ${event.ai_reply}</div>` : ''}
+                </div>
+            `;
         });
         
         html += '</div>';
