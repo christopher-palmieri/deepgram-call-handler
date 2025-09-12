@@ -119,7 +119,7 @@ class SupabaseProxy {
         return this.user;
     }
 
-    async from(table) {
+    from(table) {
         return new QueryBuilder(table, this.token);
     }
 
@@ -208,6 +208,43 @@ class SupabaseProxy {
             return {
                 data: { subscription: { unsubscribe: () => clearInterval(interval) } }
             };
+        },
+        mfa: {
+            getAuthenticatorAssuranceLevel: async () => {
+                // For now, return aal1 (single factor) as we're not implementing full MFA proxy
+                const token = localStorage.getItem('sb-access-token');
+                if (!token) {
+                    return { data: null, error: new Error('Not authenticated') };
+                }
+                return { 
+                    data: { 
+                        currentLevel: 'aal1',
+                        nextLevel: 'aal2',
+                        currentAuthenticationMethods: [{ method: 'password', timestamp: Date.now() }]
+                    }, 
+                    error: null 
+                };
+            },
+            listFactors: async () => {
+                // Return empty factors list for now
+                return { data: { totp: [], phone: [] }, error: null };
+            },
+            enroll: async ({ factorType, phone, issuer }) => {
+                // MFA enrollment would need server-side implementation
+                return { data: null, error: new Error('MFA enrollment not supported in proxy mode') };
+            },
+            challenge: async ({ factorId }) => {
+                // MFA challenge would need server-side implementation
+                return { data: null, error: new Error('MFA challenge not supported in proxy mode') };
+            },
+            verify: async ({ factorId, challengeId, code }) => {
+                // MFA verify would need server-side implementation
+                return { data: null, error: new Error('MFA verification not supported in proxy mode') };
+            },
+            unenroll: async ({ factorId }) => {
+                // MFA unenroll would need server-side implementation
+                return { data: null, error: new Error('MFA unenroll not supported in proxy mode') };
+            }
         }
     };
 
