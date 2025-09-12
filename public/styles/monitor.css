@@ -1564,9 +1564,55 @@ body:has(.login-container) {
 .details-panel-content {
     padding: 20px;
     overflow-y: auto;
-    height: calc(100% - 73px);
+    height: 100%;
     scrollbar-width: thin;
     scrollbar-color: #cbd5e0 #f7fafc;
+}
+
+.close-panel-btn-container {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 16px;
+}
+
+.session-summary {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    font-size: 13px;
+}
+
+.session-summary-line-1, .session-summary-line-2 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    line-height: 1.4;
+}
+
+.session-summary-line-1 {
+    margin-bottom: 4px;
+    font-weight: 500;
+}
+
+.session-summary-line-2 {
+    color: #64748b;
+    font-size: 12px;
+}
+
+.session-id {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    color: #1e293b;
+}
+
+.session-time {
+    color: #64748b;
+}
+
+.session-state {
+    color: #475569;
+    font-weight: 500;
 }
 
 .details-panel-content::-webkit-scrollbar {

@@ -649,25 +649,17 @@ async function showSessionDetails(session) {
     const container = document.getElementById('detailsPanelContent');
     
     let html = `
-        <div class="session-detail-section">
-            <h4>Session Information</h4>
-            <div class="detail-grid">
-                <div class="detail-item">
-                    <span class="detail-label">Call ID:</span>
-                    <span class="detail-value">${session.call_id}</span>
-                </div>
-                <div class="detail-item">
-                    <span class="detail-label">Created:</span>
-                    <span class="detail-value">${new Date(session.created_at).toLocaleString()}</span>
-                </div>
-                <div class="detail-item">
-                    <span class="detail-label">Status:</span>
-                    <span class="detail-value"><span class="session-status status-${session.call_status}">${session.call_status}</span></span>
-                </div>
-                <div class="detail-item">
-                    <span class="detail-label">IVR State:</span>
-                    <span class="detail-value">${session.ivr_detection_state || '-'}</span>
-                </div>
+        <div class="close-panel-btn-container">
+            <button class="close-panel-btn" onclick="closeDetailsPanel()">×</button>
+        </div>
+        <div class="session-summary">
+            <div class="session-summary-line-1">
+                <span class="session-id">${session.call_id}</span>
+                <span class="session-status status-${session.call_status}">${session.call_status}</span>
+            </div>
+            <div class="session-summary-line-2">
+                <span class="session-time">${new Date(session.created_at).toLocaleString()}</span>
+                <span class="session-state">${session.ivr_detection_state || '-'}</span>
             </div>
         </div>
     `;
