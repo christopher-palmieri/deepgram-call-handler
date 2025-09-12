@@ -75,19 +75,36 @@ async function loadConfig() {
             };
         }
         
-        // Initialize Supabase proxy client only once
-        if (!supabase && window.createSupabaseProxy) {
-            supabase = await window.createSupabaseProxy();
-            console.log('Supabase proxy client created');
+        // Initialize real Supabase client with credentials from server
+        if (!supabase && window.supabase) {
+            // For login page, get credentials from public endpoint
+            const publicConfigResponse = await fetch('/api/public-config', {
+                method: 'POST'
+            });
             
-            // Make it globally available
-            window.supabaseClient = supabase;
+            if (publicConfigResponse.ok) {
+                const { url, anonKey } = await publicConfigResponse.json();
+                if (url && anonKey) {
+                    supabase = window.supabase.createClient(url, anonKey, {
+                        auth: {
+                            persistSession: true,
+                            autoRefreshToken: true,
+                            detectSessionInUrl: false
+                        },
+                        realtime: {
+                            params: {
+                                eventsPerSecond: 10
+                            }
+                        }
+                    });
+                    console.log('Supabase client created');
+                    window.supabaseClient = supabase;
+                }
+            }
         } else if (window.supabaseClient) {
             // Use existing client if available
             supabase = window.supabaseClient;
-            console.log('Using existing Supabase proxy client');
-        } else {
-            console.error('Failed to create Supabase proxy client.');
+            console.log('Using existing Supabase client');
         }
         
         return config;
