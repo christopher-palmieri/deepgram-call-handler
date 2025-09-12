@@ -1,0 +1,346 @@
+class SupabaseProxy {
+    constructor() {
+        this.token = null;
+        this.user = null;
+        this.realtimeClient = null;
+    }
+
+    async init() {
+        const storedToken = localStorage.getItem('sb-access-token');
+        if (storedToken) {
+            this.token = storedToken;
+            await this.getUser();
+        }
+        
+        // Initialize realtime client if we have the Supabase library and connection info
+        await this.initRealtime();
+        
+        return this;
+    }
+    
+    async initRealtime() {
+        // Get connection info from server
+        const response = await fetch('/api/realtime-config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {})
+            }
+        });
+        
+        if (response.ok && window.supabase) {
+            const { url, anonKey } = await response.json();
+            if (url && anonKey) {
+                // Create a minimal Supabase client just for realtime
+                this.realtimeClient = window.supabase.createClient(url, anonKey, {
+                    auth: {
+                        persistSession: false,
+                        autoRefreshToken: false,
+                        detectSessionInUrl: false
+                    },
+                    realtime: {
+                        params: {
+                            eventsPerSecond: 10
+                        }
+                    }
+                });
+                
+                // Set the user's token for realtime auth
+                if (this.token) {
+                    await this.realtimeClient.auth.setSession({
+                        access_token: this.token,
+                        refresh_token: localStorage.getItem('sb-refresh-token') || ''
+                    });
+                }
+            }
+        }
+    }
+
+    async signIn(email, password) {
+        const response = await fetch('/api/auth?action=signin', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email, password })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Sign in failed');
+        }
+
+        const data = await response.json();
+        this.token = data.session?.access_token;
+        this.user = data.user;
+        
+        if (this.token) {
+            localStorage.setItem('sb-access-token', this.token);
+            localStorage.setItem('sb-refresh-token', data.session?.refresh_token || '');
+        }
+        
+        return data;
+    }
+
+    async signOut() {
+        if (!this.token) return;
+        
+        await fetch('/api/auth?action=signout', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${this.token}`
+            }
+        });
+        
+        this.token = null;
+        this.user = null;
+        localStorage.removeItem('sb-access-token');
+        localStorage.removeItem('sb-refresh-token');
+    }
+
+    async getUser() {
+        if (!this.token) return null;
+        
+        const response = await fetch('/api/auth?action=user', {
+            headers: {
+                'Authorization': `Bearer ${this.token}`
+            }
+        });
+
+        if (!response.ok) {
+            this.token = null;
+            this.user = null;
+            localStorage.removeItem('sb-access-token');
+            return null;
+        }
+
+        const data = await response.json();
+        this.user = data.user;
+        return this.user;
+    }
+
+    async from(table) {
+        return new QueryBuilder(table, this.token);
+    }
+
+    auth = {
+        getUser: () => this.getUser(),
+        signInWithPassword: ({ email, password }) => this.signIn(email, password),
+        signOut: () => this.signOut(),
+        onAuthStateChange: (callback) => {
+            const checkAuth = async () => {
+                const user = await this.getUser();
+                callback(user ? 'SIGNED_IN' : 'SIGNED_OUT', { user });
+            };
+            checkAuth();
+            
+            const interval = setInterval(checkAuth, 30000);
+            return {
+                data: { subscription: { unsubscribe: () => clearInterval(interval) } }
+            };
+        }
+    };
+
+    channel(name) {
+        return new RealtimeChannel(name, this.realtimeClient);
+    }
+    
+    removeChannel(channel) {
+        if (this.realtimeClient && channel.actualChannel) {
+            this.realtimeClient.removeChannel(channel.actualChannel);
+        }
+    }
+    
+    get realtime() {
+        return this.realtimeClient?.realtime;
+    }
+}
+
+class QueryBuilder {
+    constructor(table, token) {
+        this.table = table;
+        this.token = token;
+        this.queryParams = {};
+    }
+
+    select(columns = '*') {
+        this.queryParams.select = columns;
+        return this;
+    }
+
+    eq(column, value) {
+        if (!this.queryParams.filter) {
+            this.queryParams.filter = {};
+        }
+        this.queryParams.filter[column] = value;
+        return this;
+    }
+
+    order(column, { ascending = true } = {}) {
+        this.queryParams.order = { column, ascending };
+        return this;
+    }
+
+    limit(count) {
+        this.queryParams.limit = count;
+        return this;
+    }
+
+    async execute() {
+        const params = new URLSearchParams({
+            table: this.table,
+            ...Object.entries(this.queryParams).reduce((acc, [key, value]) => {
+                acc[key] = typeof value === 'object' ? JSON.stringify(value) : value;
+                return acc;
+            }, {})
+        });
+
+        const response = await fetch(`/api/data?${params}`, {
+            headers: {
+                'Authorization': `Bearer ${this.token}`
+            }
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            return { data: null, error };
+        }
+
+        const data = await response.json();
+        return { data, error: null };
+    }
+
+    then(resolve, reject) {
+        return this.execute().then(resolve, reject);
+    }
+
+    async insert(data) {
+        const response = await fetch(`/api/data?table=${this.table}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.token}`
+            },
+            body: JSON.stringify(data)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            return { data: null, error };
+        }
+
+        const responseData = await response.json();
+        return { data: responseData, error: null };
+    }
+
+    async update(data) {
+        const id = this.queryParams.filter?.id;
+        if (!id) {
+            return { data: null, error: { message: 'Update requires an ID filter' } };
+        }
+
+        const response = await fetch(`/api/data?table=${this.table}&id=${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.token}`
+            },
+            body: JSON.stringify(data)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            return { data: null, error };
+        }
+
+        const responseData = await response.json();
+        return { data: responseData, error: null };
+    }
+
+    async delete() {
+        const id = this.queryParams.filter?.id;
+        if (!id) {
+            return { data: null, error: { message: 'Delete requires an ID filter' } };
+        }
+
+        const response = await fetch(`/api/data?table=${this.table}&id=${id}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${this.token}`
+            }
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            return { data: null, error };
+        }
+
+        const responseData = await response.json();
+        return { data: responseData, error: null };
+    }
+}
+
+class RealtimeChannel {
+    constructor(name, supabaseClient) {
+        this.name = name;
+        this.actualChannel = null;
+        this.supabaseClient = supabaseClient;
+        
+        // Create the actual Supabase channel if client is available
+        if (this.supabaseClient && this.supabaseClient.channel) {
+            this.actualChannel = this.supabaseClient.channel(name);
+        }
+    }
+
+    on(event, schema, table, callback) {
+        if (this.actualChannel) {
+            // Map to actual Supabase channel methods
+            if (event === 'postgres_changes') {
+                this.actualChannel.on('postgres_changes', { 
+                    event: schema, // schema is actually the event type (INSERT, UPDATE, DELETE, *)
+                    schema: 'public',
+                    table: table 
+                }, callback);
+            } else {
+                this.actualChannel.on(event, callback);
+            }
+        }
+        return this;
+    }
+
+    subscribe(callback) {
+        if (this.actualChannel) {
+            return this.actualChannel.subscribe(callback);
+        }
+        if (callback) callback('SUBSCRIBED');
+        return this;
+    }
+
+    unsubscribe() {
+        if (this.actualChannel && this.supabaseClient) {
+            this.supabaseClient.removeChannel(this.actualChannel);
+        }
+    }
+    
+    get state() {
+        return this.actualChannel?.state;
+    }
+    
+    get topic() {
+        return this.actualChannel?.topic;
+    }
+    
+    isJoined() {
+        return this.actualChannel?.isJoined ? this.actualChannel.isJoined() : false;
+    }
+    
+    get bindings() {
+        return this.actualChannel?.bindings || {};
+    }
+}
+
+window.createSupabaseProxy = async () => {
+    const proxy = new SupabaseProxy();
+    await proxy.init();
+    return proxy;
+};
