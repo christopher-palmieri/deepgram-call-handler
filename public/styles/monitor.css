@@ -1848,6 +1848,69 @@ body:has(.login-container) {
     border-radius: 3px;
 }
 
+/* Foldable Section Styles */
+.foldable-section {
+    margin-bottom: 16px;
+}
+
+.foldable-header {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 12px 0;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #2d3748;
+    user-select: none;
+    transition: color 0.2s ease;
+}
+
+.foldable-header:hover {
+    color: #4a5568;
+}
+
+.fold-icon {
+    font-size: 12px;
+    color: #718096;
+    margin-right: 8px;
+    transition: transform 0.2s ease, color 0.2s ease;
+    width: 12px;
+    text-align: center;
+}
+
+.foldable-header:hover .fold-icon {
+    color: #4a5568;
+}
+
+.foldable-content {
+    display: block;
+    transition: all 0.3s ease;
+}
+
+/* Updated Header Layout */
+.close-panel-btn-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.session-datetime {
+    font-size: 12px;
+    color: #6b7280;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.session-id-small {
+    font-size: 11px;
+    color: #9ca3af;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    background: #f3f4f6;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
 .details-panel-content::-webkit-scrollbar-thumb:hover {
     background: #a0aec0;
 }

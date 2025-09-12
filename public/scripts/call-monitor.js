@@ -671,23 +671,32 @@ function selectSession(sessionId) {
     showSessionDetails(session);
 }
 
-// Format workflow metadata into a structured UI
+// Format workflow metadata into a structured UI with foldable section
 function formatWorkflowMetadata(metadata) {
     if (!metadata || typeof metadata !== 'object') {
         return `
-            <div class="session-detail-section">
-                <h4>Workflow Metadata</h4>
-                <div class="metadata-item-simple">
-                    <span class="metadata-value">${metadata || 'No metadata available'}</span>
+            <div class="session-detail-section foldable-section">
+                <h4 class="foldable-header" onclick="toggleSection('workflow-metadata')">
+                    <span class="fold-icon">▼</span>
+                    Workflow Metadata
+                </h4>
+                <div class="foldable-content" id="workflow-metadata">
+                    <div class="metadata-item-simple">
+                        <span class="metadata-value">${metadata || 'No metadata available'}</span>
+                    </div>
                 </div>
             </div>
         `;
     }
 
     let html = `
-        <div class="session-detail-section">
-            <h4>Workflow Metadata</h4>
-            <div class="metadata-grid">
+        <div class="session-detail-section foldable-section">
+            <h4 class="foldable-header" onclick="toggleSection('workflow-metadata')">
+                <span class="fold-icon">▼</span>
+                Workflow Metadata
+            </h4>
+            <div class="foldable-content" id="workflow-metadata">
+                <div class="metadata-grid">
     `;
 
     // Iterate through the metadata object and create structured display
@@ -728,6 +737,7 @@ function formatWorkflowMetadata(metadata) {
     }
 
     html += `
+                </div>
             </div>
         </div>
     `;
@@ -742,6 +752,9 @@ async function showSessionDetails(session) {
     let html = `
         <div class="close-panel-btn-container">
             <button class="close-panel-btn" onclick="closeDetailsPanel()">×</button>
+            <div class="session-datetime">
+                <span class="session-time">${new Date(session.created_at).toLocaleString()}</span>
+            </div>
         </div>
         <div class="session-summary">
             <div class="session-summary-line-1">
@@ -749,7 +762,7 @@ async function showSessionDetails(session) {
                 <span class="session-status status-${session.call_status}">${session.call_status}</span>
             </div>
             <div class="session-summary-line-2">
-                <span class="session-time">${new Date(session.created_at).toLocaleString()}</span>
+                <span class="session-id-small">${session.id}</span>
                 <span class="session-state">${session.ivr_detection_state || '-'}</span>
             </div>
         </div>
@@ -826,16 +839,39 @@ async function loadIvrEventsForDetail(classification, session) {
         const container = document.getElementById('detailIvrEvents');
         
         if (error) {
-            container.innerHTML = '<h4>IVR Events</h4><p class="error">Error loading events: ' + error.message + '</p>';
+            container.innerHTML = `
+                <h4 class="foldable-header" onclick="toggleSection('ivr-events')">
+                    <span class="fold-icon">▼</span>
+                    IVR Events
+                </h4>
+                <div class="foldable-content" id="ivr-events">
+                    <p class="error">Error loading events: ${error.message}</p>
+                </div>
+            `;
             return;
         }
         
         if (!events || events.length === 0) {
-            container.innerHTML = '<h4>IVR Events</h4><p class="empty-state">No IVR events found</p>';
+            container.innerHTML = `
+                <h4 class="foldable-header" onclick="toggleSection('ivr-events')">
+                    <span class="fold-icon">▼</span>
+                    IVR Events
+                </h4>
+                <div class="foldable-content" id="ivr-events">
+                    <p class="empty-state">No IVR events found</p>
+                </div>
+            `;
             return;
         }
         
-        let html = '<h4>IVR Events (' + events.length + ') <span class="realtime-indicator">🔴 LIVE</span></h4><div class="events-list-compact">';
+        let html = `
+            <h4 class="foldable-header" onclick="toggleSection('ivr-events')">
+                <span class="fold-icon">▼</span>
+                IVR Events (${events.length}) <span class="realtime-indicator">🔴 LIVE</span>
+            </h4>
+            <div class="foldable-content" id="ivr-events">
+                <div class="events-list-compact">
+        `;
         
         events.forEach((event, index) => {
             const isNew = index === events.length - 1; // Mark the last event as new for visual emphasis
@@ -858,7 +894,10 @@ async function loadIvrEventsForDetail(classification, session) {
             `;
         });
         
-        html += '</div>';
+        html += `
+                </div>
+            </div>
+        `;
         container.innerHTML = html;
         
         // Animate the LIVE indicator
@@ -873,7 +912,15 @@ async function loadIvrEventsForDetail(classification, session) {
     } catch (error) {
         console.error('Error loading IVR events:', error);
         const container = document.getElementById('detailIvrEvents');
-        container.innerHTML = '<h4>IVR Events</h4><p class="error">Error loading events.</p>';
+        container.innerHTML = `
+            <h4 class="foldable-header" onclick="toggleSection('ivr-events')">
+                <span class="fold-icon">▼</span>
+                IVR Events
+            </h4>
+            <div class="foldable-content" id="ivr-events">
+                <p class="error">Error loading events.</p>
+            </div>
+        `;
     }
 }
 
@@ -889,16 +936,39 @@ async function loadIvrEventsForSessionDetail(session) {
         const container = document.getElementById('detailIvrEvents');
         
         if (error) {
-            container.innerHTML = '<h4>IVR Events</h4><p class="error">Error loading events: ' + error.message + '</p>';
+            container.innerHTML = `
+                <h4 class="foldable-header" onclick="toggleSection('ivr-events')">
+                    <span class="fold-icon">▼</span>
+                    IVR Events
+                </h4>
+                <div class="foldable-content" id="ivr-events">
+                    <p class="error">Error loading events: ${error.message}</p>
+                </div>
+            `;
             return;
         }
         
         if (!events || events.length === 0) {
-            container.innerHTML = '<h4>IVR Events</h4><p class="empty-state">No IVR events found</p>';
+            container.innerHTML = `
+                <h4 class="foldable-header" onclick="toggleSection('ivr-events')">
+                    <span class="fold-icon">▼</span>
+                    IVR Events
+                </h4>
+                <div class="foldable-content" id="ivr-events">
+                    <p class="empty-state">No IVR events found</p>
+                </div>
+            `;
             return;
         }
         
-        let html = '<h4>IVR Events (' + events.length + ') <span class="realtime-indicator">🔴 LIVE</span></h4><div class="events-list-compact">';
+        let html = `
+            <h4 class="foldable-header" onclick="toggleSection('ivr-events')">
+                <span class="fold-icon">▼</span>
+                IVR Events (${events.length}) <span class="realtime-indicator">🔴 LIVE</span>
+            </h4>
+            <div class="foldable-content" id="ivr-events">
+                <div class="events-list-compact">
+        `;
         
         events.forEach((event, index) => {
             const isNew = index === events.length - 1; // Mark the last event as new for visual emphasis
@@ -921,7 +991,10 @@ async function loadIvrEventsForSessionDetail(session) {
             `;
         });
         
-        html += '</div>';
+        html += `
+                </div>
+            </div>
+        `;
         container.innerHTML = html;
         
         // Animate the LIVE indicator
@@ -936,7 +1009,30 @@ async function loadIvrEventsForSessionDetail(session) {
     } catch (error) {
         console.error('Error loading IVR events:', error);
         const container = document.getElementById('detailIvrEvents');
-        container.innerHTML = '<h4>IVR Events</h4><p class="error">Error loading events.</p>';
+        container.innerHTML = `
+            <h4 class="foldable-header" onclick="toggleSection('ivr-events')">
+                <span class="fold-icon">▼</span>
+                IVR Events
+            </h4>
+            <div class="foldable-content" id="ivr-events">
+                <p class="error">Error loading events.</p>
+            </div>
+        `;
+    }
+}
+
+// Toggle foldable sections
+function toggleSection(sectionId) {
+    const section = document.getElementById(sectionId);
+    const header = section.previousElementSibling;
+    const foldIcon = header.querySelector('.fold-icon');
+    
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        foldIcon.textContent = '▼';
+    } else {
+        section.style.display = 'none';
+        foldIcon.textContent = '▶';
     }
 }
 
@@ -1000,7 +1096,10 @@ async function loadIvrEventsForClassification(classification, session) {
             `;
         });
         
-        html += '</div>';
+        html += `
+                </div>
+            </div>
+        `;
         container.innerHTML = html;
         
     } catch (error) {
@@ -1067,7 +1166,10 @@ async function loadIvrEventsForSession(session) {
             }
         });
         
-        html += '</div>';
+        html += `
+                </div>
+            </div>
+        `;
         container.innerHTML = html;
         
     } catch (error) {
