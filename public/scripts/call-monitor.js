@@ -752,9 +752,9 @@ async function showSessionDetails(session) {
     let html = `
         <div class="close-panel-btn-container">
             <button class="close-panel-btn" onclick="closeDetailsPanel()">×</button>
-            <div class="session-datetime">
-                <span class="session-time">${new Date(session.created_at).toLocaleString()}</span>
-            </div>
+        </div>
+        <div class="session-datetime">
+            <span class="session-time">${new Date(session.created_at).toLocaleString()}</span>
         </div>
         <div class="session-summary">
             <div class="session-summary-line-1">
@@ -762,7 +762,6 @@ async function showSessionDetails(session) {
                 <span class="session-status status-${session.call_status}">${session.call_status}</span>
             </div>
             <div class="session-summary-line-2">
-                <span class="session-id-small">${session.id}</span>
                 <span class="session-state">${session.ivr_detection_state || '-'}</span>
             </div>
         </div>
@@ -875,7 +874,9 @@ async function loadIvrEventsForDetail(classification, session) {
         
         events.forEach((event, index) => {
             const isNew = index === events.length - 1; // Mark the last event as new for visual emphasis
-            const timestamp = new Date(event.created_at).toLocaleTimeString();
+            // Use the same timezone and format as the session time
+            const eventDate = new Date(event.created_at);
+            const timestamp = eventDate.toLocaleString();
             const statusIcon = event.executed ? '✓' : '⏳';
             
             html += `
@@ -972,7 +973,9 @@ async function loadIvrEventsForSessionDetail(session) {
         
         events.forEach((event, index) => {
             const isNew = index === events.length - 1; // Mark the last event as new for visual emphasis
-            const timestamp = new Date(event.created_at).toLocaleTimeString();
+            // Use the same timezone and format as the session time
+            const eventDate = new Date(event.created_at);
+            const timestamp = eventDate.toLocaleString();
             const statusIcon = event.executed ? '✓' : '⏳';
             
             html += `
@@ -1145,7 +1148,7 @@ async function loadIvrEventsForSession(session) {
                     <div class="event-item">
                         <div class="event-transcript">${event.transcript}</div>
                         <div class="event-header">
-                            <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
+                            <span class="event-timing">${new Date(event.created_at).toLocaleString()}</span>
                             <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
                             ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
                         </div>
@@ -1156,7 +1159,7 @@ async function loadIvrEventsForSession(session) {
                 html += `
                     <div class="event-item">
                         <div class="event-header">
-                            <span class="event-timing">${new Date(event.created_at).toLocaleTimeString()}</span>
+                            <span class="event-timing">${new Date(event.created_at).toLocaleString()}</span>
                             <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
                             ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
                         </div>
