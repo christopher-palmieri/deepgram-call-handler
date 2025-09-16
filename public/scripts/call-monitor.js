@@ -835,13 +835,6 @@ async function loadIvrEventsForDetail(classification, session) {
             .eq('call_id', session.call_id)
             .order('created_at', { ascending: true });
         
-        // Debug: Log timestamps to check format
-        console.log('Session created_at:', session.created_at);
-        if (events && events.length > 0) {
-            console.log('First IVR event created_at:', events[0].created_at);
-            console.log('IVR events sample:', events.slice(0, 2));
-        }
-        
         const container = document.getElementById('detailIvrEvents');
         
         if (error) {
