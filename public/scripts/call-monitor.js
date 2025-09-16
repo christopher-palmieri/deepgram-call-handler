@@ -835,6 +835,13 @@ async function loadIvrEventsForDetail(classification, session) {
             .eq('call_id', session.call_id)
             .order('created_at', { ascending: true });
         
+        // Debug: Log timestamps to check format
+        console.log('Session created_at:', session.created_at);
+        if (events && events.length > 0) {
+            console.log('First IVR event created_at:', events[0].created_at);
+            console.log('IVR events sample:', events.slice(0, 2));
+        }
+        
         const container = document.getElementById('detailIvrEvents');
         
         if (error) {
@@ -1085,10 +1092,12 @@ async function loadIvrEventsForClassification(classification, session) {
         let html = '<h6>IVR Events (' + events.length + ')</h6><div class="events-list">';
         
         events.forEach(event => {
+            const eventDate = new Date(event.created_at);
+            const timestamp = eventDate.toLocaleString();
             html += `
                 <div class="event-item">
                     <div class="event-header">
-                        <span class="event-timing">${event.timing_ms}ms</span>
+                        <span class="event-timing">${timestamp}</span>
                         <span class="event-action">${event.action_type}: ${event.action_value || '-'}</span>
                         ${event.executed ? '<span class="event-status executed">✓</span>' : '<span class="event-status pending">⏳</span>'}
                     </div>

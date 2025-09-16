@@ -120,16 +120,56 @@ The Deepgram Call Handler system provides a comprehensive web-based interface fo
 
 ### 4. Call Monitor (`/monitor.html`)
 - **Purpose**: Live monitoring of active calls
-- **Features**:
-  - WebSocket connection to call server
-  - Real-time transcription display
-  - Call events timeline
-  - Agent activity monitoring
-  - Audio visualization
-  - IVR event tracking
-  - Session details panel with real-time updates
 - **Scripts**: `/scripts/call-monitor.js`
 - **Connection**: Uses WebSocket for live updates
+
+#### Call Monitor Features
+
+##### 📊 Sessions Table
+- **Real-Time Updates**: Live tracking of call sessions with status changes
+- **Status Animation**: Subtle flash animation for "Calling" status rows
+  - Blue background pulse with box shadow effects
+  - Animated status indicator dot for active calls
+  - Continuous pulsing effect during active calls
+- **Session Data**: Date/time, IVR state, confidence scores, call status
+- **Interactive Rows**: Click to view detailed session information
+
+##### 🎛️ Flyout Panel (Session Details)
+- **Modern Design**: Fixed-position panel slides from right edge
+- **Full-Height Layout**: Extends from top bar to bottom of viewport
+- **Improved Header**: 
+  - Close button (×) positioned top-left
+  - Session date/time displayed in header area
+  - Clean, organized information hierarchy
+
+**Session Summary Section**
+- **Line 1**: Call ID (prominent) + Status badge
+- **Line 2**: Session ID (compact, gray background) + IVR detection state
+
+##### 📁 Foldable Sections
+- **Collapsible Content**: Both Workflow Metadata and IVR Events can be folded/unfolded
+- **Interactive Headers**: Click to toggle section visibility
+- **Fold Icons**: ▼ (expanded) / ▶ (collapsed) with smooth transitions
+- **Visual Feedback**: Hover effects and smooth animations
+
+**Workflow Metadata Section**
+- **Structured Display**: Key-value pairs in organized grid layout
+- **Nested Objects**: Handles complex metadata with proper formatting
+- **Foldable**: Can be collapsed to save space
+
+**IVR Events Section**
+- **Compact Layout**: Condensed event display for better space utilization
+- **Event Items**: Timestamp, status icon (✓/⏳), action type, and values
+- **Transcript Display**: Quoted transcript text with distinct styling
+- **AI Replies**: Arrow-prefixed responses with green background
+- **Real-Time Updates**: Live indicator (🔴 LIVE) with animation
+- **Foldable**: Can be collapsed when not needed
+
+##### 🎨 Enhanced Styling
+- **Compact Design**: Optimized for information density
+- **Status Indicators**: Color-coded status badges and confidence scores
+- **Smooth Animations**: All interactions include subtle transitions
+- **Professional Look**: Clean typography and consistent spacing
 
 ## Internal Test Pages (Not Publicly Accessible)
 
@@ -507,6 +547,17 @@ npm run serve
 
 ---
 
-*Last Updated: January 2025*  
-*Dashboard Version: v7*  
-*Based on commit: 4737346*
+*Last Updated: September 2025*  
+*Dashboard Version: v8*  
+*Call Monitor Version: v2*  
+*Based on commit: 1e7e2f1*
+
+## Recent Updates (September 2025)
+
+### Call Monitor Enhancements (v2)
+- **Flyout Panel Redesign**: Modern fixed-position panel with full-height layout
+- **Foldable Sections**: Collapsible Workflow Metadata and IVR Events sections
+- **Compact IVR Events**: Condensed display format for better space utilization
+- **Calling Status Animation**: Real-time visual feedback for active calls
+- **Improved Header Layout**: Session date/time moved to header area
+- **Enhanced Information Hierarchy**: Better organization of session details
