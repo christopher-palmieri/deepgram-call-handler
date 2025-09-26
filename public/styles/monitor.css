@@ -2193,3 +2193,63 @@ body:has(.login-container) {
     border-radius: 2px;
     transition: height 0.1s ease;
 }
+
+/* Recording Controls and Listen Buttons */
+.listen-btn, .listen-btn-panel {
+    padding: 6px 12px;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.listen-btn:hover, .listen-btn-panel:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    background: linear-gradient(135deg, #764ba2, #667eea);
+}
+
+.listen-btn-panel {
+    padding: 10px 20px;
+    font-size: 14px;
+    margin: 10px 0;
+    width: 100%;
+    justify-content: center;
+}
+
+.listen-icon {
+    font-size: 16px;
+}
+
+.recording-controls {
+    padding: 10px;
+    background: rgba(102, 126, 234, 0.05);
+    border-radius: 10px;
+    margin: 10px 0;
+}
+
+.audio-player-container {
+    margin-top: 10px;
+    padding: 10px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.audio-player-container audio {
+    width: 100%;
+    outline: none;
+}
+
+/* Table cell alignment for recording column */
+.sessions-table td:last-child {
+    text-align: center;
+}

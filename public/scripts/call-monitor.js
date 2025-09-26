@@ -579,7 +579,7 @@ async function displayCallClassifications(pendingCall) {
     const tableBody = document.getElementById('sessionsTableBody');
     
     if (!pendingCall.call_sessions || pendingCall.call_sessions.length === 0) {
-        tableBody.innerHTML = '<tr class="empty-state"><td colspan="4">No call sessions found for this pending call.</td></tr>';
+        tableBody.innerHTML = '<tr class="empty-state"><td colspan="5">No call sessions found for this pending call.</td></tr>';
         return;
     }
     
@@ -614,12 +614,23 @@ async function displayCallClassifications(pendingCall) {
         // Add calling-active class for animation if status is 'Calling'
         const callingClass = session.call_status === 'Calling' ? ' calling-active' : '';
         
+        // Create Listen button HTML if recording exists
+        let listenButtonHtml = '-';
+        if (session.recording_url) {
+            listenButtonHtml = `
+                <button class="listen-btn" onclick="event.stopPropagation(); playRecording('${session.recording_url}', '${session.id}')" title="Listen to recording">
+                    <span class="listen-icon">🎧</span> Listen
+                </button>
+            `;
+        }
+
         html += `
             <tr data-session-id="${session.id}" class="${hasStatusChanged ? 'status-changed' : ''}${callingClass}" onclick="selectSession('${session.id}')">
                 <td>${dateStr} ${timeStr}</td>
                 <td>${session.ivr_detection_state || '-'}</td>
                 <td>${confidenceHtml}</td>
                 <td><span class="session-status status-${session.call_status}">${session.call_status}</span></td>
+                <td>${listenButtonHtml}</td>
             </tr>
         `;
         
@@ -755,7 +766,26 @@ async function showSessionDetails(session) {
         </div>
         <div class="session-datetime">
             <span class="session-time">${new Date(session.created_at).toLocaleString()}</span>
-        </div>
+        </div>`;
+
+    // Add Listen button if recording exists
+    if (session.recording_url) {
+        html += `
+            <div class="recording-controls">
+                <button class="listen-btn-panel" onclick="playRecording('${session.recording_url}', '${session.id}')" title="Listen to recording">
+                    <span class="listen-icon">🎧</span> Listen to Recording
+                </button>
+                <div id="audio-player-${session.id}" class="audio-player-container" style="display: none;">
+                    <audio controls>
+                        <source src="${session.recording_url}" type="audio/mpeg">
+                        Your browser does not support the audio element.
+                    </audio>
+                </div>
+            </div>
+        `;
+    }
+
+    html += `
         <div class="session-summary">
             <div class="session-summary-line-1">
                 <span class="session-id">${session.call_id}</span>
@@ -1935,6 +1965,42 @@ window.testRealtimeConnection = async function() {
     console.log(`UPDATE pending_calls SET updated_at = NOW() WHERE id = '${currentPendingCall.id}';`);
 };
 
+// Play recording function
+function playRecording(recordingUrl, sessionId) {
+    // Find all audio player containers
+    const allPlayers = document.querySelectorAll('.audio-player-container');
+
+    // Hide all other players
+    allPlayers.forEach(player => {
+        if (player.id !== `audio-player-${sessionId}`) {
+            player.style.display = 'none';
+            const audio = player.querySelector('audio');
+            if (audio) {
+                audio.pause();
+            }
+        }
+    });
+
+    // Toggle the selected player
+    const playerContainer = document.getElementById(`audio-player-${sessionId}`);
+    if (playerContainer) {
+        if (playerContainer.style.display === 'none') {
+            playerContainer.style.display = 'block';
+            const audio = playerContainer.querySelector('audio');
+            if (audio) {
+                audio.src = recordingUrl;
+                audio.play();
+            }
+        } else {
+            playerContainer.style.display = 'none';
+            const audio = playerContainer.querySelector('audio');
+            if (audio) {
+                audio.pause();
+            }
+        }
+    }
+}
+
 // Export functions for global access
 window.toggleConnection = toggleConnection;
 window.toggleAudio = toggleAudio;
@@ -1944,3 +2010,4 @@ window.logout = logout;
 window.selectSession = selectSession;
 window.closeDetailsPanel = closeDetailsPanel;
 window.testRealtimeConnection = testRealtimeConnection;
+window.playRecording = playRecording;
