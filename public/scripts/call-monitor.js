@@ -618,9 +618,14 @@ async function displayCallClassifications(pendingCall) {
         let listenButtonHtml = '-';
         if (session.recording_url) {
             listenButtonHtml = `
-                <button class="listen-btn" onclick="event.stopPropagation(); playRecording('${session.recording_url}', '${session.id}')" title="Listen to recording">
-                    <span class="listen-icon">🎧</span> Listen
+                <button class="listen-btn-small" onclick="event.stopPropagation(); playTableRecording('${session.recording_url}', '${session.id}')" title="Play recording">
+                    🎧
                 </button>
+                <div id="table-audio-player-${session.id}" class="table-audio-player" style="display: none;">
+                    <audio controls preload="none">
+                        <source src="${session.recording_url}" type="audio/mpeg">
+                    </audio>
+                </div>
             `;
         }
 
@@ -768,32 +773,38 @@ async function showSessionDetails(session) {
             <span class="session-time">${new Date(session.created_at).toLocaleString()}</span>
         </div>`;
 
-    // Add Listen button if recording exists
-    if (session.recording_url) {
-        html += `
-            <div class="recording-controls">
-                <button class="listen-btn-panel" onclick="playRecording('${session.recording_url}', '${session.id}')" title="Listen to recording">
-                    <span class="listen-icon">🎧</span> Listen to Recording
-                </button>
-                <div id="audio-player-${session.id}" class="audio-player-container" style="display: none;">
-                    <audio controls>
-                        <source src="${session.recording_url}" type="audio/mpeg">
-                        Your browser does not support the audio element.
-                    </audio>
-                </div>
-            </div>
-        `;
-    }
-
     html += `
         <div class="session-summary">
             <div class="session-summary-line-1">
                 <span class="session-id">${session.call_id}</span>
-                <span class="session-status status-${session.call_status}">${session.call_status}</span>
+                <span class="session-status status-${session.call_status}">${session.call_status}</span>`;
+
+    // Add Listen button to session summary if recording exists
+    if (session.recording_url) {
+        html += `
+                <button class="listen-btn-inline" onclick="playRecording('${session.recording_url}', '${session.id}')" title="Listen to recording">
+                    🎧
+                </button>`;
+    }
+
+    html += `
             </div>
             <div class="session-summary-line-2">
                 <span class="session-state">${session.ivr_detection_state || '-'}</span>
-            </div>
+            </div>`;
+
+    // Add audio player container in session summary if recording exists
+    if (session.recording_url) {
+        html += `
+            <div id="audio-player-${session.id}" class="audio-player-container" style="display: none;">
+                <audio controls>
+                    <source src="${session.recording_url}" type="audio/mpeg">
+                    Your browser does not support the audio element.
+                </audio>
+            </div>`;
+    }
+
+    html += `
         </div>
     `;
     
@@ -806,8 +817,12 @@ async function showSessionDetails(session) {
     if (session.call_classifications) {
         const classification = session.call_classifications;
         html += `
-            <div class="session-detail-section">
-                <h4>Classification</h4>
+            <div class="session-detail-section foldable-section">
+                <h4 class="foldable-header" onclick="toggleSection('classification-details')">
+                    <span class="fold-icon">▼</span>
+                    Classification
+                </h4>
+                <div class="foldable-content" id="classification-details">
                 <div class="detail-grid">
                     <div class="detail-item">
                         <span class="detail-label">Type:</span>
@@ -833,6 +848,7 @@ async function showSessionDetails(session) {
                         <pre class="actions-json">${JSON.stringify(classification.ivr_actions, null, 2)}</pre>
                     </div>
                 ` : ''}
+                </div>
             </div>
         `;
     }
@@ -1965,7 +1981,7 @@ window.testRealtimeConnection = async function() {
     console.log(`UPDATE pending_calls SET updated_at = NOW() WHERE id = '${currentPendingCall.id}';`);
 };
 
-// Play recording function
+// Play recording function for flyout panel
 function playRecording(recordingUrl, sessionId) {
     // Find all audio player containers
     const allPlayers = document.querySelectorAll('.audio-player-container');
@@ -2001,6 +2017,52 @@ function playRecording(recordingUrl, sessionId) {
     }
 }
 
+// Play recording function for table rows
+function playTableRecording(recordingUrl, sessionId) {
+    // Find all table audio players
+    const allTablePlayers = document.querySelectorAll('.table-audio-player');
+
+    // Hide all other table players
+    allTablePlayers.forEach(player => {
+        if (player.id !== `table-audio-player-${sessionId}`) {
+            player.style.display = 'none';
+            const audio = player.querySelector('audio');
+            if (audio) {
+                audio.pause();
+            }
+        }
+    });
+
+    // Also hide any flyout players
+    const allFlyoutPlayers = document.querySelectorAll('.audio-player-container');
+    allFlyoutPlayers.forEach(player => {
+        player.style.display = 'none';
+        const audio = player.querySelector('audio');
+        if (audio) {
+            audio.pause();
+        }
+    });
+
+    // Toggle the selected table player
+    const playerContainer = document.getElementById(`table-audio-player-${sessionId}`);
+    if (playerContainer) {
+        if (playerContainer.style.display === 'none') {
+            playerContainer.style.display = 'block';
+            const audio = playerContainer.querySelector('audio');
+            if (audio) {
+                audio.src = recordingUrl;
+                audio.play();
+            }
+        } else {
+            playerContainer.style.display = 'none';
+            const audio = playerContainer.querySelector('audio');
+            if (audio) {
+                audio.pause();
+            }
+        }
+    }
+}
+
 // Export functions for global access
 window.toggleConnection = toggleConnection;
 window.toggleAudio = toggleAudio;
@@ -2011,3 +2073,4 @@ window.selectSession = selectSession;
 window.closeDetailsPanel = closeDetailsPanel;
 window.testRealtimeConnection = testRealtimeConnection;
 window.playRecording = playRecording;
+window.playTableRecording = playTableRecording;
