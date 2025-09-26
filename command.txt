@@ -1,0 +1,1 @@
+node -e "const W=require('ws');new W('wss://standalone-monitor-production.up.railway.app/monitor?callId=CA1c28055a23ae4335fc75f80f07b342b2').on('message',d=>d instanceof ArrayBuffer&&process.stdout.write(Buffer.from(d)))" | ffplay -f mulaw -ar 8000 -nodisp -

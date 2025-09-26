@@ -1,4 +1,4 @@
-# Pre-Classification Call System with Automated Scheduler
+i# Pre-Classification Call System with Automated Scheduler
 
 ## Overview
 This system pre-classifies clinic phone systems (human vs IVR vs IVR-then-human) and caches the results for 30 days, enabling instant routing for subsequent calls. The system uses intelligent call handling to minimize wasted time on IVR systems during classification, with a fully automated scheduler that orchestrates the entire workflow. **Timezone-aware scheduling ensures clinics are only called during their local business hours (9 AM - 5 PM).** Voicemail detection prevents false classifications and triggers appropriate retries. **Enhanced retry management ensures all failed calls are properly tracked and retried with exponential backoff.**

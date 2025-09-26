@@ -107,6 +107,12 @@ export default async function handler(req, res) {
   }
 
   const baseSipUri = process.env.VAPI_SIP_ADDRESS;
+
+  // Construct the webhook URL for recording status
+  const webhookBaseUrl = process.env.WEBHOOK_BASE_URL ||
+                    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` :
+                    'http://localhost:3000');
+  const recordingStatusUrl = `${webhookBaseUrl}/api/twilio/recording-status`;
   const customHeaders = {
     'pendingcallid': pendingCallId || 'none',
     'sessionid': sessionId || 'none'
@@ -146,7 +152,7 @@ export default async function handler(req, res) {
     if (classification.classification_type === 'human') {
       console.log('👤 Human classification - direct VAPI connection');
       const sipUri = buildSipUriWithHeaders(baseSipUri, customHeaders);
-      twiml += `<Dial><Sip>${sipUri}</Sip></Dial>`;
+      twiml += `<Dial record="record-from-answer-dual" recordingStatusCallback="${recordingStatusUrl}" recordingStatusCallbackMethod="POST"><Sip>${sipUri}</Sip></Dial>`;
       
     } else if (classification.classification_type === 'ivr_only') {
       console.log('🤖 IVR classification - executing stored actions');
@@ -154,7 +160,7 @@ export default async function handler(req, res) {
         twiml += generateIvrNavigationTwiml(classification.ivr_actions);
       }
       const sipUri = buildSipUriWithHeaders(baseSipUri, customHeaders);
-      twiml += `<Dial><Sip>${sipUri}</Sip></Dial>`;
+      twiml += `<Dial record="record-from-answer-dual" recordingStatusCallback="${recordingStatusUrl}" recordingStatusCallbackMethod="POST"><Sip>${sipUri}</Sip></Dial>`;
       
     } else if (classification.classification_type === 'ivr_then_human') {
       console.log('🤖➡️👤 IVR then human - using transfer timing');
@@ -170,9 +176,9 @@ export default async function handler(req, res) {
         console.log('📞 No transfer timing found, using 15s default');
         twiml += '<Pause length="15" />';
       }
-      
+
       const sipUri = buildSipUriWithHeaders(baseSipUri, customHeaders);
-      twiml += `<Dial><Sip>${sipUri}</Sip></Dial>`;
+      twiml += `<Dial record="record-from-answer-dual" recordingStatusCallback="${recordingStatusUrl}" recordingStatusCallbackMethod="POST"><Sip>${sipUri}</Sip></Dial>`;
     }
   } else {
     console.log('❓ No classification - using dual stream approach');
@@ -185,7 +191,7 @@ export default async function handler(req, res) {
           <Parameter name="phoneNumber" value="${phoneNumber}" />
         </Stream>
       </Start>
-      <Dial><Sip>${sipUri}</Sip></Dial>`;
+      <Dial record="record-from-answer-dual" recordingStatusCallback="${recordingStatusUrl}" recordingStatusCallbackMethod="POST"><Sip>${sipUri}</Sip></Dial>`;
   }
 
   twiml += '</Response>';
