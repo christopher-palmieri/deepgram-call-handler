@@ -29,7 +29,7 @@ export default async function handler(req) {
   }
 
   const supabaseUrl = 'https://ixbuuvggqzscdsfkzrri.supabase.co/rest/v1/pending_calls';
-  const supabaseApiKey = process.env.SUPABASE_ANON_KEY;
+  const supabaseApiKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   const supabaseRes = await fetch(`${supabaseUrl}?id=eq.${id}&select=id,employee_name,exam_id,employee_dob,client_name,appointment_time,type_of_visit,clinic_name,clinic_provider_address,clinic_scheduling_rep,procedures`, {
   headers: {
