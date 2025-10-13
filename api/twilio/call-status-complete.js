@@ -9,35 +9,28 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
-  // Debug logging
-  console.log('🔍 Request method:', req.method);
-  console.log('🔍 Request headers:', JSON.stringify(req.headers, null, 2));
-  console.log('🔍 Request URL:', req.url);
+  let parsed;
 
-  // Read body using event listeners (same pattern as post_call.js)
-  const body = await new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', chunk => {
-      console.log('📥 Received chunk:', chunk.length, 'bytes');
-      data += chunk;
+  if (req.method === 'GET') {
+    // Parse query string from URL
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    parsed = Object.fromEntries(url.searchParams);
+    console.log('📦 GET request - parsed from query string');
+  } else {
+    // Parse POST body
+    const body = await new Promise((resolve, reject) => {
+      let data = '';
+      req.on('data', chunk => data += chunk);
+      req.on('end', () => resolve(data));
+      req.on('error', err => reject(err));
     });
-    req.on('end', () => {
-      console.log('✅ Body reading complete. Total length:', data.length);
-      resolve(data);
-    });
-    req.on('error', err => {
-      console.error('❌ Body reading error:', err);
-      reject(err);
-    });
-  });
-
-  console.log('📦 RAW BODY:', body);
-  console.log('📦 BODY LENGTH:', body.length);
-  const parsed = querystring.parse(body);
+    parsed = querystring.parse(body);
+    console.log('📦 POST request - parsed from body');
+  }
 
   const callSid = parsed.CallSid;
   const callStatus = parsed.CallStatus;
-  const callDuration = parsed.CallDuration || '0';
+  const callDuration = parsed.CallDuration || parsed.Duration || '0';
   const timestamp = parsed.Timestamp;
 
   console.log('📞 Call Status Update:', {
