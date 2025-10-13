@@ -9,17 +9,33 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
+  // Handle Vercel serverless body parsing
   let body = '';
-  for await (const chunk of req) {
-    body += chunk;
+
+  if (req.body && typeof req.body === 'object') {
+    // Body already parsed by Vercel
+    console.log('📦 Body already parsed:', req.body);
+    var parsed = req.body;
+  } else if (req.body && typeof req.body === 'string') {
+    // Body is string, parse it
+    body = req.body;
+    var parsed = querystring.parse(body);
+  } else {
+    // Read from stream
+    for await (const chunk of req) {
+      body += chunk;
+    }
+    var parsed = querystring.parse(body);
   }
 
-  const parsed = querystring.parse(body);
+  console.log('📦 Raw body:', body);
+  console.log('📦 Parsed data:', parsed);
+
   const callSid = parsed.CallSid;
   const callStatus = parsed.CallStatus;
   const callDuration = parsed.CallDuration || '0';
   const timestamp = parsed.Timestamp;
-  
+
   console.log('📞 Call Status Update:', {
     callSid,
     callStatus,
