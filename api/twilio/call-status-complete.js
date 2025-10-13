@@ -9,21 +9,15 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
-  // Read body as stream (bodyParser: false is set)
-  let body = '';
+  // Read body using event listeners (same pattern as post_call.js)
+  const body = await new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', chunk => data += chunk);
+    req.on('end', () => resolve(data));
+    req.on('error', err => reject(err));
+  });
 
-  try {
-    // Read from request stream
-    for await (const chunk of req) {
-      body += chunk.toString();
-    }
-  } catch (streamError) {
-    console.error('❌ Stream read error:', streamError);
-  }
-
-  console.log('📦 Raw body received:', body);
-
-  // Parse the form data
+  console.log('📦 RAW BODY:', body);
   const parsed = querystring.parse(body);
 
   const callSid = parsed.CallSid;
