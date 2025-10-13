@@ -69,12 +69,12 @@ export default async function handler(req, res) {
       console.log(`   Classification type: ${pendingCall.workflow_metadata?.classification_type || session.ivr_detection_state}`);
       console.log(`   Workflow state: ${pendingCall.workflow_state}`);
       console.log(`   Call duration: ${callDuration}s`);
-      
-      // Update call_sessions for audit trail but DON'T touch pending_calls retry_count
+
+      // Update call_sessions for audit trail AND mark as completed
       await supabase
         .from('call_sessions')
         .update({
-          call_status: callStatus,
+          call_status: 'completed',
           workflow_metadata: {
             ...session.workflow_metadata,
             twilio_final_status: callStatus,
@@ -87,8 +87,8 @@ export default async function handler(req, res) {
           updated_at: new Date().toISOString()
         })
         .eq('call_id', callSid);
-      
-      console.log('✅ Updated call_sessions (audit only) - no retry increment');
+
+      console.log('✅ Updated call_sessions to completed (classification successful)');
       return res.status(200).send('');
     }
     // ===== END NEW LOGIC =====
