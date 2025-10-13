@@ -1,9 +1,9 @@
-i# Pre-Classification Call System with Automated Scheduler
+# Pre-Classification Call System with Automated Scheduler
 
 ## Overview
-This system pre-classifies clinic phone systems (human vs IVR vs IVR-then-human) and caches the results for 30 days, enabling instant routing for subsequent calls. The system uses intelligent call handling to minimize wasted time on IVR systems during classification, with a fully automated scheduler that orchestrates the entire workflow. **Timezone-aware scheduling ensures clinics are only called during their local business hours (9 AM - 5 PM).** Voicemail detection prevents false classifications and triggers appropriate retries. **Enhanced retry management ensures all failed calls are properly tracked and retried with exponential backoff.**
+This system pre-classifies clinic phone systems (human vs IVR vs IVR-then-human) and caches the results for 30 days, enabling instant routing for subsequent calls. The system uses intelligent call handling to minimize wasted time on IVR systems during classification, with a fully automated scheduler that orchestrates the entire workflow. **Timezone-aware scheduling ensures clinics are only called during their local business hours (9 AM - 5 PM).** Voicemail detection prevents false classifications and triggers appropriate retries. **Enhanced retry management ensures all failed calls are properly tracked and retried with exponential backoff.** **Successful classification calls do NOT increment retry_count, preserving retry attempts for actual task call failures.**
 
-**Core Concept**: Make a test call to each clinic once, learn how their phone system works (excluding temporary states like voicemail), cache that knowledge for 30 days, then use it for all future calls to save time and improve reliability. **All calls respect the clinic's local timezone.** A multi-layered retry system ensures no failed calls are missed.
+**Core Concept**: Make a test call to each clinic once, learn how their phone system works (excluding temporary states like voicemail), cache that knowledge for 30 days, then use it for all future calls to save time and improve reliability. **Classification calls that successfully identify the phone system type are NOT counted as retry attempts.** All calls respect the clinic's local timezone. A multi-layered retry system ensures no failed calls are missed.
 
 ## System Components
 
@@ -14,11 +14,11 @@ This system pre-classifies clinic phone systems (human vs IVR vs IVR-then-human)
 ### 2. **API Endpoints** (Vercel)
 - `api/twilio/preclassify-twiml.js`: Routes calls based on classification (TwiML webhook)
 - `api/twilio/get-pending-call.js`: Provides call data to VAPI (secured with shared secret)
-- `api/vapi/post_call.js`: Receives call results from VAPI and updates both pending_calls and call_sessions
-- **`api/twilio/call-status-complete.js`**: NEW - Handles Twilio call status updates for disconnect detection
+- `api/vapi/post_call.js`: Receives call results from VAPI, **skips retry increment for successful classifications**
+- `api/twilio/call-status-complete.js`: Handles Twilio call status updates, **skips retry increment for successful classifications**
 
 ### 3. **WebSocket Server** (Railway)
-- `server_deepgram.js`: Real-time call classification, IVR navigation, transfer timing, and workflow state management
+- `server_deepgram.js`: Real-time call classification, IVR navigation, transfer timing, workflow state management, **and classification success flagging**
 - Modules:
   - `ivr-navigator.js`: OpenAI-powered IVR menu navigation
   - `fast-classifier.js`: Pattern matching for instant classification (including voicemail detection)
@@ -32,67 +32,97 @@ This system pre-classifies clinic phone systems (human vs IVR vs IVR-then-human)
 - Handles retries with exponential backoff
 - Manages two-call flow for IVR systems
 - Special handling for voicemail encounters
-- **NEW: Detects and handles orphaned calls stuck in 'calling' state**
+- Detects and handles orphaned calls stuck in 'calling' state
 
 ## Webhook Architecture & Retry Management
 
-### Dual Webhook System
-The system uses two complementary webhooks to ensure all call outcomes are tracked:
+### Dual Webhook System with Classification Protection
+The system uses two complementary webhooks to ensure all call outcomes are tracked, **with special logic to prevent successful classification calls from consuming retry attempts:**
 
 ```mermaid
 graph TD
-    A[Call Initiated] --> B{Call Connects?}
+    A[Call Initiated] --> B{Call Type?}
     
-    B -->|No| C[Connection Failed<br/>busy/no-answer/failed]
-    C --> D[Twilio CSC Webhook Fires]
-    D --> E[Increment Retry Count]
+    B -->|Classification Call| C[Detect Phone System]
+    C --> D{Classification Success?}
     
-    B -->|Yes| F{Quick Hangup?}
+    D -->|IVR/Human Detected| E[Store Classification]
+    E --> F[Set classification_successful=true]
+    F --> G[End Call Early]
+    G --> H{VAPI Webhook Fires}
+    H --> I{Check: classification_successful?}
+    I -->|YES| J[✅ Skip Retry Increment<br/>Keep retry_count=0]
     
-    F -->|Yes < 5 sec| G[Call Ends Immediately]
-    G --> H[Twilio CSC Webhook Fires]
-    H --> I[Detects Quick Hangup]
-    I --> E
+    G --> K{CSC Webhook Fires}
+    K --> L{Check: classification_successful?}
+    L -->|YES| M[✅ Skip Retry Increment<br/>Audit Only]
     
-    F -->|No| J{VAPI Engages?}
+    D -->|Voicemail Hit| N{isClassificationCall?}
+    N -->|YES| O[✅ Skip Retry Increment<br/>Schedule 1hr Retry]
+    N -->|NO| P[❌ Increment Retry<br/>Task Call Failed]
     
-    J -->|No < 30 sec| K[Incomplete Call]
-    K --> L[Twilio CSC Webhook Fires]
-    L --> M[Detects Incomplete]
-    M --> E
+    B -->|Task Call| Q{Call Connects?}
     
-    J -->|Yes| N[Full Conversation]
-    N --> O[VAPI Completes]
-    O --> P[VAPI Webhook Fires<br/>post_call.js]
-    P --> Q[Process Success/Failure]
+    Q -->|No| R[Connection Failed]
+    R --> S[CSC Webhook Fires]
+    S --> T[❌ Increment Retry Count]
     
-    Q --> R{Success?}
-    R -->|Yes| S[Mark Completed]
-    R -->|No| T[Unable to Connect]
-    T --> E
+    Q -->|Yes| U{VAPI Engages?}
     
-    E --> U{Max Retries?}
-    U -->|No| V[Set retry_pending<br/>Schedule Next Attempt]
-    U -->|Yes| W[Mark as failed]
+    U -->|No| V[Disconnect/Incomplete]
+    V --> W[CSC Webhook Fires]
+    W --> T
     
-    style D fill:#ffcccc
-    style H fill:#ffcccc
-    style L fill:#ffcccc
-    style P fill:#ccffcc
-    style W fill:#ff6666
+    U -->|Yes| X[Full Conversation]
+    X --> Y[VAPI Completes]
+    Y --> Z{Success Evaluation?}
+    
+    Z -->|Sending Records| AA[✅ Completed]
+    Z -->|No Show| AA
+    Z -->|Unable to Connect| T
+    
+    T --> AB{Max Retries?}
+    AB -->|No| AC[retry_pending<br/>Exponential Backoff]
+    AB -->|Yes| AD[❌ Mark Failed]
+    
+    style J fill:#90EE90
+    style M fill:#90EE90
+    style O fill:#90EE90
+    style T fill:#FFB6C1
+    style AD fill:#ff6666
 ```
 
 #### **VAPI Post-Call Webhook** (`api/vapi/post_call.js`)
-- **When it fires:** After VAPI completes a conversation
+- **When it fires:** After VAPI completes a conversation OR when call disconnects
 - **Handles:** Successful conversations, "Unable to connect" responses
-- **Provides:** Summary, success evaluation, structured data
-- **Retry logic:** Increments retry count for failures
+- **NEW: Classification protection:** Checks if this was a successful classification call before incrementing retry
+- **Logic:**
+  ```javascript
+  IF (workflow_state === 'classifying' || 'classification_pending')
+     AND classification_successful === true
+     AND successEvaluation === 'Unable to connect'
+  THEN
+     → Skip retry increment (expected disconnect)
+     → Log metadata only
+  ELSE
+     → Normal retry logic
+  ```
 
 #### **Twilio Call Status Complete Webhook** (`api/twilio/call-status-complete.js`)
 - **When it fires:** When any Twilio call ends
 - **Handles:** Quick hangups, connection failures, incomplete calls
-- **Safety net for:** Calls VAPI never processes
-- **Retry logic:** Increments retry count for disconnects
+- **NEW: Classification protection:** Checks if classification was stored before incrementing retry
+- **Logic:**
+  ```javascript
+  IF (workflow_state === 'classification_pending' || 'classifying')
+     AND (classification_successful === true 
+          OR classification_stored_at exists)
+  THEN
+     → Skip retry increment (classification succeeded)
+     → Update audit trail only
+  ELSE
+     → Normal retry logic
+  ```
 
 #### **Scheduler Orphan Detection**
 - **When it runs:** Every minute
@@ -110,6 +140,7 @@ graph TD
 - 📧 **Smart Detection**: Voicemail detection prevents false IVR classifications
 - 🌎 **Timezone Aware**: Respects each clinic's local business hours (9 AM - 5 PM)
 - 🛡️ **Robust Retry**: Multi-layered retry system catches all failure types
+- ⚙️ **Smart Retry Preservation**: Classification calls don't burn retry attempts
 
 ## Classification Types
 
@@ -138,23 +169,34 @@ These are transient conditions that don't represent the clinic's actual phone sy
    - "Please leave a message"
    - "Is not available"
    - Does NOT create a classification record
+   - **For classification calls:** Does NOT increment retry_count
+   - **For task calls:** Does increment retry_count
    - Triggers retry in 1 hour
    - Call ends immediately to save costs
-   - **Properly increments retry count**
 
 ## Retry Management System
 
 ### Failure Types & Handling
 
-| Failure Type | Detected By | Retry Delay | Max Retries |
-|-------------|------------|-------------|-------------|
-| Quick hangup (<5s) | CSC Webhook | 5/15/30 min | 3 |
-| Connection failed | CSC Webhook | 5/15/30 min | 3 |
-| Incomplete call (<30s) | CSC Webhook | 5/15/30 min | 3 |
-| VAPI "Unable to connect" | post_call.js | 5/15/30 min | 3 |
-| Voicemail detected | server_deepgram | 60 min | 3 |
-| Orphaned call (>5min) | Scheduler | 5/15/30 min | 3 |
-| Network timeout | Scheduler | 5/15/30 min | 3 |
+| Failure Type | Detected By | Classification Call | Task Call | Retry Delay | Max Retries |
+|-------------|------------|---------------------|-----------|-------------|-------------|
+| IVR detected & stored | server_deepgram | ✅ Skip increment | N/A | Move to next phase | N/A |
+| Voicemail during classification | server_deepgram | ✅ Skip increment | ❌ Increment | 60 min | 3 |
+| VAPI disconnect (classification success) | post_call.js | ✅ Skip increment | ❌ Increment | N/A | 3 |
+| Quick hangup (<5s) | CSC Webhook | ✅ Skip if classified | ❌ Increment | 5/15/30 min | 3 |
+| Connection failed | CSC Webhook | ✅ Skip if classified | ❌ Increment | 5/15/30 min | 3 |
+| Incomplete call (<30s) | CSC Webhook | ✅ Skip if classified | ❌ Increment | 5/15/30 min | 3 |
+| VAPI "Unable to connect" | post_call.js | N/A | ❌ Increment | 5/15/30 min | 3 |
+| Orphaned call (>5min) | Scheduler | ✅ Skip if classified | ❌ Increment | 5/15/30 min | 3 |
+
+### Classification Success Indicators
+
+The system uses multiple indicators to identify successful classification calls:
+
+1. **`workflow_metadata.classification_successful = true`** - Set by server_deepgram when classification is stored
+2. **`workflow_metadata.classification_stored_at`** - Timestamp when classification was saved
+3. **`classification_id` exists** - Foreign key to call_classifications table
+4. **`workflow_state = 'classification_pending'`** - Call moved to next phase after successful classification
 
 ### Exponential Backoff Strategy
 - **1st retry:** 5 minutes
@@ -165,9 +207,10 @@ These are transient conditions that don't represent the clinic's actual phone sy
 ### Race Condition Prevention
 The system includes multiple safeguards against webhook race conditions:
 1. **State checking** - Webhooks check for terminal states before processing
-2. **VAPI data checking** - CSC webhook checks for existing VAPI data
-3. **Timing checks** - Both webhooks check for recent updates (< 3-5 seconds)
-4. **Database constraints** - Unique constraints prevent duplicate records
+2. **Classification checking** - Both webhooks check for classification success flags
+3. **VAPI data checking** - CSC webhook checks for existing VAPI data
+4. **Timing checks** - Both webhooks check for recent updates (< 3-5 seconds)
+5. **Database constraints** - Unique constraints prevent duplicate records
 
 ## Timezone-Aware Scheduling
 
@@ -246,33 +289,37 @@ The system uses workflow states to track each pending call through its lifecycle
 #### Scenario 1: New Call with Existing Classification
 ```
 new → checking_classification → ready_to_call → calling → completed
+(retry_count never incremented - classification already exists)
 ```
 
 #### Scenario 2: New Call Requiring Classification (IVR)
 ```
 new → checking_classification → needs_classification → classifying → classification_pending → ready_to_call → calling → completed
+(retry_count = 0 throughout - classification call doesn't increment)
 ```
 
 #### Scenario 3: New Call with Human Answer
 ```
 new → checking_classification → needs_classification → classifying → calling → completed
+(retry_count = 0 - classification call doesn't increment)
 ```
 
-#### Scenario 4: Voicemail Encounter with Retry
+#### Scenario 4: Voicemail Encounter During Classification
 ```
 new → checking_classification → needs_classification → classifying → retry_pending → ready_to_call → calling → completed
+(retry_count = 0 after voicemail - classification calls don't increment)
 ```
-*Note: Voicemail detection doesn't store a classification, properly increments retry count*
 
-#### Scenario 5: Failed Call with Retry to Failure
+#### Scenario 5: Voicemail Encounter During Task Call
 ```
-calling → retry_pending → ready_to_call → calling → retry_pending → ready_to_call → calling → retry_pending → failed
+calling → retry_pending (retry_count = 1) → calling → retry_pending (retry_count = 2) → calling → completed
+(retry_count properly increments for task call failures)
 ```
-*Note: After 3 failed attempts, automatically transitions to 'failed' state*
 
-#### Scenario 6: Quick Disconnect with Retry
+#### Scenario 6: Failed Call with Retry to Failure
 ```
-calling → [CSC webhook detects disconnect] → retry_pending → ready_to_call → calling → completed
+calling → retry_pending (retry_count = 1) → calling → retry_pending (retry_count = 2) → calling → retry_pending (retry_count = 3) → failed
+(After 3 failed task call attempts, automatically transitions to 'failed' state)
 ```
 
 ## Architecture Flow
@@ -280,8 +327,9 @@ calling → [CSC webhook detects disconnect] → retry_pending → ready_to_call
 ### 1. SCHEDULER ORCHESTRATION (pg_cron every minute)
 ```
 ├─> Check for orphaned calls (stuck > 5 minutes)
-│   ├─> Increment retry count
-│   └─> Set to retry_pending or failed
+│   ├─> Check if classification was successful
+│   ├─> If classification successful: Don't increment retry
+│   └─> If task call: Increment retry, set to retry_pending or failed
 ├─> Check current time against timezone windows
 ├─> Find pending calls needing action (next_action_at <= NOW)
 ├─> Filter for clinics in business hours (9 AM - 5 PM local)
@@ -323,15 +371,16 @@ calling → [CSC webhook detects disconnect] → retry_pending → ready_to_call
 ```
 ├─> Connect to Deepgram for transcription
 ├─> Fast pattern matching for instant detection
-│   ├─> Voicemail patterns → End call, increment retry, set retry_pending
-│   ├─> Human patterns → Let VAPI continue
-│   └─> IVR patterns → Navigate and capture actions
+│   ├─> Voicemail patterns → End call, NO retry increment for classification calls
+│   ├─> Human patterns → Let VAPI continue, set classification_successful=true
+│   └─> IVR patterns → Navigate and capture actions, set classification_successful=true
 ├─> OpenAI classification after 3 seconds
 ├─> Store classification state in session
-├─> Update pending_call workflow state
+├─> Update pending_call workflow state with classification_successful flag
 ├─> For IVR: Navigate and log actions with timing
 ├─> For IVR_then_human: Capture transfer timing
-├─> For Voicemail: Skip classification storage, increment retry
+├─> For Voicemail (classification): Skip classification storage, NO retry increment
+├─> For Voicemail (task call): Increment retry count normally
 ├─> Auto-terminate classification calls after capturing needed data
 └─> Store final classification when call ends (except voicemail)
 ```
@@ -340,11 +389,13 @@ calling → [CSC webhook detects disconnect] → retry_pending → ready_to_call
 ```
 ├─> VAPI receives call with pending_call_id
 ├─> Fetches full call data via API endpoint
+├─> NEW: Check if this is a successful classification call
+│   └─> If yes: Skip retry increment, log metadata only
 ├─> Conducts conversation with clinic
 ├─> Posts results back with success evaluation:
-│   ├─> "Sending Records" → completed
+│   ├─> "Sending Records" → completed, retry_count = 0
 │   ├─> "No Show" → completed
-│   └─> "Unable to connect" → increment retry → retry_pending or failed
+│   └─> "Unable to connect" → increment retry (task calls only) → retry_pending or failed
 ├─> Updates workflow state in pending_calls
 └─> Stores complete history in call_sessions
 ```
@@ -352,12 +403,14 @@ calling → [CSC webhook detects disconnect] → retry_pending → ready_to_call
 ### 6. DISCONNECT DETECTION (CSC Webhook)
 ```
 ├─> Twilio sends call status on completion
+├─> NEW: Check if classification was successful
+│   └─> If yes: Skip retry increment, audit trail only
 ├─> Check if VAPI already processed
 ├─> If not processed and:
 │   ├─> Duration < 5s → Quick hangup detected
 │   ├─> Status = failed/busy/no-answer → Connection failed
 │   └─> Duration < 30s → Incomplete interaction
-├─> Increment retry count
+├─> Increment retry count (task calls only)
 ├─> Check max retries:
 │   ├─> Under limit → Set retry_pending with backoff
 │   └─> At/over limit → Mark as failed
@@ -384,12 +437,12 @@ CREATE TABLE pending_calls (
   workflow_state TEXT DEFAULT 'new',
   classification_id UUID REFERENCES call_classifications(id),
   classification_lookup_at TIMESTAMPTZ,
-  retry_count INT DEFAULT 0,              -- Tracks retry attempts
+  retry_count INT DEFAULT 0,              -- Tracks retry attempts (task calls only)
   max_retries INT DEFAULT 3,              -- Configurable max retries
   next_action_at TIMESTAMPTZ DEFAULT NOW(),
   last_error TEXT,                        -- Latest error message
   last_attempt_at TIMESTAMPTZ,            -- When last attempted
-  workflow_metadata JSONB DEFAULT '{}',   -- Latest state only
+  workflow_metadata JSONB DEFAULT '{}',   -- Latest state + classification_successful flag
   
   -- Call results (overwritten with each attempt)
   call_status TEXT,
@@ -419,7 +472,7 @@ CREATE TABLE call_sessions (
   ivr_detection_latency_ms INT4,
   ivr_confidence_score FLOAT8,
   stream_started BOOLEAN DEFAULT false,
-  workflow_metadata JSONB DEFAULT '{}',  -- Complete history preserved
+  workflow_metadata JSONB DEFAULT '{}',  -- Complete history + classification flags
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ
 );
@@ -459,14 +512,23 @@ The system detects voicemail through pattern matching:
 - "Voicemail box"
 
 ### Handling Process
+
+#### Classification Calls (Voicemail Hit)
 1. **Detection** - Fast classifier identifies voicemail patterns
 2. **No Classification** - Voicemail is NOT stored as a classification
 3. **Call Termination** - Call ends immediately to save costs
-4. **Retry Count Increment** - Properly increments retry count
-5. **Max Retry Check** - Marks as failed if max retries exceeded
-6. **Metadata Logging** - Logged in call_sessions for tracking
-7. **Retry Scheduling** - Set to retry_pending with 1-hour delay (if under max)
-8. **Fresh Classification** - Next attempt will classify fresh (no cached result)
+4. **✅ NO Retry Increment** - retry_count stays at 0 (classification call)
+5. **Metadata Logging** - Logged with `retry_count_not_incremented: true`
+6. **Retry Scheduling** - Set to retry_pending with 1-hour delay
+7. **Fresh Classification** - Next attempt will classify fresh (no cached result)
+
+#### Task Calls (Voicemail Hit)
+1. **Detection** - Fast classifier identifies voicemail patterns
+2. **Call Termination** - Call ends immediately to save costs
+3. **❌ Retry Increment** - retry_count increments (1, 2, or 3)
+4. **Max Retry Check** - Marks as failed if max retries exceeded
+5. **Metadata Logging** - Logged in call_sessions for tracking
+6. **Retry Scheduling** - Set to retry_pending with 1-hour delay (if under max)
 
 ### Why Not Cache Voicemail?
 - Voicemail is a temporary state, not a phone system type
@@ -511,6 +573,38 @@ For IVR systems that transfer to humans:
 
 ## Monitoring & Operations
 
+### Check Classification Call Behavior
+```sql
+-- Verify classification calls don't increment retry_count
+SELECT 
+  pc.id,
+  pc.employee_name,
+  pc.clinic_name,
+  pc.workflow_state,
+  pc.retry_count,  -- Should be 0 after classification
+  pc.classification_id,
+  pc.workflow_metadata->>'classification_successful' as classification_ok,
+  pc.workflow_metadata->>'retry_count_not_incremented' as skip_flag,
+  cs.workflow_metadata->>'retry_increment_skipped' as csc_skip,
+  cs.workflow_metadata->>'classification_stored_at' as stored_at,
+  cs.ivr_detection_state
+FROM pending_calls pc
+LEFT JOIN call_sessions cs ON cs.pending_call_id = pc.id
+WHERE 
+  pc.created_at > NOW() - INTERVAL '24 hours'
+  AND (
+    pc.classification_id IS NOT NULL
+    OR pc.workflow_state IN ('classification_pending', 'classifying')
+  )
+ORDER BY pc.created_at DESC;
+
+-- Expected results for successful classification calls:
+-- retry_count: 0
+-- workflow_state: 'classification_pending' or 'ready_to_call'
+-- classification_successful: 'true'
+-- retry_increment_skipped: 'true' (from webhooks)
+```
+
 ### Check Scheduler Status with Timezone Info
 ```sql
 -- View current business hours status across timezones
@@ -535,11 +629,12 @@ LEFT JOIN pending_calls pc ON pc.clinic_timezone = t.tz
   AND pc.workflow_state NOT IN ('completed', 'failed', 'pending')
 GROUP BY tz;
 
--- Monitor retry distribution
+-- Monitor retry distribution (should show 0 for classification calls)
 SELECT 
   workflow_state,
   retry_count,
   COUNT(*) as count,
+  COUNT(*) FILTER (WHERE classification_id IS NOT NULL) as with_classification,
   CASE 
     WHEN retry_count >= COALESCE(max_retries, 3) AND workflow_state = 'retry_pending' 
     THEN '⚠️ SHOULD BE FAILED'
@@ -547,6 +642,8 @@ SELECT
     THEN '❌ FAILED'
     WHEN workflow_state = 'completed' 
     THEN '✅ COMPLETED'
+    WHEN workflow_state IN ('classification_pending', 'ready_to_call') AND retry_count = 0
+    THEN '✅ CLASSIFICATION OK'
     ELSE '🔄 IN PROGRESS'
   END as status_check
 FROM pending_calls
@@ -561,6 +658,8 @@ SELECT
   clinic_name,
   workflow_state,
   retry_count || '/' || COALESCE(max_retries, 3) as attempts,
+  classification_id,
+  workflow_metadata->>'classification_successful' as class_success,
   ROUND(EXTRACT(EPOCH FROM (NOW() - updated_at)) / 60::numeric, 1) as minutes_in_state,
   CASE 
     WHEN EXTRACT(EPOCH FROM (NOW() - updated_at)) > 300 
@@ -575,6 +674,7 @@ ORDER BY updated_at ASC;
 SELECT 
   DATE_TRUNC('hour', cs.created_at) as hour,
   COUNT(*) FILTER (WHERE cs.workflow_metadata->>'incomplete_call_detected' = 'true') as disconnects,
+  COUNT(*) FILTER (WHERE cs.workflow_metadata->>'retry_increment_skipped' = 'true') as classification_skips,
   COUNT(*) FILTER (WHERE cs.workflow_metadata->>'detection_reason' = 'quick_hangup') as quick_hangups,
   COUNT(*) FILTER (WHERE cs.workflow_metadata->>'voicemail_detected' = 'true') as voicemails,
   COUNT(*) as total_calls,
@@ -614,11 +714,14 @@ SET
   workflow_metadata = '{}'::jsonb
 WHERE id = 'YOUR_TEST_CALL_ID';
 
--- Fix stuck calls with retry increment
+-- Fix stuck calls with retry increment (only for task calls)
 UPDATE pending_calls
 SET 
   workflow_state = 'retry_pending',
-  retry_count = retry_count + 1,
+  retry_count = CASE 
+    WHEN classification_id IS NULL THEN retry_count  -- Don't increment if classifying
+    ELSE retry_count + 1  -- Increment for task calls
+  END,
   last_error = 'Call stuck - manual intervention',
   next_action_at = NOW() + INTERVAL '5 minutes',
   updated_at = NOW()
@@ -661,6 +764,7 @@ SELECT net.http_post(
 - **Classification cache**: 30 days
 
 ### Efficiency Features
+- **Classification retry preservation**: Successful classifications don't burn retry attempts
 - **Multi-layered retry system**: Webhooks + Scheduler ensure no missed failures
 - **Timezone-aware batching**: Processes calls by local business hours
 - **Smart scheduling**: Cron only triggers when eligible calls exist
@@ -677,6 +781,7 @@ The system handles four distinct outcomes:
 
 1. **"Sending Records"** - Success! Clinic is sending the requested records
    - Sets `workflow_state = 'completed'`
+   - Resets `retry_count = 0`
    - No retries needed
    - Logged to both pending_calls and call_sessions
 
@@ -686,8 +791,9 @@ The system handles four distinct outcomes:
    - Logged to both pending_calls and call_sessions
 
 3. **"Unable to connect"** - Failed to reach clinic representative
+   - **For classification calls:** Skip retry increment (expected disconnect)
+   - **For task calls:** Increments retry_count
    - Sets `workflow_state = 'retry_pending'`
-   - Increments retry count
    - Automatic retry after 5/15/30 minutes
    - Up to 3 retry attempts before marking as 'failed'
 
@@ -695,16 +801,18 @@ The system handles four distinct outcomes:
    - Quick hangup (< 5 seconds)
    - Busy/No answer/Failed/Canceled
    - Incomplete interaction (< 30 seconds)
+   - **For classification calls:** Skip retry increment if classification successful
+   - **For task calls:** Increments retry_count
    - Sets `workflow_state = 'retry_pending'`
-   - Increments retry count properly
    - Same exponential backoff strategy
 
 5. **Voicemail Detected** - Reached voicemail system
+   - **For classification calls:** NO retry increment
+   - **For task calls:** Increments retry_count
    - Sets `workflow_state = 'retry_pending'`
    - NO classification stored
    - Retry after 60 minutes
    - Fresh classification on next attempt
-   - Properly increments retry count
 
 ## Metadata Storage Strategy
 
@@ -712,35 +820,54 @@ The system handles four distinct outcomes:
 - **Purpose**: Current state and latest attempt info
 - **Behavior**: Overwritten with each update
 - **Use Case**: Workflow decisions and current status
+- **New Fields:**
+  - `classification_successful: true` - Indicates classification was stored
+  - `retry_count_not_incremented: true` - Classification call didn't burn retry
 
 ### call_sessions.workflow_metadata
 - **Purpose**: Complete historical record
 - **Behavior**: Preserved for each call attempt
 - **Use Case**: Debugging, analytics, audit trail
+- **New Fields:**
+  - `classification_stored_at` - When classification was saved
+  - `retry_increment_skipped` - Webhook skipped retry increment
+  - `skip_reason` - Why retry was skipped
 
-Example call_sessions.workflow_metadata:
+Example call_sessions.workflow_metadata for successful classification:
 ```json
 {
   // Classification data
   "classification_type": "ivr_then_human",
+  "classification_stored_at": "2025-01-15T10:30:45Z",
+  "classification_successful": true,
   "ivr_actions": [...],
   "transfer_timing_ms": 15000,
   
-  // Voicemail detection (if applicable)
+  // Webhook behavior
+  "retry_increment_skipped": true,
+  "skip_reason": "successful_classification",
+  "vapi_disconnect_expected": true,
+  "classification_call_ended_early": true,
+  
+  // VAPI results (for early disconnect)
+  "vapi_success_evaluation": "Unable to connect",
+  "vapi_summary": null
+}
+```
+
+Example call_sessions.workflow_metadata for voicemail during classification:
+```json
+{
+  // Voicemail detection
   "voicemail_detected": true,
   "classification_skipped": true,
-  "retry_count_after": 2,
+  "retry_count_not_incremented": true,
+  "reason": "voicemail_not_persistent_state",
   
-  // Disconnect detection (if applicable)
-  "incomplete_call_detected": true,
-  "detection_reason": "quick_hangup",
-  "twilio_final_status": "completed",
-  "call_duration_seconds": 3,
-  
-  // VAPI results
-  "vapi_success_evaluation": "Sending Records",
-  "vapi_summary": "Spoke with Sarah...",
-  "is_successful": true
+  // Classification incomplete
+  "classification_incomplete": true,
+  "retry_scheduled": true,
+  "should_retry": true
 }
 ```
 
@@ -763,23 +890,75 @@ Example call_sessions.workflow_metadata:
    - Voicemail detection prevents unnecessary calls
    - Timezone filtering prevents off-hours calls
    - Max retry limits prevent infinite loops
+   - Classification calls don't consume retry attempts
 
 ## Implementation Checklist
 
 ### Required Components
-- [ ] Deploy `scheduler` edge function with orphan detection
-- [ ] Deploy `pre-classify-call-07-21-2025` edge function
-- [ ] Deploy `api/twilio/preclassify-twiml.js`
-- [ ] Deploy `api/twilio/call-status-complete.js` (NEW)
-- [ ] Deploy `api/vapi/post_call.js` with retry improvements
-- [ ] Deploy WebSocket server (`server_deepgram.js`) with voicemail retry fix
-- [ ] Configure Twilio webhooks for status callbacks
-- [ ] Set up pg_cron for automated scheduling
-- [ ] Configure timezone data for clinics
+- [x] Deploy `scheduler` edge function with orphan detection
+- [x] Deploy `pre-classify-call-07-21-2025` edge function
+- [x] Deploy `api/twilio/preclassify-twiml.js`
+- [x] Deploy `api/twilio/call-status-complete.js` **with classification skip logic**
+- [x] Deploy `api/vapi/post_call.js` **with classification skip logic**
+- [x] Deploy WebSocket server (`server_deepgram.js`) **with classification success flagging**
+- [x] Configure Twilio webhooks for status callbacks
+- [x] Set up pg_cron for automated scheduling
+- [x] Configure timezone data for clinics
 
 ### Monitoring Setup
 - [ ] Set up alerts for failed calls exceeding threshold
-- [ ] Monitor retry distribution daily
+- [ ] Monitor retry distribution daily (verify classification calls have retry_count=0)
 - [ ] Track disconnect patterns
 - [ ] Review orphaned call detection logs
 - [ ] Verify timezone-based calling patterns
+- [ ] **Monitor classification_successful flag usage**
+- [ ] **Verify retry_increment_skipped in webhooks**
+
+## Testing Checklist
+
+### Test 1: IVR Classification (Should NOT increment retry)
+```sql
+-- Create test call
+INSERT INTO pending_calls (id, employee_name, clinic_name, phone, workflow_state, retry_count)
+VALUES (gen_random_uuid(), 'Test Employee', 'Test IVR Clinic', '+15551234567', 'new', 0);
+
+-- After classification call completes, verify:
+SELECT 
+  retry_count,  -- Expected: 0 (not incremented)
+  workflow_state,  -- Expected: 'classification_pending'
+  classification_id,  -- Expected: [UUID]
+  workflow_metadata->>'classification_successful' as success_flag,  -- Expected: 'true'
+  workflow_metadata->>'retry_increment_skipped' as skip_flag  -- Expected: 'true'
+FROM pending_calls WHERE clinic_name = 'Test IVR Clinic';
+```
+
+### Test 2: Classification Call Hits Voicemail (Should NOT increment retry)
+```sql
+-- After voicemail detected during classification:
+SELECT 
+  retry_count,  -- Expected: 0 (not incremented)
+  workflow_state,  -- Expected: 'retry_pending'
+  workflow_metadata->>'retry_count_not_incremented' as skip_flag,  -- Expected: 'true'
+  next_action_at  -- Expected: NOW + 1 hour
+FROM pending_calls WHERE clinic_name = 'Test VM Clinic';
+```
+
+### Test 3: Task Call Fails (Should increment retry)
+```sql
+-- After task call failure:
+SELECT 
+  retry_count,  -- Expected: 1, then 2, then 3
+  workflow_state,  -- Expected: 'retry_pending' or 'failed' after 3
+  last_error
+FROM pending_calls WHERE clinic_name = 'Test Task Fail';
+```
+
+### Test 4: Task Call Hits Voicemail (Should increment retry)
+```sql
+-- After voicemail detected during task call:
+SELECT 
+  retry_count,  -- Expected: incremented (1, 2, or 3)
+  workflow_state,  -- Expected: 'retry_pending' or 'failed'
+  workflow_metadata->>'voicemail_count' as vm_count
+FROM pending_calls WHERE clinic_name = 'Test Task VM';
+```
