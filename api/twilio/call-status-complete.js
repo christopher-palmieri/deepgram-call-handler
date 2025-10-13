@@ -1,5 +1,5 @@
 // api/twilio/call-status-complete.js
-// This webhook handles call completion status from Twilio
+// Updated to skip retry increment for successful classification calls
 import { createClient } from '@supabase/supabase-js';
 import querystring from 'querystring';
 
@@ -53,6 +53,45 @@ export default async function handler(req, res) {
       console.log('✅ Call already processed by VAPI');
       return res.status(200).send('');
     }
+    
+    // ===== NEW LOGIC: CHECK IF THIS WAS A SUCCESSFUL CLASSIFICATION CALL =====
+    const isClassificationCall = 
+      pendingCall.workflow_state === 'classification_pending' ||
+      pendingCall.workflow_state === 'classifying' ||
+      session.workflow_metadata?.is_classification_call === true;
+      
+    const classificationSuccessful = 
+      pendingCall.workflow_metadata?.classification_successful === true ||
+      session.workflow_metadata?.classification_stored_at != null;
+    
+    if (isClassificationCall && classificationSuccessful) {
+      console.log('✅ Successful classification call detected - SKIPPING retry increment');
+      console.log(`   Classification type: ${pendingCall.workflow_metadata?.classification_type || session.ivr_detection_state}`);
+      console.log(`   Workflow state: ${pendingCall.workflow_state}`);
+      console.log(`   Call duration: ${callDuration}s`);
+      
+      // Update call_sessions for audit trail but DON'T touch pending_calls retry_count
+      await supabase
+        .from('call_sessions')
+        .update({
+          call_status: callStatus,
+          workflow_metadata: {
+            ...session.workflow_metadata,
+            twilio_final_status: callStatus,
+            call_duration_seconds: parseInt(callDuration),
+            classification_call_completed: true,
+            processed_by: 'twilio_status_webhook',
+            retry_increment_skipped: true,
+            skip_reason: 'successful_classification'
+          },
+          updated_at: new Date().toISOString()
+        })
+        .eq('call_id', callSid);
+      
+      console.log('✅ Updated call_sessions (audit only) - no retry increment');
+      return res.status(200).send('');
+    }
+    // ===== END NEW LOGIC =====
     
     // Determine if this was a failed/incomplete call
     const callDurationInt = parseInt(callDuration);
