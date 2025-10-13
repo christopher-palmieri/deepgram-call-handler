@@ -1,4 +1,4 @@
-// api/vapi/post_call.js - Updated with proper retry handling
+// api/vapi/post_call.js - Updated to skip retry increment for successful classifications
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -80,6 +80,95 @@ export default async function handler(req, res) {
       });
     }
 
+    // ===== NEW: CHECK IF THIS WAS A SUCCESSFUL CLASSIFICATION CALL =====
+    const isClassificationCall = 
+      currentCall.workflow_state === 'classifying' ||
+      currentCall.workflow_state === 'classification_pending' ||
+      currentCall.workflow_metadata?.is_classification_call === true;
+      
+    const classificationSuccessful = 
+      currentCall.workflow_metadata?.classification_successful === true ||
+      currentCall.classification_id != null;
+    
+    // If this was a successful classification call that ended early, don't penalize it
+    if (isClassificationCall && classificationSuccessful && successEvaluation === 'Unable to connect') {
+      console.log('✅ SUCCESSFUL CLASSIFICATION CALL - Skipping retry increment for "Unable to connect"');
+      console.log(`   Classification type: ${currentCall.workflow_metadata?.classification_type}`);
+      console.log(`   Workflow state: ${currentCall.workflow_state}`);
+      console.log(`   Classification ID: ${currentCall.classification_id}`);
+      
+      // Don't change workflow_state or increment retry - the classification was successful
+      // Just log this attempt in metadata
+      const workflowMetadata = {
+        ...currentCall.workflow_metadata,
+        vapi_completed_at: new Date().toISOString(),
+        vapi_success_evaluation: successEvaluation,
+        vapi_summary: summary,
+        classification_call_ended_early: true,
+        vapi_disconnect_expected: true,
+        retry_increment_skipped: true,
+        skip_reason: 'successful_classification_call'
+      };
+      
+      const { error: updateError } = await supabase
+        .from('pending_calls')
+        .update({
+          workflow_metadata: workflowMetadata,
+          updated_at: new Date().toISOString()
+          // DON'T update: workflow_state, retry_count, next_action_at
+        })
+        .eq('id', pendingCallId);
+      
+      if (updateError) {
+        console.error('❌ Error updating metadata:', updateError);
+      } else {
+        console.log('✅ Updated metadata without changing workflow state or retry count');
+      }
+      
+      // Update call_sessions for audit
+      let sessionToUpdate = null;
+      if (sessionId && sessionId !== 'none') {
+        const { data: sessionByIdData } = await supabase
+          .from('call_sessions')
+          .select('*')
+          .eq('id', sessionId)
+          .single();
+        if (sessionByIdData) sessionToUpdate = sessionByIdData;
+      }
+      if (!sessionToUpdate && callSid) {
+        const { data: sessionBySidData } = await supabase
+          .from('call_sessions')
+          .select('*')
+          .eq('call_id', callSid)
+          .single();
+        if (sessionBySidData) sessionToUpdate = sessionBySidData;
+      }
+      
+      if (sessionToUpdate) {
+        await supabase
+          .from('call_sessions')
+          .update({
+            workflow_metadata: {
+              ...sessionToUpdate.workflow_metadata,
+              vapi_completed_at: new Date().toISOString(),
+              vapi_success_evaluation: successEvaluation,
+              classification_call_ended_early: true,
+              retry_increment_skipped_vapi: true
+            },
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', sessionToUpdate.id);
+      }
+      
+      return res.status(200).json({ 
+        status: 'ok',
+        classification_call: true,
+        retry_skipped: true,
+        workflow_state: currentCall.workflow_state
+      });
+    }
+    // ===== END NEW LOGIC =====
+
     // Determine workflow state based on success evaluation
     let workflowState;
     let nextActionAt = null;
@@ -93,7 +182,7 @@ export default async function handler(req, res) {
       workflowState = 'completed';
       // Keep retry count for record
     } else if (successEvaluation === 'Unable to connect') {
-      // Increment retry count
+      // Increment retry count (only for ACTUAL task call failures)
       retryCount = retryCount + 1;
       
       // CHECK MAX RETRIES
