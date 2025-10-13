@@ -111,17 +111,28 @@ graph TD
 #### **Twilio Call Status Complete Webhook** (`api/twilio/call-status-complete.js`)
 - **When it fires:** When any Twilio call ends
 - **Handles:** Quick hangups, connection failures, incomplete calls
+- **Request method:** Handles both GET (query parameters) and POST (body) from Twilio
 - **NEW: Classification protection:** Checks if classification was stored before incrementing retry
 - **Logic:**
   ```javascript
+  // Parse request (GET query params or POST body)
+  IF req.method === 'GET' THEN
+     → Parse query string from URL
+  ELSE
+     → Parse POST body
+
+  // Check for successful classification
   IF (workflow_state === 'classification_pending' || 'classifying')
-     AND (classification_successful === true 
+     AND (classification_successful === true
           OR classification_stored_at exists)
   THEN
      → Skip retry increment (classification succeeded)
+     → Update call_sessions.call_status = 'completed'
      → Update audit trail only
   ELSE
-     → Normal retry logic
+     → Check for incomplete call conditions
+     → Increment retry count if applicable
+     → Schedule retry with exponential backoff
   ```
 
 #### **Scheduler Orphan Detection**
@@ -350,10 +361,16 @@ calling → retry_pending (retry_count = 1) → calling → retry_pending (retry
 ├─> Update workflow state (classifying or calling)
 ├─> Pass parameters to TwiML handler via URL
 ├─> Configure Twilio webhooks:
-│   ├─> TwiML webhook for call routing
-│   └─> Status callback webhook for disconnect detection
+│   ├─> TwiML webhook for call routing (Url parameter)
+│   └─> StatusCallback webhook for disconnect detection
+│       ├─> StatusCallback: ${WEBHOOK_BASE_URL}/api/twilio/call-status-complete
+│       ├─> StatusCallbackEvent: ['completed']
+│       └─> StatusCallbackMethod: 'POST' (Twilio may send GET)
 └─> Initiate Twilio call
 ```
+
+**Required Environment Variable:**
+- `WEBHOOK_BASE_URL`: Base URL for webhooks (e.g., `https://your-app.vercel.app`)
 
 ### 3. CALL ROUTING (TwiML Handler)
 ```
