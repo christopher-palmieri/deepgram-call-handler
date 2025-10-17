@@ -6,7 +6,8 @@ let allCalls = [];
 let currentFilters = {
     status: ['all'],
     dateRange: ['all'],
-    taskType: ['all']
+    taskType: ['all'],
+    activeStatus: ['active']  // Default to active only
 };
 let realtimeChannel = null;
 let callSessionsChannel = null;
@@ -86,10 +87,22 @@ window.addEventListener('DOMContentLoaded', async () => {
 // Load pending calls
 async function loadPendingCalls() {
     try {
-        const { data: calls, error } = await supabase
+        let query = supabase
             .from('pending_calls')
-            .select('*, call_sessions(*)')
-            .eq('is_active', true)  // Only load active calls
+            .select('*, call_sessions(*)');
+
+        // Apply is_active filter based on current selection
+        const activeFilter = currentFilters.activeStatus;
+        if (activeFilter.includes('active') && !activeFilter.includes('inactive')) {
+            // Only active
+            query = query.eq('is_active', true);
+        } else if (activeFilter.includes('inactive') && !activeFilter.includes('active')) {
+            // Only inactive
+            query = query.eq('is_active', false);
+        }
+        // If both or neither selected, don't filter (show all)
+
+        const { data: calls, error } = await query
             .order('created_at', { ascending: false })
             .limit(50);
 
@@ -298,7 +311,6 @@ async function fetchCallWithSessions(callId) {
             .from('pending_calls')
             .select('*, call_sessions(*)')
             .eq('id', callId)
-            .eq('is_active', true)  // Only fetch if active
             .single();
 
         if (error) throw error;
@@ -806,7 +818,8 @@ function initializeDropdownFilters() {
     initializeDropdown('statusFilterToggle', 'statusFilterMenu', 'status');
     initializeDropdown('dateFilterToggle', 'dateFilterMenu', 'dateRange');
     initializeDropdown('taskFilterToggle', 'taskFilterMenu', 'taskType');
-    
+    initializeDropdown('activeFilterToggle', 'activeFilterMenu', 'activeStatus');
+
     // Close dropdowns when clicking outside
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.dropdown-filter')) {
@@ -867,52 +880,71 @@ function handleFilterChange(filterType, value, checked) {
         } else {
             // If unchecked, remove from filters
             currentFilters[filterType] = currentFilters[filterType].filter(f => f !== value);
-            
-            // If no filters left, default to 'all'
+
+            // If no filters left, default to 'all' (except for activeStatus)
             if (currentFilters[filterType].length === 0) {
-                currentFilters[filterType] = ['all'];
-                updateCheckboxes(filterType, ['all']);
+                if (filterType === 'activeStatus') {
+                    // For activeStatus, default to 'active' only
+                    currentFilters[filterType] = ['active'];
+                } else {
+                    currentFilters[filterType] = ['all'];
+                }
+                updateCheckboxes(filterType, currentFilters[filterType]);
             }
         }
     }
-    
+
     updateFilterDisplay(filterType);
     saveFiltersToStorage();
-    renderCallsTable();
+
+    // For activeStatus filter, we need to reload data from database
+    if (filterType === 'activeStatus') {
+        loadPendingCalls();
+    } else {
+        renderCallsTable();
+    }
 }
 
 function updateCheckboxes(filterType, selectedValues) {
-    const menuId = filterType === 'status' ? 'statusFilterMenu' : 
-                   filterType === 'dateRange' ? 'dateFilterMenu' : 'taskFilterMenu';
+    const menuId = filterType === 'status' ? 'statusFilterMenu' :
+                   filterType === 'dateRange' ? 'dateFilterMenu' :
+                   filterType === 'taskType' ? 'taskFilterMenu' :
+                   filterType === 'activeStatus' ? 'activeFilterMenu' : null;
     const menu = document.getElementById(menuId);
-    
+
     if (!menu) return;
-    
+
     menu.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
         checkbox.checked = selectedValues.includes(checkbox.value);
     });
 }
 
 function updateFilterDisplay(filterType) {
-    const toggleId = filterType === 'status' ? 'statusFilterToggle' : 
-                     filterType === 'dateRange' ? 'dateFilterToggle' : 'taskFilterToggle';
+    const toggleId = filterType === 'status' ? 'statusFilterToggle' :
+                     filterType === 'dateRange' ? 'dateFilterToggle' :
+                     filterType === 'taskType' ? 'taskFilterToggle' :
+                     filterType === 'activeStatus' ? 'activeFilterToggle' : null;
     const toggle = document.getElementById(toggleId);
-    
+
     if (!toggle) return;
-    
+
     const filterText = toggle.querySelector('.filter-text');
     const selected = currentFilters[filterType];
-    
+
     let displayText;
     if (selected.includes('all') || selected.length === 0) {
         displayText = filterType === 'status' ? 'All Statuses' :
-                     filterType === 'dateRange' ? 'All Dates' : 'All Tasks';
+                     filterType === 'dateRange' ? 'All Dates' :
+                     filterType === 'taskType' ? 'All Tasks' :
+                     filterType === 'activeStatus' ? 'All' : 'All';
     } else if (selected.length === 1) {
         displayText = formatFilterValue(selected[0]);
+    } else if (selected.length === 2 && filterType === 'activeStatus') {
+        displayText = 'All'; // Both active and inactive = all
     } else {
         displayText = `${selected.length} selected`;
     }
-    
+
     filterText.textContent = displayText;
 }
 
@@ -927,7 +959,7 @@ function formatFilterValue(value) {
         'completed': 'Completed',
         'failed': 'Failed',
         'retry_pending': 'Retry Pending',
-        
+
         // Date range values
         'today': 'Today',
         'tomorrow': 'Tomorrow',
@@ -935,13 +967,17 @@ function formatFilterValue(value) {
         'last7days': 'Last 7 Days',
         'last30days': 'Last 30 Days',
         'older30days': 'Older than 30 Days',
-        
+
         // Task type values
         'records_request': 'Records Request',
         'schedule': 'Schedule',
-        'kit_confirmation': 'Kit Confirmation'
+        'kit_confirmation': 'Kit Confirmation',
+
+        // Active status values
+        'active': 'Active Only',
+        'inactive': 'Inactive Only'
     };
-    
+
     return formatMap[value] || value;
 }
 
@@ -980,6 +1016,7 @@ function saveFiltersToStorage() {
             status: currentFilters.status,
             dateRange: currentFilters.dateRange,
             taskType: currentFilters.taskType,
+            activeStatus: currentFilters.activeStatus,
             savedAt: new Date().toISOString()
         };
         localStorage.setItem('dashboardFilters', JSON.stringify(filterState));
@@ -997,24 +1034,27 @@ function loadSavedFilters() {
             console.log('No saved filters found');
             return;
         }
-        
+
         const filterState = JSON.parse(saved);
         console.log('Loading saved filters:', filterState);
-        
+
         // Restore filter state
         if (filterState.status) currentFilters.status = filterState.status;
         if (filterState.dateRange) currentFilters.dateRange = filterState.dateRange;
         if (filterState.taskType) currentFilters.taskType = filterState.taskType;
-        
+        if (filterState.activeStatus) currentFilters.activeStatus = filterState.activeStatus;
+
         // Update UI to reflect loaded filters
         updateCheckboxes('status', currentFilters.status);
         updateCheckboxes('dateRange', currentFilters.dateRange);
         updateCheckboxes('taskType', currentFilters.taskType);
-        
+        updateCheckboxes('activeStatus', currentFilters.activeStatus);
+
         updateFilterDisplay('status');
         updateFilterDisplay('dateRange');
         updateFilterDisplay('taskType');
-        
+        updateFilterDisplay('activeStatus');
+
         console.log('Filters restored from localStorage');
     } catch (error) {
         console.warn('Failed to load filters from localStorage:', error);
@@ -1022,7 +1062,8 @@ function loadSavedFilters() {
         currentFilters = {
             status: ['all'],
             dateRange: ['all'],
-            taskType: ['all']
+            taskType: ['all'],
+            activeStatus: ['active']
         };
     }
 }
@@ -1053,25 +1094,36 @@ function closeSaveFilterModal() {
 
 function generateFilterSummary(filters) {
     const parts = [];
-    
+
     // Status
     if (!filters.status.includes('all')) {
         const statusLabels = filters.status.map(s => formatFilterValue(s));
         parts.push(`Status: ${statusLabels.join(', ')}`);
     }
-    
+
     // Date Range
     if (!filters.dateRange.includes('all')) {
         const dateLabels = filters.dateRange.map(d => formatFilterValue(d));
         parts.push(`Date: ${dateLabels.join(', ')}`);
     }
-    
+
     // Task Type
     if (!filters.taskType.includes('all')) {
         const taskLabels = filters.taskType.map(t => formatFilterValue(t));
         parts.push(`Task: ${taskLabels.join(', ')}`);
     }
-    
+
+    // Active Status
+    if (filters.activeStatus) {
+        if (filters.activeStatus.includes('active') && !filters.activeStatus.includes('inactive')) {
+            parts.push('Archive: Active Only');
+        } else if (filters.activeStatus.includes('inactive') && !filters.activeStatus.includes('active')) {
+            parts.push('Archive: Inactive Only');
+        } else if (filters.activeStatus.includes('active') && filters.activeStatus.includes('inactive')) {
+            parts.push('Archive: All');
+        }
+    }
+
     return parts.length > 0 ? parts.join(' • ') : 'All filters (no restrictions)';
 }
 
@@ -1101,7 +1153,8 @@ function saveFilterPreset() {
             filters: {
                 status: [...currentFilters.status],
                 dateRange: [...currentFilters.dateRange],
-                taskType: [...currentFilters.taskType]
+                taskType: [...currentFilters.taskType],
+                activeStatus: [...currentFilters.activeStatus]
             },
             createdAt: new Date().toISOString()
         };
@@ -1165,21 +1218,26 @@ function applyFilterPreset(name) {
         currentFilters = {
             status: [...preset.filters.status],
             dateRange: [...preset.filters.dateRange],
-            taskType: [...preset.filters.taskType]
+            taskType: [...preset.filters.taskType],
+            activeStatus: preset.filters.activeStatus ? [...preset.filters.activeStatus] : ['active']
         };
-        
+
         // Update UI
         updateCheckboxes('status', currentFilters.status);
         updateCheckboxes('dateRange', currentFilters.dateRange);
         updateCheckboxes('taskType', currentFilters.taskType);
-        
+        updateCheckboxes('activeStatus', currentFilters.activeStatus);
+
         updateFilterDisplay('status');
         updateFilterDisplay('dateRange');
         updateFilterDisplay('taskType');
-        
-        // Save as current filters and re-render table
+        updateFilterDisplay('activeStatus');
+
+        // Save as current filters
         saveFiltersToStorage();
-        renderCallsTable();
+
+        // Reload data if activeStatus changed (to fetch from database)
+        loadPendingCalls();
         
         // Visual feedback
         highlightActivePreset(name);
