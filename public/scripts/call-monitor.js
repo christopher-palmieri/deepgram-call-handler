@@ -2063,6 +2063,83 @@ function playTableRecording(recordingUrl, sessionId) {
     }
 }
 
+// Reset call functionality
+function showResetCallModal() {
+    if (!currentPendingCall) {
+        showError('No call loaded');
+        return;
+    }
+
+    const modal = document.getElementById('resetCallModal');
+    document.getElementById('resetEmployeeName').textContent = currentPendingCall.employee_name || '-';
+    document.getElementById('resetClinicName').textContent = currentPendingCall.clinic_name || '-';
+    document.getElementById('clearClassificationCheckbox').checked = false;
+
+    modal.style.display = 'flex';
+}
+
+function closeResetCallModal() {
+    document.getElementById('resetCallModal').style.display = 'none';
+}
+
+async function confirmResetCall() {
+    if (!currentPendingCall) {
+        showError('No call loaded');
+        return;
+    }
+
+    const keepClassification = !document.getElementById('clearClassificationCheckbox').checked;
+    const confirmBtn = document.getElementById('confirmResetBtn');
+
+    try {
+        // Disable button and show loading
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<span class="btn-icon">⏳</span> Resetting...';
+
+        // Get auth token
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            throw new Error('Not authenticated');
+        }
+
+        // Call edge function
+        const response = await fetch(`${config.supabaseUrl}/functions/v1/reset-call`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                callId: currentPendingCall.id,
+                keepClassification: keepClassification
+            })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || 'Failed to reset call');
+        }
+
+        // Show success message
+        showInfo(result.message || 'Call reset successfully!');
+
+        // Close modal
+        closeResetCallModal();
+
+        // Reload call details to show updated state
+        await loadCallDetails(currentPendingCall.id);
+
+    } catch (error) {
+        console.error('Error resetting call:', error);
+        showError(`Failed to reset call: ${error.message}`);
+    } finally {
+        // Re-enable button
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<span class="btn-icon">↻</span> Reset & Retry';
+    }
+}
+
 // Export functions for global access
 window.toggleConnection = toggleConnection;
 window.toggleAudio = toggleAudio;
@@ -2074,3 +2151,7 @@ window.closeDetailsPanel = closeDetailsPanel;
 window.testRealtimeConnection = testRealtimeConnection;
 window.playRecording = playRecording;
 window.playTableRecording = playTableRecording;
+window.showResetCallModal = showResetCallModal;
+window.closeResetCallModal = closeResetCallModal;
+window.confirmResetCall = confirmResetCall;
+window.toggleSection = toggleSection;

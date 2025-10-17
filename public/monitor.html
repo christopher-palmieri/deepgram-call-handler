@@ -76,6 +76,12 @@
                     <span class="info-value" id="infoSuccessEval">-</span>
                 </div>
             </div>
+
+            <div class="call-actions">
+                <button class="reset-call-btn" id="resetCallBtn" onclick="showResetCallModal()" title="Reset call to retry">
+                    <span class="btn-icon">↻</span> Reset & Retry Call
+                </button>
+            </div>
             
             <div class="call-details-section" id="callDetailsSection" style="display: none;">
                 <h4>Call Details</h4>
@@ -150,7 +156,42 @@
             </div>
         </div>
     </div>
-    
+
+    <!-- Reset Call Confirmation Modal -->
+    <div id="resetCallModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Reset & Retry Call</h3>
+                <button class="modal-close" onclick="closeResetCallModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>This will reset the call and retry it from the beginning:</p>
+                <ul class="reset-actions-list">
+                    <li>✓ Set workflow_state to 'new'</li>
+                    <li>✓ Set is_active to true</li>
+                    <li>✓ Reset retry_count to 0</li>
+                    <li>✓ Clear call results and errors</li>
+                    <li>✓ Keep existing classification (if any)</li>
+                </ul>
+                <p><strong>Employee:</strong> <span id="resetEmployeeName">-</span></p>
+                <p><strong>Clinic:</strong> <span id="resetClinicName">-</span></p>
+
+                <div class="modal-option">
+                    <label>
+                        <input type="checkbox" id="clearClassificationCheckbox">
+                        Also clear classification (force re-classification)
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" onclick="closeResetCallModal()">Cancel</button>
+                <button class="modal-btn primary" onclick="confirmResetCall()" id="confirmResetBtn">
+                    <span class="btn-icon">↻</span> Reset & Retry
+                </button>
+            </div>
+        </div>
+    </div>
+
     <footer class="footer">
         <img src="https://nmshealth.com/wp-content/uploads/2021/12/nms-health-logo-white-18-300x84.png" alt="NMS Health Logo" class="footer-logo">
     </footer>
