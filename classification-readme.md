@@ -436,7 +436,7 @@ calling → retry_pending (retry_count = 1) → calling → retry_pending (retry
 
 ## Database Schema
 
-### 1. pending_calls Table (with Timezone Support & Retry Management)
+### 1. pending_calls Table (with Timezone Support, Retry Management & Archiving)
 ```sql
 CREATE TABLE pending_calls (
   -- Core fields
@@ -449,7 +449,7 @@ CREATE TABLE pending_calls (
   clinic_name TEXT,
   clinic_timezone TEXT DEFAULT 'America/New_York',  -- Timezone support
   appointment_time TIMESTAMPTZ,
-  
+
   -- Workflow management
   workflow_state TEXT DEFAULT 'new',
   classification_id UUID REFERENCES call_classifications(id),
@@ -460,7 +460,8 @@ CREATE TABLE pending_calls (
   last_error TEXT,                        -- Latest error message
   last_attempt_at TIMESTAMPTZ,            -- When last attempted
   workflow_metadata JSONB DEFAULT '{}',   -- Latest state + classification_successful flag
-  
+  is_active BOOLEAN DEFAULT true,         -- Archive status (false = archived)
+
   -- Call results (overwritten with each attempt)
   call_status TEXT,
   trigger_attempted_at TIMESTAMPTZ,
@@ -468,10 +469,13 @@ CREATE TABLE pending_calls (
   summary TEXT,
   success_evaluation TEXT,
   structured_data JSONB,
-  
+
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()    -- Track last update time
 );
+
+-- Index for efficient active call queries
+CREATE INDEX idx_pending_calls_is_active ON pending_calls(is_active) WHERE is_active = true;
 ```
 
 ### 2. call_sessions Table (with Complete History)
@@ -765,6 +769,134 @@ SELECT net.http_post(
   body := '{}'::jsonb
 );
 ```
+
+## Call Archiving System
+
+### Overview
+The system automatically archives old completed/failed calls to keep the dashboard clean and performant while preserving historical data.
+
+### Archiving Rules
+Calls are marked as inactive (`is_active = false`) when:
+- `workflow_state` is `'completed'` OR `'failed'`
+- AND `updated_at` is older than 30 days (inactivity period)
+- AND `is_active` is currently `true`
+
+**Important**: Archived calls are NOT automatically un-archived if updated. Restoration requires manual intervention.
+
+### Archive Function
+```sql
+-- Function to archive old calls
+CREATE OR REPLACE FUNCTION archive_old_calls()
+RETURNS TABLE(
+  archived_count INT,
+  archived_ids UUID[]
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_archived_count INT;
+  v_archived_ids UUID[];
+BEGIN
+  WITH archived AS (
+    UPDATE pending_calls
+    SET
+      is_active = false,
+      updated_at = NOW()
+    WHERE
+      workflow_state IN ('completed', 'failed')
+      AND updated_at < NOW() - INTERVAL '30 days'
+      AND is_active = true
+    RETURNING id
+  )
+  SELECT
+    COUNT(*)::INT,
+    ARRAY_AGG(id)
+  INTO v_archived_count, v_archived_ids
+  FROM archived;
+
+  RAISE NOTICE 'Archived % calls: %', v_archived_count, v_archived_ids;
+  RETURN QUERY SELECT v_archived_count, v_archived_ids;
+END;
+$$;
+```
+
+### Automated Archiving Setup
+```sql
+-- Schedule archiving to run daily at 2 AM UTC
+SELECT cron.schedule(
+  'archive-old-calls',
+  '0 2 * * *',
+  $$SELECT archive_old_calls();$$
+);
+
+-- Check archiving job status
+SELECT * FROM cron.job WHERE jobname = 'archive-old-calls';
+
+-- View archiving job history
+SELECT *
+FROM cron.job_run_details
+WHERE jobid = (SELECT jobid FROM cron.job WHERE jobname = 'archive-old-calls')
+ORDER BY start_time DESC
+LIMIT 10;
+```
+
+### Manual Archiving Operations
+```sql
+-- Run archiving manually
+SELECT * FROM archive_old_calls();
+-- Returns: archived_count: 15, archived_ids: {uuid1, uuid2, ...}
+
+-- Preview calls that would be archived
+SELECT
+  id,
+  employee_name,
+  clinic_name,
+  workflow_state,
+  updated_at,
+  AGE(NOW(), updated_at) as time_since_update
+FROM pending_calls
+WHERE
+  workflow_state IN ('completed', 'failed')
+  AND updated_at < NOW() - INTERVAL '30 days'
+  AND is_active = true
+ORDER BY updated_at ASC;
+
+-- Archive specific call manually
+UPDATE pending_calls
+SET is_active = false, updated_at = NOW()
+WHERE id = 'YOUR_CALL_ID';
+
+-- Un-archive a call (restore to active)
+UPDATE pending_calls
+SET is_active = true, updated_at = NOW()
+WHERE id = 'YOUR_CALL_ID';
+
+-- View archiving statistics
+SELECT
+  is_active,
+  workflow_state,
+  COUNT(*) as count
+FROM pending_calls
+GROUP BY is_active, workflow_state
+ORDER BY is_active DESC, workflow_state;
+```
+
+### Dashboard Integration
+The dashboard includes an "Archive" filter that allows viewing:
+- **Active Only** (default): Shows only active calls (`is_active = true`)
+- **Inactive Only**: Shows only archived calls (`is_active = false`)
+- **Both**: Shows all calls regardless of archive status
+
+Filter state is saved to localStorage and persists across sessions.
+
+### Archiving Best Practices
+1. **Monitor first runs**: Check `cron.job_run_details` after enabling automated archiving
+2. **Review retention period**: Adjust the 30-day interval if needed for your use case
+3. **Backup before bulk operations**: Create backup of `is_active` states before manual bulk archiving
+4. **Periodic review**: Check archived calls quarterly to ensure nothing important is hidden
+5. **Performance monitoring**: Track dashboard load times before/after archiving implementation
+
+For complete archiving documentation, see `ARCHIVING.md`.
 
 ## Performance & Optimization
 
