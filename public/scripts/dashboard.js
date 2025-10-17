@@ -114,7 +114,7 @@ async function loadPendingCalls() {
     } catch (error) {
         console.error('Error loading calls:', error);
         document.getElementById('callsTableBody').innerHTML =
-            '<tr><td colspan="8" class="empty-table">Error loading calls</td></tr>';
+            '<tr><td colspan="12" class="empty-table">Error loading calls</td></tr>';
     }
 }
 
@@ -131,7 +131,7 @@ function renderCallsTable() {
     filteredCalls = applySearch(filteredCalls);
     
     if (filteredCalls.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="11" class="empty-table">No calls found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="empty-table">No calls found</td></tr>';
         return;
     }
     
@@ -386,7 +386,7 @@ function createCallRowHtml(call) {
         new Date(call.appointment_time).toLocaleString() : '-';
     
     const formattedPhone = formatPhoneNumber(call.phone);
-    
+
     return `<tr class="clickable" data-call-id="${call.id}" onclick="viewCallDetails('${call.id}')">
         <td>${call.employee_name || '-'}</td>
         <td>${appointmentTime}</td>
@@ -399,6 +399,13 @@ function createCallRowHtml(call) {
         <td>${formattedPhone}</td>
         <td>${lastAttempt}</td>
         <td>${nextAction}</td>
+        <td class="actions-cell">
+            <button class="make-call-btn" onclick="event.stopPropagation(); makeCall('${call.id}')" title="Make Call">
+                <svg class="play-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M8 5v14l11-7L8 5z" fill="currentColor"/>
+                </svg>
+            </button>
+        </td>
     </tr>`;
 }
 
@@ -1402,23 +1409,23 @@ function applySearch(calls) {
 
 function matchesDateRange(appointmentTime, dateRanges) {
     if (!appointmentTime) return false;
-    
+
     const appointmentDate = new Date(appointmentTime);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
+
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-    
+
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
+
     const thirtyDaysAgo = new Date(today);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
+
     return dateRanges.some(range => {
         switch (range) {
             case 'today':
@@ -1438,3 +1445,79 @@ function matchesDateRange(appointmentTime, dateRanges) {
         }
     });
 }
+
+// Helper function to format dates
+function formatDate(dateString) {
+    if (!dateString) return '';
+    try {
+        return new Date(dateString).toLocaleString();
+    } catch (e) {
+        return dateString;
+    }
+}
+
+// Make Call - Reset and trigger call immediately
+async function makeCall(callId) {
+    if (!callId) {
+        showToast('Error: No call ID provided');
+        return;
+    }
+
+    const call = allCalls.find(c => c.id === callId);
+    if (!call) {
+        showToast('Error: Call not found');
+        return;
+    }
+
+    try {
+        // Get auth token
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            throw new Error('Not authenticated');
+        }
+
+        // Show loading state
+        showToast('Resetting call...');
+
+        // Call reset-call edge function (reuses the same one we created)
+        const response = await fetch(`${config.supabaseUrl}/functions/v1/reset-call`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                callId: callId,
+                keepClassification: true  // Keep classification by default
+            })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || 'Failed to reset call');
+        }
+
+        // Show success message
+        showToast(`Call reset successfully for ${call.employee_name}!`);
+
+        // Reload calls to get updated state
+        await loadPendingCalls();
+
+    } catch (error) {
+        console.error('Error making call:', error);
+        showToast(`Failed: ${error.message}`);
+    }
+}
+
+// Expose functions to global window object for inline onclick handlers
+window.makeCall = makeCall;
+window.viewCallDetails = viewCallDetails;
+window.monitorCall = monitorCall;
+window.logout = logout;
+window.showSaveFilterModal = showSaveFilterModal;
+window.closeSaveFilterModal = closeSaveFilterModal;
+window.saveFilterPreset = saveFilterPreset;
+window.applyFilterPreset = applyFilterPreset;
+window.deleteFilterPreset = deleteFilterPreset;
+window.clearSearch = clearSearch;
