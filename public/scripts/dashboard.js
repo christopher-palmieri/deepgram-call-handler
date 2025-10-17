@@ -405,6 +405,11 @@ function createCallRowHtml(call) {
                     <path d="M8 5v14l11-7L8 5z" fill="currentColor"/>
                 </svg>
             </button>
+            <button class="edit-classification-btn" onclick="event.stopPropagation(); showClassificationModal('${call.id}')" title="Edit Classification">
+                <svg class="edit-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>
+                </svg>
+            </button>
         </td>
     </tr>`;
 }
@@ -1510,6 +1515,313 @@ async function makeCall(callId) {
     }
 }
 
+// Classification Editor
+let currentClassificationId = null;
+let ivrActionCounter = 0;
+
+function showClassificationModal(callId = null) {
+    const modal = document.getElementById('classificationModal');
+    const title = document.getElementById('classificationModalTitle');
+
+    // Reset form
+    resetClassificationForm();
+
+    if (callId) {
+        // Edit existing classification
+        title.textContent = 'Edit Classification';
+        loadClassificationData(callId);
+    } else {
+        // Add new classification
+        title.textContent = 'Add New Classification';
+        currentClassificationId = null;
+    }
+
+    modal.style.display = 'flex';
+}
+
+function closeClassificationModal() {
+    document.getElementById('classificationModal').style.display = 'none';
+    resetClassificationForm();
+}
+
+function resetClassificationForm() {
+    currentClassificationId = null;
+    ivrActionCounter = 0;
+
+    document.getElementById('classificationPhone').value = '';
+    document.getElementById('classificationClinicName').value = '';
+    document.getElementById('classificationConfidence').value = '0.95';
+    document.getElementById('confidenceValue').textContent = '0.95';
+
+    // Reset radio buttons
+    const radios = document.getElementsByName('classificationType');
+    radios.forEach(radio => radio.checked = false);
+
+    // Clear IVR actions
+    document.getElementById('ivrActionsList').innerHTML = '';
+    document.getElementById('ivrActionsSection').style.display = 'none';
+}
+
+async function loadClassificationData(callId) {
+    try {
+        const call = allCalls.find(c => c.id === callId);
+        if (!call) {
+            showToast('Call not found');
+            return;
+        }
+
+        // Populate phone and clinic name from call
+        document.getElementById('classificationPhone').value = call.phone || '';
+        document.getElementById('classificationClinicName').value = call.clinic_name || '';
+
+        // If there's an existing classification, load it
+        if (call.classification_id) {
+            currentClassificationId = call.classification_id;
+
+            const { data: classification, error } = await supabase
+                .from('call_classifications')
+                .select('*')
+                .eq('id', call.classification_id)
+                .single();
+
+            if (error) throw error;
+
+            if (classification) {
+                // Set classification type
+                const typeRadio = document.querySelector(`input[name="classificationType"][value="${classification.classification_type}"]`);
+                if (typeRadio) {
+                    typeRadio.checked = true;
+                    handleClassificationTypeChange();
+                }
+
+                // Set confidence
+                document.getElementById('classificationConfidence').value = classification.classification_confidence || 0.95;
+                document.getElementById('confidenceValue').textContent = (classification.classification_confidence || 0.95).toFixed(2);
+
+                // Load IVR actions if present
+                if (classification.ivr_actions && Array.isArray(classification.ivr_actions)) {
+                    classification.ivr_actions.forEach(action => {
+                        addIvrAction(action);
+                    });
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error loading classification:', error);
+        showToast('Error loading classification data');
+    }
+}
+
+function handleClassificationTypeChange() {
+    const selectedType = document.querySelector('input[name="classificationType"]:checked')?.value;
+    const ivrActionsSection = document.getElementById('ivrActionsSection');
+
+    if (selectedType === 'ivr_only' || selectedType === 'ivr_then_human') {
+        ivrActionsSection.style.display = 'block';
+    } else {
+        ivrActionsSection.style.display = 'none';
+    }
+}
+
+function addIvrAction(existingAction = null) {
+    const actionsList = document.getElementById('ivrActionsList');
+    const actionId = ivrActionCounter++;
+
+    const actionHtml = `
+        <div class="ivr-action-item" data-action-id="${actionId}">
+            <div class="action-fields">
+                <div class="form-group">
+                    <label>Action Type</label>
+                    <select class="action-type" onchange="handleActionTypeChange(${actionId})">
+                        <option value="dtmf" ${existingAction?.action_type === 'dtmf' ? 'selected' : ''}>DTMF (Press Button)</option>
+                        <option value="speech" ${existingAction?.action_type === 'speech' ? 'selected' : ''}>Speech</option>
+                        <option value="transfer" ${existingAction?.action_type === 'transfer' ? 'selected' : ''}>Transfer</option>
+                        <option value="wait" ${existingAction?.action_type === 'wait' ? 'selected' : ''}>Wait</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="action-value-label">Value</label>
+                    <input type="text" class="action-value" placeholder="e.g., 3" value="${existingAction?.action_value || ''}">
+                </div>
+                <div class="form-group">
+                    <label>Timing (ms)</label>
+                    <input type="number" class="action-timing" placeholder="e.g., 15000" value="${existingAction?.timing_ms || ''}">
+                </div>
+            </div>
+            <button type="button" class="remove-action-btn" onclick="removeIvrAction(${actionId})">×</button>
+        </div>
+    `;
+
+    actionsList.insertAdjacentHTML('beforeend', actionHtml);
+
+    // Trigger type change to update label
+    if (existingAction) {
+        handleActionTypeChange(actionId);
+    }
+}
+
+function handleActionTypeChange(actionId) {
+    const actionItem = document.querySelector(`.ivr-action-item[data-action-id="${actionId}"]`);
+    const typeSelect = actionItem.querySelector('.action-type');
+    const valueLabel = actionItem.querySelector('.action-value-label');
+    const valueInput = actionItem.querySelector('.action-value');
+
+    const type = typeSelect.value;
+
+    switch(type) {
+        case 'dtmf':
+            valueLabel.textContent = 'Button';
+            valueInput.placeholder = 'e.g., 3';
+            break;
+        case 'speech':
+            valueLabel.textContent = 'Speech Text';
+            valueInput.placeholder = 'e.g., operator';
+            break;
+        case 'transfer':
+            valueLabel.textContent = 'Transfer To';
+            valueInput.placeholder = 'e.g., connect_vapi';
+            valueInput.value = 'connect_vapi';
+            break;
+        case 'wait':
+            valueLabel.textContent = 'Duration (ms)';
+            valueInput.placeholder = 'e.g., 5000';
+            break;
+    }
+}
+
+function removeIvrAction(actionId) {
+    const actionItem = document.querySelector(`.ivr-action-item[data-action-id="${actionId}"]`);
+    if (actionItem) {
+        actionItem.remove();
+    }
+}
+
+async function saveClassification() {
+    try {
+        // Validate required fields
+        const phone = document.getElementById('classificationPhone').value.trim();
+        const clinicName = document.getElementById('classificationClinicName').value.trim();
+        const selectedType = document.querySelector('input[name="classificationType"]:checked');
+        const confidence = parseFloat(document.getElementById('classificationConfidence').value);
+
+        if (!phone) {
+            showToast('Phone number is required');
+            return;
+        }
+
+        if (!selectedType) {
+            showToast('Please select a classification type');
+            return;
+        }
+
+        const classificationType = selectedType.value;
+
+        // Collect IVR actions if needed
+        let ivrActions = null;
+        if (classificationType === 'ivr_only' || classificationType === 'ivr_then_human') {
+            ivrActions = [];
+            const actionItems = document.querySelectorAll('.ivr-action-item');
+
+            actionItems.forEach(item => {
+                const actionType = item.querySelector('.action-type').value;
+                const actionValue = item.querySelector('.action-value').value.trim();
+                const timingMs = parseInt(item.querySelector('.action-timing').value);
+
+                if (actionValue && !isNaN(timingMs)) {
+                    ivrActions.push({
+                        action_type: actionType,
+                        action_value: actionValue,
+                        timing_ms: timingMs
+                    });
+                }
+            });
+
+            if (ivrActions.length === 0) {
+                showToast('Please add at least one IVR action');
+                return;
+            }
+        }
+
+        // Disable save button
+        const saveBtn = document.getElementById('saveClassificationBtn');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+
+        // Get auth token
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            throw new Error('Not authenticated');
+        }
+
+        // Prepare classification data
+        const classificationData = {
+            phone_number: phone,
+            clinic_name: clinicName,
+            classification_type: classificationType,
+            classification_confidence: confidence,
+            ivr_actions: ivrActions,
+            classification_id: currentClassificationId
+        };
+
+        // Call edge function to save
+        const response = await fetch(`${config.supabaseUrl}/functions/v1/save-classification`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(classificationData)
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || 'Failed to save classification');
+        }
+
+        showToast(currentClassificationId ? 'Classification updated successfully!' : 'Classification created successfully!');
+        closeClassificationModal();
+
+        // Reload calls to show updated classification
+        await loadPendingCalls();
+
+    } catch (error) {
+        console.error('Error saving classification:', error);
+        showToast(`Failed to save: ${error.message}`);
+    } finally {
+        const saveBtn = document.getElementById('saveClassificationBtn');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Classification';
+    }
+}
+
+// Initialize classification type change handlers
+document.addEventListener('DOMContentLoaded', () => {
+    // Add change listeners to classification type radios
+    const typeRadios = document.getElementsByName('classificationType');
+    typeRadios.forEach(radio => {
+        radio.addEventListener('change', handleClassificationTypeChange);
+    });
+
+    // Add input listener to confidence slider
+    const confidenceSlider = document.getElementById('classificationConfidence');
+    if (confidenceSlider) {
+        confidenceSlider.addEventListener('input', (e) => {
+            document.getElementById('confidenceValue').textContent = parseFloat(e.target.value).toFixed(2);
+        });
+    }
+
+    // Close modal when clicking outside
+    const modal = document.getElementById('classificationModal');
+    if (modal) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeClassificationModal();
+            }
+        });
+    }
+});
+
 // Expose functions to global window object for inline onclick handlers
 window.makeCall = makeCall;
 window.viewCallDetails = viewCallDetails;
@@ -1521,3 +1833,9 @@ window.saveFilterPreset = saveFilterPreset;
 window.applyFilterPreset = applyFilterPreset;
 window.deleteFilterPreset = deleteFilterPreset;
 window.clearSearch = clearSearch;
+window.showClassificationModal = showClassificationModal;
+window.closeClassificationModal = closeClassificationModal;
+window.addIvrAction = addIvrAction;
+window.handleActionTypeChange = handleActionTypeChange;
+window.removeIvrAction = removeIvrAction;
+window.saveClassification = saveClassification;
