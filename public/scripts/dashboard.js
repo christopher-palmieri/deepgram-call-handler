@@ -89,17 +89,18 @@ async function loadPendingCalls() {
         const { data: calls, error } = await supabase
             .from('pending_calls')
             .select('*, call_sessions(*)')
+            .eq('is_active', true)  // Only load active calls
             .order('created_at', { ascending: false })
             .limit(50);
-        
+
         if (error) throw error;
-        
+
         allCalls = calls || [];
         renderCallsTable();
-        
+
     } catch (error) {
         console.error('Error loading calls:', error);
-        document.getElementById('callsTableBody').innerHTML = 
+        document.getElementById('callsTableBody').innerHTML =
             '<tr><td colspan="8" class="empty-table">Error loading calls</td></tr>';
     }
 }
@@ -297,8 +298,9 @@ async function fetchCallWithSessions(callId) {
             .from('pending_calls')
             .select('*, call_sessions(*)')
             .eq('id', callId)
+            .eq('is_active', true)  // Only fetch if active
             .single();
-        
+
         if (error) throw error;
         return data;
     } catch (error) {
