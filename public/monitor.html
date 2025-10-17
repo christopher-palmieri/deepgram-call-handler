@@ -81,6 +81,12 @@
                 <button class="reset-call-btn" id="resetCallBtn" onclick="showResetCallModal()" title="Reset call to retry">
                     <span class="btn-icon">↻</span> Reset & Retry Call
                 </button>
+                <button class="edit-classification-btn" id="editClassificationBtn" onclick="showClassificationModal()" title="Edit Classification">
+                    <svg class="edit-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>
+                    </svg>
+                    Edit Classification
+                </button>
             </div>
             
             <div class="call-details-section" id="callDetailsSection" style="display: none;">
@@ -188,6 +194,81 @@
                 <button class="modal-btn primary" onclick="confirmResetCall()" id="confirmResetBtn">
                     <span class="btn-icon">↻</span> Reset & Retry
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Classification Editor Modal -->
+    <div id="classificationModal" class="modal" style="display: none;">
+        <div class="modal-content classification-modal-content">
+            <div class="modal-header">
+                <h3 id="classificationModalTitle">Edit Classification</h3>
+                <button class="modal-close" onclick="closeClassificationModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="classification-form">
+                    <!-- Basic Info -->
+                    <div class="form-section">
+                        <h4>Call Information</h4>
+                        <div class="form-group">
+                            <label>Phone Number*</label>
+                            <input type="text" id="classificationPhone" placeholder="+1234567890" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Clinic Name</label>
+                            <input type="text" id="classificationClinicName" placeholder="Enter clinic name">
+                        </div>
+                    </div>
+
+                    <!-- Classification Type -->
+                    <div class="form-section">
+                        <h4>Classification Type*</h4>
+                        <div class="radio-group">
+                            <label class="radio-option">
+                                <input type="radio" name="classificationType" value="human">
+                                <div class="radio-content">
+                                    <span class="radio-label">Human</span>
+                                    <span class="radio-desc">Direct human answer, no IVR</span>
+                                </div>
+                            </label>
+                            <label class="radio-option">
+                                <input type="radio" name="classificationType" value="ivr_only">
+                                <div class="radio-content">
+                                    <span class="radio-label">IVR Only</span>
+                                    <span class="radio-desc">Full IVR system requiring navigation</span>
+                                </div>
+                            </label>
+                            <label class="radio-option">
+                                <input type="radio" name="classificationType" value="ivr_then_human">
+                                <div class="radio-content">
+                                    <span class="radio-label">IVR Then Human</span>
+                                    <span class="radio-desc">IVR greeting then transfers to human</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- IVR Actions (shown only for ivr_only and ivr_then_human) -->
+                    <div class="form-section" id="ivrActionsSection" style="display: none;">
+                        <h4>IVR Actions</h4>
+                        <p class="section-description">Define the navigation sequence through the IVR menu</p>
+                        <div id="ivrActionsList"></div>
+                        <button type="button" class="add-action-btn" onclick="addIvrAction()">+ Add Action</button>
+                    </div>
+
+                    <!-- Confidence Score -->
+                    <div class="form-section">
+                        <h4>Confidence Score</h4>
+                        <div class="form-group">
+                            <input type="range" id="classificationConfidence" min="0" max="1" step="0.05" value="0.95">
+                            <span id="confidenceValue">0.95</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" onclick="closeClassificationModal()">Cancel</button>
+                <button class="modal-btn primary" onclick="saveClassification()" id="saveClassificationBtn">Save Classification</button>
             </div>
         </div>
     </div>
