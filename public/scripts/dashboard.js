@@ -1965,7 +1965,156 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // Close new call modal when clicking outside
+    const newCallModal = document.getElementById('newCallModal');
+    if (newCallModal) {
+        newCallModal.addEventListener('click', (e) => {
+            if (e.target === newCallModal) {
+                closeNewCallModal();
+            }
+        });
+    }
 });
+
+// New Pending Call Modal Functions
+function showNewCallModal() {
+    const modal = document.getElementById('newCallModal');
+    resetNewCallForm();
+    modal.style.display = 'flex';
+}
+
+function closeNewCallModal() {
+    document.getElementById('newCallModal').style.display = 'none';
+    resetNewCallForm();
+}
+
+function resetNewCallForm() {
+    document.getElementById('newCallExamId').value = '';
+    document.getElementById('newCallEmployeeName').value = '';
+    document.getElementById('newCallEmployeeDob').value = '';
+    document.getElementById('newCallClientName').value = '';
+    document.getElementById('newCallAppointmentTime').value = '';
+    document.getElementById('newCallTypeOfVisit').value = '';
+    document.getElementById('newCallProcedures').value = '';
+    document.getElementById('newCallClinicName').value = '';
+    document.getElementById('newCallPhone').value = '';
+    document.getElementById('newCallClinicAddress').value = '';
+    document.getElementById('newCallClinicTimezone').value = 'America/New_York';
+    document.getElementById('newCallTaskType').value = 'records_request';
+}
+
+async function saveNewCall() {
+    try {
+        // Get form values
+        const examId = document.getElementById('newCallExamId').value.trim();
+        const employeeName = document.getElementById('newCallEmployeeName').value.trim();
+        const employeeDob = document.getElementById('newCallEmployeeDob').value;
+        const clientName = document.getElementById('newCallClientName').value.trim();
+        const appointmentTime = document.getElementById('newCallAppointmentTime').value;
+        const typeOfVisit = document.getElementById('newCallTypeOfVisit').value;
+        const procedures = document.getElementById('newCallProcedures').value.trim();
+        const clinicName = document.getElementById('newCallClinicName').value.trim();
+        const phone = document.getElementById('newCallPhone').value.trim();
+        const clinicAddress = document.getElementById('newCallClinicAddress').value.trim();
+        const clinicTimezone = document.getElementById('newCallClinicTimezone').value;
+        const taskType = document.getElementById('newCallTaskType').value;
+
+        // Validate required fields
+        if (!examId) {
+            showToast('Exam ID is required');
+            return;
+        }
+        if (!employeeName) {
+            showToast('Employee Name is required');
+            return;
+        }
+        if (!employeeDob) {
+            showToast('Employee Date of Birth is required');
+            return;
+        }
+        if (!clientName) {
+            showToast('Client Name is required');
+            return;
+        }
+        if (!appointmentTime) {
+            showToast('Appointment Time is required');
+            return;
+        }
+        if (!typeOfVisit) {
+            showToast('Type of Visit is required');
+            return;
+        }
+        if (!clinicName) {
+            showToast('Clinic Name is required');
+            return;
+        }
+        if (!phone) {
+            showToast('Phone Number is required');
+            return;
+        }
+
+        // Validate phone format
+        const phoneRegex = /^\+1[0-9]{10}$/;
+        if (!phoneRegex.test(phone)) {
+            showToast('Phone must be in format +16095550123');
+            return;
+        }
+
+        // Disable save button
+        const saveBtn = document.getElementById('saveNewCallBtn');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Creating...';
+
+        // Prepare data for insert
+        const newCallData = {
+            exam_id: examId,
+            employee_name: employeeName,
+            employee_dob: employeeDob,
+            client_name: clientName,
+            appointment_time: appointmentTime,
+            type_of_visit: typeOfVisit,
+            procedures: procedures || null,
+            clinic_name: clinicName,
+            phone: phone,
+            clinic_provider_address: clinicAddress || null,
+            clinic_timezone: clinicTimezone,
+            task_type: taskType,
+            workflow_state: 'new',
+            retry_count: 0,
+            max_retries: 3,
+            is_active: true,
+            next_action_at: new Date().toISOString()
+        };
+
+        // Insert into database
+        const { data, error } = await supabase
+            .from('pending_calls')
+            .insert([newCallData])
+            .select()
+            .single();
+
+        if (error) {
+            throw error;
+        }
+
+        // Success!
+        showToast('Call created successfully!');
+        closeNewCallModal();
+
+        // Reload the calls list
+        await loadPendingCalls();
+
+    } catch (error) {
+        console.error('Error creating call:', error);
+        showToast('Error creating call: ' + (error.message || 'Unknown error'));
+
+        // Re-enable save button
+        const saveBtn = document.getElementById('saveNewCallBtn');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Create Call';
+    }
+}
 
 // Expose functions to global window object for inline onclick handlers
 window.makeCall = makeCall;
@@ -1987,3 +2136,6 @@ window.addIvrAction = addIvrAction;
 window.handleActionTypeChange = handleActionTypeChange;
 window.removeIvrAction = removeIvrAction;
 window.saveClassification = saveClassification;
+window.showNewCallModal = showNewCallModal;
+window.closeNewCallModal = closeNewCallModal;
+window.saveNewCall = saveNewCall;

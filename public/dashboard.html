@@ -156,6 +156,7 @@
                 
                 <!-- Search Section -->
                 <div class="search-section">
+                    <button class="refresh-btn new-call-btn" onclick="showNewCallModal()">+ New Call</button>
                     <div class="search-container">
                         <input type="text" id="searchInput" placeholder="Search calls..." class="search-input">
                         <button class="search-clear" id="searchClear" onclick="clearSearch()" style="display: none;">&times;</button>
@@ -288,6 +289,103 @@
             <div class="modal-footer">
                 <button class="modal-btn secondary" onclick="closeClassificationModal()">Cancel</button>
                 <button class="modal-btn primary" onclick="saveClassification()" id="saveClassificationBtn">Save Classification</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- New Pending Call Modal -->
+    <div id="newCallModal" class="modal" style="display: none;">
+        <div class="modal-content classification-modal-content">
+            <div class="modal-header">
+                <h3>New Pending Call</h3>
+                <button class="modal-close" onclick="closeNewCallModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="classification-form">
+                    <!-- Employee Information -->
+                    <div class="form-section">
+                        <h4>Employee Information</h4>
+                        <div class="form-group">
+                            <label>Exam ID*</label>
+                            <input type="text" id="newCallExamId" placeholder="Enter exam ID" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Employee Name*</label>
+                            <input type="text" id="newCallEmployeeName" placeholder="Enter employee name" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Employee Date of Birth*</label>
+                            <input type="date" id="newCallEmployeeDob" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Client Name*</label>
+                            <input type="text" id="newCallClientName" placeholder="Enter client name" required>
+                        </div>
+                    </div>
+
+                    <!-- Appointment Information -->
+                    <div class="form-section">
+                        <h4>Appointment Information</h4>
+                        <div class="form-group">
+                            <label>Appointment Time*</label>
+                            <input type="datetime-local" id="newCallAppointmentTime" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Type of Visit*</label>
+                            <select id="newCallTypeOfVisit" required>
+                                <option value="">Select type...</option>
+                                <option value="appointment">Appointment</option>
+                                <option value="walk-in">Walk-in</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Procedures</label>
+                            <textarea id="newCallProcedures" placeholder="Enter procedures" rows="3"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Clinic Information -->
+                    <div class="form-section">
+                        <h4>Clinic Information</h4>
+                        <div class="form-group">
+                            <label>Clinic Name*</label>
+                            <input type="text" id="newCallClinicName" placeholder="Enter clinic name" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Clinic Phone Number*</label>
+                            <input type="tel" id="newCallPhone" placeholder="+16095550123" required>
+                            <small style="color: #666; font-size: 12px;">Format: +16095550123</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Clinic Provider Address</label>
+                            <input type="text" id="newCallClinicAddress" placeholder="Enter clinic address">
+                        </div>
+                        <div class="form-group">
+                            <label>Clinic Timezone*</label>
+                            <select id="newCallClinicTimezone" required>
+                                <option value="America/New_York">Eastern (America/New_York)</option>
+                                <option value="America/Chicago">Central (America/Chicago)</option>
+                                <option value="America/Denver">Mountain (America/Denver)</option>
+                                <option value="America/Los_Angeles">Pacific (America/Los_Angeles)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Task Information -->
+                    <div class="form-section">
+                        <h4>Task Information</h4>
+                        <div class="form-group">
+                            <label>Task Type*</label>
+                            <select id="newCallTaskType" required>
+                                <option value="records_request">Records Request</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" onclick="closeNewCallModal()">Cancel</button>
+                <button class="modal-btn primary" onclick="saveNewCall()" id="saveNewCallBtn">Create Call</button>
             </div>
         </div>
     </div>
