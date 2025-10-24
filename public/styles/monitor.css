@@ -597,7 +597,10 @@ body:has(.login-container) {
     border-radius: 8px;
     width: 90%;
     max-width: 500px;
+    max-height: 90vh;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
 }
 
 .modal-header {
@@ -606,6 +609,7 @@ body:has(.login-container) {
     align-items: center;
     padding: 20px 24px 12px;
     border-bottom: 1px solid #e5e7eb;
+    flex-shrink: 0;
 }
 
 .modal-header h3 {
@@ -638,6 +642,8 @@ body:has(.login-container) {
 
 .modal-body {
     padding: 20px 24px;
+    overflow-y: auto;
+    flex: 1;
 }
 
 .modal-body p {
@@ -685,6 +691,7 @@ body:has(.login-container) {
     gap: 12px;
     padding: 16px 24px 20px;
     border-top: 1px solid #e5e7eb;
+    flex-shrink: 0;
 }
 
 .modal-btn {
@@ -2547,6 +2554,9 @@ body:has(.login-container) {
 /* Classification Modal Styles */
 .classification-modal-content {
     max-width: 700px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
 }
 
 .classification-form {
