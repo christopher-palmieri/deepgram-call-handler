@@ -20,12 +20,18 @@
 | INSERT | Authenticated users can insert pending_calls | authenticated | ✅ Active |
 | UPDATE | Authenticated users can update pending_calls | authenticated | ✅ Active |
 | DELETE | None | - | ⚠️ No DELETE policy |
+| ALL | Allow service role full access | service_role | ℹ️ Unnecessary (but harmless) |
 
 **Frontend Operations:**
 - ✅ SELECT: Dashboard loads all pending calls
 - ✅ INSERT: New Pending Call form creates rows
 - ✅ UPDATE: Archive/unarchive functionality, status updates
 - ❌ DELETE: Not used in frontend
+
+**Note on "Allow service role full access" policy:**
+- This policy exists but does nothing - service_role bypasses RLS entirely
+- Kept in place for stability (not causing any issues)
+- Can be safely removed in future cleanup, but no urgency
 
 **Recommendation:** ✅ **Good as-is** - No DELETE policy needed since frontend doesn't delete rows.
 
