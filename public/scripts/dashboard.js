@@ -2080,7 +2080,7 @@ async function saveNewCall() {
             clinic_provider_address: clinicAddress || null,
             clinic_timezone: clinicTimezone,
             task_type: taskType,
-            workflow_state: 'new',
+            workflow_state: 'pending',
             retry_count: 0,
             max_retries: 3,
             is_active: true,
