@@ -399,6 +399,11 @@ function createCallRowHtml(call) {
                     <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>
                 </svg>
             </button>
+            <button class="archive-call-btn" onclick="event.stopPropagation(); archiveCall('${call.id}')" title="Archive Call">
+                <svg class="archive-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z" fill="currentColor"/>
+                </svg>
+            </button>
         </td>
         <td>${call.employee_name || '-'}</td>
         <td>${appointmentTime}</td>
@@ -1515,6 +1520,64 @@ async function makeCall(callId) {
     }
 }
 
+// Archive Call - Mark call as inactive
+async function archiveCall(callId) {
+    if (!callId) {
+        showToast('Error: No call ID provided');
+        return;
+    }
+
+    const call = allCalls.find(c => c.id === callId);
+    if (!call) {
+        showToast('Error: Call not found');
+        return;
+    }
+
+    // Confirm before archiving
+    if (!confirm(`Archive call for ${call.employee_name} - ${call.clinic_name}?`)) {
+        return;
+    }
+
+    try {
+        // Get auth token
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            throw new Error('Not authenticated');
+        }
+
+        // Show loading state
+        showToast('Archiving call...');
+
+        // Call archive-call edge function
+        const response = await fetch(`${config.supabaseUrl}/functions/v1/archive-call`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                callId: callId
+            })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || 'Failed to archive call');
+        }
+
+        // Show success message
+        showToast(`Call archived successfully for ${call.employee_name}!`);
+
+        // Reload calls to get updated state
+        await loadPendingCalls();
+
+    } catch (error) {
+        console.error('Error archiving call:', error);
+        showToast(`Failed: ${error.message}`);
+    }
+}
+
 // Classification Editor
 let currentClassificationId = null;
 let ivrActionCounter = 0;
@@ -1824,6 +1887,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Expose functions to global window object for inline onclick handlers
 window.makeCall = makeCall;
+window.archiveCall = archiveCall;
 window.viewCallDetails = viewCallDetails;
 window.monitorCall = monitorCall;
 window.logout = logout;
