@@ -2510,6 +2510,7 @@ body:has(.login-container) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
     transition: all 0.2s ease;
     box-shadow: 0 1px 3px rgba(245, 158, 11, 0.2);
     margin-left: 4px;
@@ -2525,10 +2526,22 @@ body:has(.login-container) {
     transform: translateY(0);
 }
 
+/* Unarchive mode - green/success color */
+.archive-call-btn.unarchive-mode {
+    background: #10b981;
+    box-shadow: 0 1px 3px rgba(16, 185, 129, 0.2);
+}
+
+.archive-call-btn.unarchive-mode:hover {
+    background: #059669;
+    box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+}
+
 .archive-icon {
     width: 16px;
     height: 16px;
     color: white;
+    flex-shrink: 0;
 }
 
 /* Classification Modal Styles */

@@ -223,15 +223,15 @@ async function loadCallDetails(pendingCallId) {
         
         document.getElementById('callInfoPanel').style.display = 'block';
         document.getElementById('callInfoPanel').classList.add('has-data');
-        
+
         // Sort call sessions by newest to oldest
         if (pendingCall.call_sessions) {
             pendingCall.call_sessions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
         }
-        
+
         // Display call sessions and classifications
         await displayCallClassifications(pendingCall);
-        
+
         // Set up call ID input with active or most recent session (if the input exists)
         const callIdInput = document.getElementById('callIdInput');
         if (callIdInput) {
@@ -246,7 +246,10 @@ async function loadCallDetails(pendingCallId) {
                 showInfo(`Found recent call session: ${recentSession.call_id} (${recentSession.call_status})`);
             }
         }
-        
+
+        // Update archive toggle button based on is_active status
+        updateArchiveToggleButton();
+
         hideLoading();
         
     } catch (error) {
@@ -2183,14 +2186,116 @@ async function archiveCallMonitor() {
         // Show success message
         showInfo(`Call archived successfully for ${currentPendingCall.employee_name}!`);
 
-        // Redirect to dashboard after successful archive
-        setTimeout(() => {
-            window.location.href = '/dashboard.html';
-        }, 1500);
+        // Reload call details to show updated state
+        await loadCallDetails(currentPendingCall.id);
+
+        // Update the button
+        updateArchiveToggleButton();
 
     } catch (error) {
         console.error('Error archiving call:', error);
         showError(`Failed to archive: ${error.message}`);
+    }
+}
+
+// Unarchive call functionality
+async function unarchiveCallMonitor() {
+    if (!currentPendingCall) {
+        showError('No call loaded');
+        return;
+    }
+
+    // Confirm before unarchiving
+    if (!confirm(`Unarchive call for ${currentPendingCall.employee_name} - ${currentPendingCall.clinic_name}? This will make it active again.`)) {
+        return;
+    }
+
+    try {
+        // Get auth token
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            throw new Error('Not authenticated');
+        }
+
+        // Show loading state
+        showInfo('Unarchiving call...');
+
+        // Call unarchive-call edge function
+        const response = await fetch(`${config.supabaseUrl}/functions/v1/unarchive-call`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                callId: currentPendingCall.id
+            })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || 'Failed to unarchive call');
+        }
+
+        // Show success message
+        showInfo(`Call unarchived successfully for ${currentPendingCall.employee_name}!`);
+
+        // Reload call details to show updated state
+        await loadCallDetails(currentPendingCall.id);
+
+        // Update the button
+        updateArchiveToggleButton();
+
+    } catch (error) {
+        console.error('Error unarchiving call:', error);
+        showError(`Failed to unarchive: ${error.message}`);
+    }
+}
+
+// Toggle archive/unarchive based on current state
+async function toggleArchiveCallMonitor() {
+    if (!currentPendingCall) {
+        showError('No call loaded');
+        return;
+    }
+
+    // Check current is_active status and call appropriate function
+    if (currentPendingCall.is_active) {
+        await archiveCallMonitor();
+    } else {
+        await unarchiveCallMonitor();
+    }
+}
+
+// Update archive toggle button appearance based on is_active status
+function updateArchiveToggleButton() {
+    if (!currentPendingCall) return;
+
+    const archiveBtn = document.getElementById('archiveCallBtn');
+    if (!archiveBtn) return;
+
+    // Update button based on is_active status
+    if (currentPendingCall.is_active) {
+        // Call is active - show archive option
+        archiveBtn.classList.remove('unarchive-mode');
+        archiveBtn.title = 'Archive this call';
+        archiveBtn.innerHTML = `
+            <svg class="archive-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z" fill="currentColor"/>
+            </svg>
+            Archive Call
+        `;
+    } else {
+        // Call is inactive - show unarchive option
+        archiveBtn.classList.add('unarchive-mode');
+        archiveBtn.title = 'Unarchive this call';
+        archiveBtn.innerHTML = `
+            <svg class="archive-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 9l5.5 5.5H14v2h-4v-2H6.5L12 9zM5.12 5l.81-1h12l.94 1H5.12z" fill="currentColor"/>
+            </svg>
+            Unarchive Call
+        `;
     }
 }
 
@@ -2516,7 +2621,8 @@ window.playTableRecording = playTableRecording;
 window.showResetCallModal = showResetCallModal;
 window.closeResetCallModal = closeResetCallModal;
 window.confirmResetCall = confirmResetCall;
-window.archiveCallMonitor = archiveCallMonitor;
+window.toggleArchiveCallMonitor = toggleArchiveCallMonitor;
+window.updateArchiveToggleButton = updateArchiveToggleButton;
 window.toggleSection = toggleSection;
 window.showClassificationModal = showClassificationModal;
 window.closeClassificationModal = closeClassificationModal;
