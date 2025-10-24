@@ -1357,22 +1357,36 @@ document.addEventListener('keydown', (e) => {
 function initializeSearch() {
     const searchInput = document.getElementById('searchInput');
     const searchClear = document.getElementById('searchClear');
-    
+
+    if (!searchInput) {
+        console.error('Search input not found!');
+        return;
+    }
+
+    if (!searchClear) {
+        console.error('Search clear button not found!');
+        return;
+    }
+
+    console.log('Search initialized successfully');
+
     searchInput.addEventListener('input', (e) => {
         searchQuery = e.target.value.trim();
-        
+        console.log('Search query:', searchQuery);
+
         if (searchQuery) {
             searchClear.style.display = 'flex';
         } else {
             searchClear.style.display = 'none';
         }
-        
+
         renderCallsTable();
     });
-    
+
     // Also trigger search on Enter key
     searchInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
+            console.log('Search submitted via Enter key');
             renderCallsTable();
         }
     });
@@ -1394,30 +1408,38 @@ function applySearch(calls) {
     if (!searchQuery) {
         return calls;
     }
-    
+
     const query = searchQuery.toLowerCase();
-    
-    return calls.filter(call => {
+    console.log(`Searching for: "${query}" in ${calls.length} calls`);
+
+    const filtered = calls.filter(call => {
         // Search in all visible text fields
         const searchableFields = [
+            call.exam_id,
             call.employee_name,
             call.client_name,
             call.clinic_name,
             call.phone,
+            call.clinic_provider_address,
+            call.procedures,
             call.task_type,
             call.workflow_state,
             call.success_evaluation,
+            call.type_of_visit,
             formatPhoneNumber(call.phone),
             formatDate(call.appointment_time),
             formatDate(call.last_attempt_at),
             formatDate(call.next_action_at)
         ];
-        
+
         return searchableFields.some(field => {
             if (!field) return false;
             return field.toString().toLowerCase().includes(query);
         });
     });
+
+    console.log(`Search results: ${filtered.length} calls match "${query}"`);
+    return filtered;
 }
 
 function matchesDateRange(appointmentTime, dateRanges) {
