@@ -2499,6 +2499,38 @@ body:has(.login-container) {
     color: white;
 }
 
+/* Archive Call Button */
+.archive-call-btn {
+    padding: 8px 12px;
+    background: #f59e0b;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px rgba(245, 158, 11, 0.2);
+    margin-left: 4px;
+}
+
+.archive-call-btn:hover {
+    background: #d97706;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
+}
+
+.archive-call-btn:active {
+    transform: translateY(0);
+}
+
+.archive-icon {
+    width: 16px;
+    height: 16px;
+    color: white;
+}
+
 /* Classification Modal Styles */
 .classification-modal-content {
     max-width: 700px;

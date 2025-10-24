@@ -2140,6 +2140,60 @@ async function confirmResetCall() {
     }
 }
 
+// Archive call functionality
+async function archiveCallMonitor() {
+    if (!currentPendingCall) {
+        showError('No call loaded');
+        return;
+    }
+
+    // Confirm before archiving
+    if (!confirm(`Archive call for ${currentPendingCall.employee_name} - ${currentPendingCall.clinic_name}?`)) {
+        return;
+    }
+
+    try {
+        // Get auth token
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            throw new Error('Not authenticated');
+        }
+
+        // Show loading state
+        showInfo('Archiving call...');
+
+        // Call archive-call edge function
+        const response = await fetch(`${config.supabaseUrl}/functions/v1/archive-call`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                callId: currentPendingCall.id
+            })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || 'Failed to archive call');
+        }
+
+        // Show success message
+        showInfo(`Call archived successfully for ${currentPendingCall.employee_name}!`);
+
+        // Redirect to dashboard after successful archive
+        setTimeout(() => {
+            window.location.href = '/dashboard.html';
+        }, 1500);
+
+    } catch (error) {
+        console.error('Error archiving call:', error);
+        showError(`Failed to archive: ${error.message}`);
+    }
+}
+
 // Classification Editor (same as dashboard.js)
 let currentClassificationId = null;
 let ivrActionCounter = 0;
@@ -2462,6 +2516,7 @@ window.playTableRecording = playTableRecording;
 window.showResetCallModal = showResetCallModal;
 window.closeResetCallModal = closeResetCallModal;
 window.confirmResetCall = confirmResetCall;
+window.archiveCallMonitor = archiveCallMonitor;
 window.toggleSection = toggleSection;
 window.showClassificationModal = showClassificationModal;
 window.closeClassificationModal = closeClassificationModal;
