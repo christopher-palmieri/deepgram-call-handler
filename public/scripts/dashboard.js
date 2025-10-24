@@ -376,29 +376,18 @@ function formatPhoneNumber(phone) {
 
 // Create HTML for a single call row
 function createCallRowHtml(call) {
-    const lastAttempt = call.last_attempt_at ? 
+    const lastAttempt = call.last_attempt_at ?
         new Date(call.last_attempt_at).toLocaleString() : '-';
-    
-    const nextAction = call.next_action_at ? 
+
+    const nextAction = call.next_action_at ?
         new Date(call.next_action_at).toLocaleString() : '-';
-    
-    const appointmentTime = call.appointment_time ? 
+
+    const appointmentTime = call.appointment_time ?
         new Date(call.appointment_time).toLocaleString() : '-';
-    
+
     const formattedPhone = formatPhoneNumber(call.phone);
 
     return `<tr class="clickable" data-call-id="${call.id}" onclick="viewCallDetails('${call.id}')">
-        <td>${call.employee_name || '-'}</td>
-        <td>${appointmentTime}</td>
-        <td><span class="task-type-badge">${call.task_type || 'records_request'}</span></td>
-        <td><span class="workflow-badge workflow-${call.workflow_state}">${call.workflow_state}</span></td>
-        <td>${call.success_evaluation || '-'}</td>
-        <td>${call.retry_count || 0}/${call.max_retries || 3}</td>
-        <td>${call.client_name || '-'}</td>
-        <td>${call.clinic_name || '-'}</td>
-        <td>${formattedPhone}</td>
-        <td>${lastAttempt}</td>
-        <td>${nextAction}</td>
         <td class="actions-cell">
             <button class="make-call-btn" onclick="event.stopPropagation(); makeCall('${call.id}')" title="Make Call">
                 <svg class="play-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -411,6 +400,17 @@ function createCallRowHtml(call) {
                 </svg>
             </button>
         </td>
+        <td>${call.employee_name || '-'}</td>
+        <td>${appointmentTime}</td>
+        <td><span class="task-type-badge">${call.task_type || 'records_request'}</span></td>
+        <td><span class="workflow-badge workflow-${call.workflow_state}">${call.workflow_state}</span></td>
+        <td>${call.success_evaluation || '-'}</td>
+        <td>${call.retry_count || 0}/${call.max_retries || 3}</td>
+        <td>${call.client_name || '-'}</td>
+        <td>${call.clinic_name || '-'}</td>
+        <td>${formattedPhone}</td>
+        <td>${lastAttempt}</td>
+        <td>${nextAction}</td>
     </tr>`;
 }
 
