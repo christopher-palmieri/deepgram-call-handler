@@ -2186,6 +2186,7 @@ const TRANSFORMATION_RULES = {
         'walkin': 'walk-in',
         'walk in': 'walk-in',
         'Walk-in': 'walk-in',
+        'Walk-in (clinic required)': 'walk-in',
         'appointment': 'appointment',
         'Appointment': 'appointment',
         'appt': 'appointment'
