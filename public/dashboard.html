@@ -69,15 +69,15 @@
 
                     <!-- Appointment Range Filter -->
                     <div class="filter-group">
-                        <label class="filter-label">Appointment:</label>
+                        <label class="filter-label">Appointment Range:</label>
                         <div class="dropdown-filter">
                             <button class="dropdown-toggle" id="dateFilterToggle">
-                                <span class="filter-text">All Dates</span>
+                                <span class="filter-text">Last 6 Months</span>
                                 <span class="dropdown-arrow">▼</span>
                             </button>
                             <div class="dropdown-menu" id="dateFilterMenu">
                                 <label class="dropdown-item">
-                                    <input type="checkbox" value="all" checked> All Dates
+                                    <input type="checkbox" value="last6months" checked> Last 6 Months
                                 </label>
                                 <label class="dropdown-item">
                                     <input type="checkbox" value="today"> Today
@@ -96,6 +96,9 @@
                                 </label>
                                 <label class="dropdown-item">
                                     <input type="checkbox" value="older30days"> Older than 30 Days
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="alltime"> All Time
                                 </label>
                             </div>
                         </div>
@@ -162,25 +165,6 @@
                                 </label>
                                 <label class="dropdown-item">
                                     <input type="radio" name="rowLimit" value="100"> 100 rows
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Old Calls Toggle -->
-                    <div class="filter-group">
-                        <label class="filter-label">Age:</label>
-                        <div class="dropdown-filter">
-                            <button class="dropdown-toggle" id="ageFilterToggle">
-                                <span class="filter-text">Last 6 Months</span>
-                                <span class="dropdown-arrow">▼</span>
-                            </button>
-                            <div class="dropdown-menu" id="ageFilterMenu">
-                                <label class="dropdown-item">
-                                    <input type="checkbox" value="recent" checked> Last 6 Months
-                                </label>
-                                <label class="dropdown-item">
-                                    <input type="checkbox" value="old"> Include Old (6+ months)
                                 </label>
                             </div>
                         </div>

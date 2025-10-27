@@ -5,11 +5,10 @@ let currentUser = null;
 let allCalls = [];
 let currentFilters = {
     status: ['all'],
-    dateRange: ['all'],
+    dateRange: ['last6months'],  // Default to last 6 months
     taskType: ['all'],
     activeStatus: ['active'],  // Default to active only
-    rowLimit: 50,  // Default row limit
-    ageFilter: ['recent']  // Default to last 6 months only
+    rowLimit: 50  // Default row limit
 };
 let realtimeChannel = null;
 let callSessionsChannel = null;
@@ -117,15 +116,16 @@ async function loadPendingCalls(append = false) {
         }
         // If both or neither selected, don't filter (show all)
 
-        // Apply age filter (server-side date filtering)
-        const ageFilter = currentFilters.ageFilter;
-        if (ageFilter.includes('recent') && !ageFilter.includes('old')) {
+        // Apply server-side date filtering for 'last6months' and 'alltime'
+        const dateRange = currentFilters.dateRange;
+        if (dateRange.includes('last6months') && !dateRange.includes('alltime')) {
             // Only show calls from last 6 months
             const sixMonthsAgo = new Date();
             sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
             query = query.gte('appointment_time', sixMonthsAgo.toISOString());
         }
-        // If 'old' is selected or both are selected, show all ages
+        // If 'alltime' is selected (alone or with others), don't apply date filter at DB level
+        // Client-side filters (today, tomorrow, etc.) will be applied after loading
 
         // Get row limit
         const limit = currentFilters.rowLimit || 50;
@@ -905,7 +905,6 @@ function initializeDropdownFilters() {
     initializeDropdown('taskFilterToggle', 'taskFilterMenu', 'taskType');
     initializeDropdown('activeFilterToggle', 'activeFilterMenu', 'activeStatus');
     initializeRowLimitDropdown('rowLimitToggle', 'rowLimitMenu');
-    initializeDropdown('ageFilterToggle', 'ageFilterMenu', 'ageFilter');
 
     // Close dropdowns when clicking outside
     document.addEventListener('click', (e) => {
@@ -1025,9 +1024,19 @@ function handleFilterChange(filterType, value, checked) {
     updateFilterDisplay(filterType);
     saveFiltersToStorage();
 
-    // For activeStatus and ageFilter, we need to reload data from database
-    if (filterType === 'activeStatus' || filterType === 'ageFilter') {
+    // For activeStatus, we need to reload data from database
+    // For dateRange, reload if it includes server-side filters (last6months or alltime)
+    if (filterType === 'activeStatus') {
         loadPendingCalls();
+    } else if (filterType === 'dateRange') {
+        // Check if server-side date filter changed
+        const hasServerSideFilter = currentFilters.dateRange.includes('last6months') ||
+                                     currentFilters.dateRange.includes('alltime');
+        if (hasServerSideFilter) {
+            loadPendingCalls();
+        } else {
+            renderCallsTable();
+        }
     } else {
         renderCallsTable();
     }
@@ -1037,8 +1046,7 @@ function updateCheckboxes(filterType, selectedValues) {
     const menuId = filterType === 'status' ? 'statusFilterMenu' :
                    filterType === 'dateRange' ? 'dateFilterMenu' :
                    filterType === 'taskType' ? 'taskFilterMenu' :
-                   filterType === 'activeStatus' ? 'activeFilterMenu' :
-                   filterType === 'ageFilter' ? 'ageFilterMenu' : null;
+                   filterType === 'activeStatus' ? 'activeFilterMenu' : null;
     const menu = document.getElementById(menuId);
 
     if (!menu) return;
@@ -1052,8 +1060,7 @@ function updateFilterDisplay(filterType) {
     const toggleId = filterType === 'status' ? 'statusFilterToggle' :
                      filterType === 'dateRange' ? 'dateFilterToggle' :
                      filterType === 'taskType' ? 'taskFilterToggle' :
-                     filterType === 'activeStatus' ? 'activeFilterToggle' :
-                     filterType === 'ageFilter' ? 'ageFilterToggle' : null;
+                     filterType === 'activeStatus' ? 'activeFilterToggle' : null;
     const toggle = document.getElementById(toggleId);
 
     if (!toggle) return;
@@ -1066,14 +1073,11 @@ function updateFilterDisplay(filterType) {
         displayText = filterType === 'status' ? 'All Statuses' :
                      filterType === 'dateRange' ? 'All Dates' :
                      filterType === 'taskType' ? 'All Tasks' :
-                     filterType === 'activeStatus' ? 'All' :
-                     filterType === 'ageFilter' ? 'All Ages' : 'All';
+                     filterType === 'activeStatus' ? 'All' : 'All';
     } else if (selected.length === 1) {
         displayText = formatFilterValue(selected[0]);
     } else if (selected.length === 2 && filterType === 'activeStatus') {
         displayText = 'All'; // Both active and inactive = all
-    } else if (selected.length === 2 && filterType === 'ageFilter') {
-        displayText = 'All Ages'; // Both recent and old = all ages
     } else {
         displayText = `${selected.length} selected`;
     }
@@ -1094,12 +1098,14 @@ function formatFilterValue(value) {
         'retry_pending': 'Retry Pending',
 
         // Date range values
+        'last6months': 'Last 6 Months',
         'today': 'Today',
         'tomorrow': 'Tomorrow',
         'yesterday': 'Yesterday',
         'last7days': 'Last 7 Days',
         'last30days': 'Last 30 Days',
         'older30days': 'Older than 30 Days',
+        'alltime': 'All Time',
 
         // Task type values
         'records_request': 'Records Request',
@@ -1108,11 +1114,7 @@ function formatFilterValue(value) {
 
         // Active status values
         'active': 'Active Only',
-        'inactive': 'Inactive Only',
-
-        // Age filter values
-        'recent': 'Last 6 Months',
-        'old': 'Include Old (6+ months)'
+        'inactive': 'Inactive Only'
     };
 
     return formatMap[value] || value;
@@ -1126,14 +1128,19 @@ function applyFilters(calls) {
                 return false;
             }
         }
-        
-        // Date range filter
-        if (!currentFilters.dateRange.includes('all')) {
-            if (!matchesDateRange(call.appointment_time, currentFilters.dateRange)) {
+
+        // Date range filter (client-side only)
+        // Filter out server-side filters (last6months, alltime) as they're already applied at DB level
+        const clientSideDateFilters = currentFilters.dateRange.filter(
+            range => range !== 'last6months' && range !== 'alltime' && range !== 'all'
+        );
+
+        if (clientSideDateFilters.length > 0) {
+            if (!matchesDateRange(call.appointment_time, clientSideDateFilters)) {
                 return false;
             }
         }
-        
+
         // Task type filter
         if (!currentFilters.taskType.includes('all')) {
             const taskType = call.task_type || 'records_request';
@@ -1141,7 +1148,7 @@ function applyFilters(calls) {
                 return false;
             }
         }
-        
+
         return true;
     });
 }
