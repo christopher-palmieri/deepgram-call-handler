@@ -1,47 +1,29 @@
 // public/scripts/config.js
-// Shared configuration loader - fetches from API endpoint
+// Shared configuration loader - uses config injected by Edge Middleware
 
 let config = null;
 let supabase = null;
-let configPromise = null;
 
 async function loadConfig() {
     // Return existing config if already loaded
     if (config && supabase) {
         return config;
     }
-    
-    // If already fetching, wait for that promise
-    if (configPromise) {
-        return configPromise;
+
+    // Load config from window.APP_CONFIG (injected by edge middleware)
+    if (window.APP_CONFIG) {
+        config = window.APP_CONFIG;
+        console.log('✅ Using config from edge middleware:', config);
+    } else {
+        // Fallback for local development or if middleware isn't running
+        console.warn('⚠️ window.APP_CONFIG not found, using fallback config');
+        config = {
+            supabaseUrl: '',
+            supabaseAnonKey: '',
+            wsUrl: 'ws://localhost:3001/monitor',
+            environment: 'development'
+        };
     }
-    
-    // Start fetching configuration
-    configPromise = (async () => {
-        try {
-            // Try to fetch from API endpoint
-            const response = await fetch('/api/config');
-            if (response.ok) {
-                config = await response.json();
-                console.log('Loaded config from API:', config);
-            } else {
-                throw new Error('Failed to fetch config');
-            }
-        } catch (error) {
-            console.error('Error loading config:', error);
-            // Fallback configuration
-            config = {
-                supabaseUrl: '',
-                supabaseAnonKey: '',
-                wsUrl: 'ws://localhost:3000/monitor'
-            };
-        }
-        
-        return config;
-    })();
-    
-    config = await configPromise;
-    console.log('Using config:', config);
     
     // Initialize Supabase client only once
     if (!supabase && window.supabase && config.supabaseUrl && config.supabaseAnonKey) {
