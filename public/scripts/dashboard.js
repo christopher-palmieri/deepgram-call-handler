@@ -410,6 +410,11 @@ function createCallRowHtml(call) {
                     }
                 </svg>
             </button>
+            <button class="delete-call-btn" onclick="event.stopPropagation(); showDeleteConfirmation('${call.id}', '${call.employee_name}', '${call.clinic_name}')" title="Delete Call">
+                <svg class="delete-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/>
+                </svg>
+            </button>
         </td>
         <td>${call.employee_name || '-'}</td>
         <td>${appointmentTime}</td>
@@ -1682,6 +1687,69 @@ async function toggleArchiveCall(callId) {
         await archiveCall(callId);
     } else {
         await unarchiveCall(callId);
+    }
+}
+
+// Delete Call Functions
+let deleteCallId = null;
+
+function showDeleteConfirmation(callId, employeeName, clinicName) {
+    deleteCallId = callId;
+    const modal = document.getElementById('deleteConfirmModal');
+    const infoEl = document.getElementById('deleteCallInfo');
+
+    infoEl.textContent = `${employeeName} - ${clinicName}`;
+    modal.style.display = 'flex';
+}
+
+function closeDeleteConfirmation() {
+    const modal = document.getElementById('deleteConfirmModal');
+    modal.style.display = 'none';
+    deleteCallId = null;
+}
+
+async function confirmDeleteCall() {
+    if (!deleteCallId) {
+        showToast('Error: No call ID selected');
+        closeDeleteConfirmation();
+        return;
+    }
+
+    const confirmBtn = document.getElementById('confirmDeleteBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Deleting...';
+
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        const response = await fetch(`${config.supabaseUrl}/functions/v1/delete-call`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ callId: deleteCallId })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to delete call');
+        }
+
+        const result = await response.json();
+        console.log('Call deleted successfully:', result);
+
+        showToast(result.message || 'Call deleted successfully');
+        closeDeleteConfirmation();
+
+        // Realtime subscription will handle removing the row automatically
+
+    } catch (error) {
+        console.error('Error deleting call:', error);
+        showToast('Error: ' + error.message);
+    } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Delete';
     }
 }
 
@@ -3098,6 +3166,9 @@ window.makeCall = makeCall;
 window.archiveCall = archiveCall;
 window.unarchiveCall = unarchiveCall;
 window.toggleArchiveCall = toggleArchiveCall;
+window.showDeleteConfirmation = showDeleteConfirmation;
+window.closeDeleteConfirmation = closeDeleteConfirmation;
+window.confirmDeleteCall = confirmDeleteCall;
 window.viewCallDetails = viewCallDetails;
 window.monitorCall = monitorCall;
 window.logout = logout;

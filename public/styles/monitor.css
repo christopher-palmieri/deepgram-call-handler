@@ -2551,6 +2551,40 @@ body:has(.login-container) {
     flex-shrink: 0;
 }
 
+/* Delete Button */
+.delete-call-btn {
+    padding: 8px 12px;
+    background: #dc2626;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px rgba(220, 38, 38, 0.2);
+    margin-left: 4px;
+}
+
+.delete-call-btn:hover {
+    background: #b91c1c;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(220, 38, 38, 0.3);
+}
+
+.delete-call-btn:active {
+    transform: translateY(0);
+}
+
+.delete-icon {
+    width: 16px;
+    height: 16px;
+    color: white;
+    flex-shrink: 0;
+}
+
 /* Classification Modal Styles */
 .classification-modal-content {
     max-width: 700px;
