@@ -2222,6 +2222,7 @@ function closeImportModal() {
 
 // Reset import state
 function resetImportState() {
+    // Completely reset the state object
     importState = {
         currentStep: 1,
         fileData: null,
@@ -2237,21 +2238,6 @@ function resetImportState() {
     // Reset file input
     const fileInput = document.getElementById('fileInput');
     if (fileInput) fileInput.value = '';
-
-    // Show step 1
-    for (let i = 1; i <= 6; i++) {
-        const step = document.getElementById(`importStep${i}`);
-        if (step) step.style.display = i === 1 ? 'block' : 'none';
-    }
-
-    // Reset buttons
-    document.getElementById('importBackBtn').style.display = 'none';
-    document.getElementById('importNextBtn').textContent = 'Next';
-    document.getElementById('importNextBtn').disabled = true;
-
-    // Hide file info
-    const fileInfo = document.getElementById('fileInfo');
-    if (fileInfo) fileInfo.style.display = 'none';
 
     // Clear all container contents from previous imports
     const containers = [
@@ -2271,20 +2257,51 @@ function resetImportState() {
     // Reset progress indicators
     const progressBar = document.getElementById('progressBar');
     const progressText = document.getElementById('progressText');
+    const importResults = document.getElementById('importResults');
     if (progressBar) progressBar.style.width = '0%';
     if (progressText) progressText.textContent = '';
+    if (importResults) importResults.style.display = 'none';
+
+    // Hide file info
+    const fileInfo = document.getElementById('fileInfo');
+    if (fileInfo) fileInfo.style.display = 'none';
+
+    // Show step 1 and hide all others
+    for (let i = 1; i <= 6; i++) {
+        const step = document.getElementById(`importStep${i}`);
+        if (step) step.style.display = i === 1 ? 'block' : 'none';
+    }
+
+    // Reset buttons properly
+    const backBtn = document.getElementById('importBackBtn');
+    const nextBtn = document.getElementById('importNextBtn');
+    if (backBtn) {
+        backBtn.style.display = 'none';
+    }
+    if (nextBtn) {
+        nextBtn.textContent = 'Next';
+        nextBtn.style.display = 'inline-block';
+        nextBtn.disabled = true;
+    }
+
+    console.log('Import state reset:', importState);
 }
 
 // Navigate to next step
 function importNextStep() {
+    console.log('importNextStep called, current step:', importState.currentStep, 'has fileData:', !!importState.fileData);
+
     if (importState.currentStep === 1 && importState.fileData) {
+        console.log('Building column mapping...');
         buildColumnMapping();
         importState.currentStep = 2;
     } else if (importState.currentStep === 2) {
+        console.log('Applying column mapping and building transformations...');
         applyColumnMapping();
         buildTransformations();
         importState.currentStep = 3;
     } else if (importState.currentStep === 3) {
+        console.log('Applying transformations and building row selection...');
         applyTransformations();
         buildRowSelection();
         importState.currentStep = 4;
@@ -2293,11 +2310,18 @@ function importNextStep() {
             showToast('Please select at least one row to import');
             return;
         }
+        console.log('Building preview...');
         buildPreview();
         importState.currentStep = 5;
     } else if (importState.currentStep === 5) {
+        console.log('Starting import...');
         startImport();
         importState.currentStep = 6;
+    } else {
+        console.warn('importNextStep: unexpected state', {
+            currentStep: importState.currentStep,
+            hasFileData: !!importState.fileData
+        });
     }
 
     updateStepDisplay();
@@ -2356,6 +2380,8 @@ function handleFileUpload(event) {
 function processFile(file) {
     if (!file) return;
 
+    console.log('Processing file:', file.name, 'Current step:', importState.currentStep);
+
     // Validate file type
     const validTypes = ['.xlsx', '.xls', '.csv'];
     const fileExt = '.' + file.name.split('.').pop().toLowerCase();
@@ -2385,18 +2411,26 @@ function processFile(file) {
             importState.rows = jsonData.slice(1).filter(row => row.some(cell => cell !== undefined && cell !== ''));
             importState.fileData = jsonData;
 
+            console.log('File data stored:', {
+                fileName: importState.fileName,
+                headers: importState.headers,
+                rowCount: importState.rows.length,
+                currentStep: importState.currentStep,
+                hasFileData: !!importState.fileData
+            });
+
             // Show file info
             document.getElementById('fileName').textContent = file.name;
             document.getElementById('fileStats').textContent = `${importState.headers.length} columns, ${importState.rows.length} rows`;
             document.getElementById('fileInfo').style.display = 'block';
 
             // Enable next button
-            document.getElementById('importNextBtn').disabled = false;
+            const nextBtn = document.getElementById('importNextBtn');
+            if (nextBtn) {
+                nextBtn.disabled = false;
+                console.log('Next button enabled, disabled =', nextBtn.disabled, 'display =', nextBtn.style.display);
+            }
 
-            console.log('File loaded:', {
-                headers: importState.headers,
-                rows: importState.rows.length
-            });
         } catch (error) {
             console.error('Error parsing file:', error);
             showToast('Error parsing file: ' + error.message);
