@@ -2619,7 +2619,7 @@ async function detectTimezones() {
 
         // Call edge function
         const { data: { session } } = await supabase.auth.getSession();
-        const response = await fetch(`${supabaseUrl}/functions/v1/detect-timezone`, {
+        const response = await fetch(`${config.supabaseUrl}/functions/v1/detect-timezone`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${session.access_token}`,
