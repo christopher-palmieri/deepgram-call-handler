@@ -1755,7 +1755,9 @@ async function confirmDeleteCall() {
 
 // Classification Editor
 let currentClassificationId = null;
+let currentEditCallId = null;
 let ivrActionCounter = 0;
+let currentActiveEditTab = 'call'; // Track which tab is active in edit modal
 
 function showClassificationModal(callId = null) {
     const modal = document.getElementById('classificationModal');
@@ -1763,15 +1765,22 @@ function showClassificationModal(callId = null) {
 
     // Reset form
     resetClassificationForm();
+    resetEditCallForm();
 
     if (callId) {
-        // Edit existing classification
-        title.textContent = 'Edit Classification';
+        // Edit existing call
+        title.textContent = 'Edit Call';
+        currentEditCallId = callId;
+        loadEditCallData(callId);
         loadClassificationData(callId);
+
+        // Default to call tab
+        switchEditTab('call');
     } else {
         // Add new classification
         title.textContent = 'Add New Classification';
         currentClassificationId = null;
+        currentEditCallId = null;
     }
 
     modal.style.display = 'flex';
@@ -1798,6 +1807,81 @@ function resetClassificationForm() {
     // Clear IVR actions
     document.getElementById('ivrActionsList').innerHTML = '';
     document.getElementById('ivrActionsSection').style.display = 'none';
+}
+
+function resetEditCallForm() {
+    currentEditCallId = null;
+
+    document.getElementById('editCallExamId').value = '';
+    document.getElementById('editCallEmployeeName').value = '';
+    document.getElementById('editCallEmployeeDob').value = '';
+    document.getElementById('editCallClientName').value = '';
+    document.getElementById('editCallAppointmentTime').value = '';
+    document.getElementById('editCallTypeOfVisit').value = '';
+    document.getElementById('editCallProcedures').value = '';
+    document.getElementById('editCallClinicName').value = '';
+    document.getElementById('editCallPhone').value = '';
+    document.getElementById('editCallClinicAddress').value = '';
+    document.getElementById('editCallClinicTimezone').value = '';
+    document.getElementById('editCallTaskType').value = '';
+}
+
+function switchEditTab(tabName) {
+    currentActiveEditTab = tabName;
+
+    // Get tab buttons and content divs
+    const callTab = document.querySelector('.modal-tab:nth-child(1)');
+    const classificationTab = document.querySelector('.modal-tab:nth-child(2)');
+    const callContent = document.getElementById('editCallTab');
+    const classificationContent = document.getElementById('editClassificationTab');
+
+    if (tabName === 'call') {
+        // Show call tab
+        callTab.classList.add('active');
+        classificationTab.classList.remove('active');
+        callContent.style.display = 'block';
+        classificationContent.style.display = 'none';
+    } else if (tabName === 'classification') {
+        // Show classification tab
+        callTab.classList.remove('active');
+        classificationTab.classList.add('active');
+        callContent.style.display = 'none';
+        classificationContent.style.display = 'block';
+    }
+}
+
+async function loadEditCallData(callId) {
+    try {
+        const call = allCalls.find(c => c.id === callId);
+        if (!call) {
+            showToast('Call not found');
+            return;
+        }
+
+        // Populate all call fields
+        document.getElementById('editCallExamId').value = call.exam_id || '';
+        document.getElementById('editCallEmployeeName').value = call.employee_name || '';
+        document.getElementById('editCallEmployeeDob').value = call.employee_dob || '';
+        document.getElementById('editCallClientName').value = call.client_name || '';
+
+        // Format appointment time for datetime-local input
+        if (call.appointment_time) {
+            const appointmentDate = new Date(call.appointment_time);
+            const localDatetime = new Date(appointmentDate.getTime() - (appointmentDate.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+            document.getElementById('editCallAppointmentTime').value = localDatetime;
+        }
+
+        document.getElementById('editCallTypeOfVisit').value = call.type_of_visit || '';
+        document.getElementById('editCallProcedures').value = call.procedures || '';
+        document.getElementById('editCallClinicName').value = call.clinic_name || '';
+        document.getElementById('editCallPhone').value = call.phone || '';
+        document.getElementById('editCallClinicAddress').value = call.clinic_provider_address || '';
+        document.getElementById('editCallClinicTimezone').value = call.clinic_timezone || '';
+        document.getElementById('editCallTaskType').value = call.task_type || '';
+    } catch (error) {
+        console.error('Error loading call data:', error);
+        showToast('Error loading call data');
+    }
 }
 
 async function loadClassificationData(callId) {
@@ -2030,6 +2114,89 @@ async function saveClassification() {
         const saveBtn = document.getElementById('saveClassificationBtn');
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save Classification';
+    }
+}
+
+async function saveEditModal() {
+    try {
+        // Determine which tab is active and save accordingly
+        if (currentActiveEditTab === 'call') {
+            await saveEditCall();
+        } else if (currentActiveEditTab === 'classification') {
+            await saveClassification();
+        }
+    } catch (error) {
+        console.error('Error saving:', error);
+        showToast(`Failed to save: ${error.message}`);
+    }
+}
+
+async function saveEditCall() {
+    try {
+        // Validate required fields
+        const examId = document.getElementById('editCallExamId').value.trim();
+        const employeeName = document.getElementById('editCallEmployeeName').value.trim();
+        const employeeDob = document.getElementById('editCallEmployeeDob').value;
+        const clientName = document.getElementById('editCallClientName').value.trim();
+        const appointmentTime = document.getElementById('editCallAppointmentTime').value;
+        const typeOfVisit = document.getElementById('editCallTypeOfVisit').value;
+        const procedures = document.getElementById('editCallProcedures').value.trim();
+        const clinicName = document.getElementById('editCallClinicName').value.trim();
+        const phone = document.getElementById('editCallPhone').value.trim();
+        const clinicAddress = document.getElementById('editCallClinicAddress').value.trim();
+        const clinicTimezone = document.getElementById('editCallClinicTimezone').value;
+        const taskType = document.getElementById('editCallTaskType').value;
+
+        if (!examId || !employeeName || !employeeDob || !clientName || !appointmentTime ||
+            !typeOfVisit || !clinicName || !phone || !clinicTimezone || !taskType) {
+            showToast('Please fill in all required fields');
+            return;
+        }
+
+        // Disable save button
+        const saveBtn = document.getElementById('saveEditBtn');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+
+        // Prepare update data
+        const updateData = {
+            exam_id: examId,
+            employee_name: employeeName,
+            employee_dob: employeeDob,
+            client_name: clientName,
+            appointment_time: appointmentTime,
+            type_of_visit: typeOfVisit,
+            procedures: procedures,
+            clinic_name: clinicName,
+            phone: phone,
+            clinic_provider_address: clinicAddress,
+            clinic_timezone: clinicTimezone,
+            task_type: taskType
+        };
+
+        // Update the call in Supabase
+        const { error } = await supabase
+            .from('pending_calls')
+            .update(updateData)
+            .eq('id', currentEditCallId);
+
+        if (error) throw error;
+
+        showToast('Call updated successfully!');
+        closeClassificationModal();
+
+        // Reload calls to show updated data
+        await loadPendingCalls();
+
+    } catch (error) {
+        console.error('Error saving call:', error);
+        showToast(`Failed to save call: ${error.message}`);
+    } finally {
+        const saveBtn = document.getElementById('saveEditBtn');
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save Changes';
+        }
     }
 }
 
@@ -3180,6 +3347,8 @@ window.deleteFilterPreset = deleteFilterPreset;
 window.clearSearch = clearSearch;
 window.showClassificationModal = showClassificationModal;
 window.closeClassificationModal = closeClassificationModal;
+window.switchEditTab = switchEditTab;
+window.saveEditModal = saveEditModal;
 window.addIvrAction = addIvrAction;
 window.handleActionTypeChange = handleActionTypeChange;
 window.removeIvrAction = removeIvrAction;

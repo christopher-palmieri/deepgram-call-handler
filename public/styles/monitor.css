@@ -2555,12 +2555,65 @@ body:has(.login-container) {
     flex-shrink: 0;
 }
 
+/* Monitor Page - Larger Action Buttons */
+/* Override small button styles for monitor page buttons that have text labels */
+.call-actions .edit-classification-btn,
+.call-actions .archive-call-btn {
+    width: auto;
+    height: auto;
+    padding: 10px 16px;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+}
+
+.call-actions .edit-icon,
+.call-actions .archive-icon {
+    width: 18px;
+    height: 18px;
+}
+
 /* Classification Modal Styles */
 .classification-modal-content {
     max-width: 700px;
     max-height: 90vh;
     display: flex;
     flex-direction: column;
+}
+
+/* Modal Tabs */
+.modal-tabs {
+    display: flex;
+    border-bottom: 2px solid #e5e7eb;
+    gap: 0;
+}
+
+.modal-tab {
+    flex: 1;
+    padding: 12px 16px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: #6b7280;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.modal-tab:hover {
+    color: #1f2937;
+    background: #f9fafb;
+}
+
+.modal-tab.active {
+    color: #10b981;
+    border-bottom-color: #10b981;
+    background: #f0fdf4;
+}
+
+.edit-tab-content {
+    display: block;
 }
 
 .classification-form {

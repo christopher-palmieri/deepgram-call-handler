@@ -226,10 +226,101 @@
     <div id="classificationModal" class="modal" style="display: none;">
         <div class="modal-content classification-modal-content">
             <div class="modal-header">
-                <h3 id="classificationModalTitle">Edit Classification</h3>
+                <h3 id="classificationModalTitle">Edit Call</h3>
                 <button class="modal-close" onclick="closeClassificationModal()">&times;</button>
             </div>
+            <div class="modal-tabs">
+                <button class="modal-tab active" onclick="switchEditTab('call')">Edit Call</button>
+                <button class="modal-tab" onclick="switchEditTab('classification')">Edit Classification</button>
+            </div>
             <div class="modal-body">
+                <!-- Tab 1: Edit Call -->
+                <div id="editCallTab" class="edit-tab-content">
+                    <div class="classification-form">
+                        <!-- Employee Information -->
+                        <div class="form-section">
+                            <h4>Employee Information</h4>
+                            <div class="form-group">
+                                <label>Exam ID*</label>
+                                <input type="text" id="editCallExamId" placeholder="Enter exam ID" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Employee Name*</label>
+                                <input type="text" id="editCallEmployeeName" placeholder="Enter employee name" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Employee Date of Birth*</label>
+                                <input type="date" id="editCallEmployeeDob" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Client Name*</label>
+                                <input type="text" id="editCallClientName" placeholder="Enter client name" required>
+                            </div>
+                        </div>
+
+                        <!-- Appointment Information -->
+                        <div class="form-section">
+                            <h4>Appointment Information</h4>
+                            <div class="form-group">
+                                <label>Appointment Time*</label>
+                                <input type="datetime-local" id="editCallAppointmentTime" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Type of Visit*</label>
+                                <select id="editCallTypeOfVisit" required>
+                                    <option value="">Select type...</option>
+                                    <option value="appointment">Appointment</option>
+                                    <option value="walk-in">Walk-in</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Procedures</label>
+                                <textarea id="editCallProcedures" placeholder="Enter procedures" rows="3"></textarea>
+                            </div>
+                        </div>
+
+                        <!-- Clinic Information -->
+                        <div class="form-section">
+                            <h4>Clinic Information</h4>
+                            <div class="form-group">
+                                <label>Clinic Name*</label>
+                                <input type="text" id="editCallClinicName" placeholder="Enter clinic name" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Clinic Phone Number*</label>
+                                <input type="tel" id="editCallPhone" placeholder="+16095550123" required>
+                                <small style="color: #666; font-size: 12px;">Format: +16095550123</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Clinic Provider Address</label>
+                                <input type="text" id="editCallClinicAddress" placeholder="Enter clinic address">
+                            </div>
+                            <div class="form-group">
+                                <label>Clinic Timezone*</label>
+                                <select id="editCallClinicTimezone" required>
+                                    <option value="America/New_York">Eastern (America/New_York)</option>
+                                    <option value="America/Chicago">Central (America/Chicago)</option>
+                                    <option value="America/Denver">Mountain (America/Denver)</option>
+                                    <option value="America/Los_Angeles">Pacific (America/Los_Angeles)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Task Information -->
+                        <div class="form-section">
+                            <h4>Task Information</h4>
+                            <div class="form-group">
+                                <label>Task Type*</label>
+                                <select id="editCallTaskType" required>
+                                    <option value="records_request">Records Request</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Edit Classification -->
+                <div id="editClassificationTab" class="edit-tab-content" style="display: none;">
                 <div class="classification-form">
                     <!-- Basic Info -->
                     <div class="form-section">
@@ -289,10 +380,11 @@
                         </div>
                     </div>
                 </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="modal-btn secondary" onclick="closeClassificationModal()">Cancel</button>
-                <button class="modal-btn primary" onclick="saveClassification()" id="saveClassificationBtn">Save Classification</button>
+                <button class="modal-btn primary" onclick="saveEditModal()" id="saveEditBtn">Save Changes</button>
             </div>
         </div>
     </div>
