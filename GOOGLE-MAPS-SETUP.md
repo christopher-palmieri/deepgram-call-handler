@@ -73,16 +73,42 @@ Or if using manual deployment, copy the function to your Supabase project.
 
 ## Testing the Function
 
-### Test with cURL:
+**IMPORTANT:** This edge function requires **user authentication** (not just the anon key). You must be logged in to use it.
+
+### Option 1: Test via Import UI (Easiest)
+
+1. Log into your dashboard
+2. Click **"📁 Import Calls"**
+3. Upload a file without timezone data
+4. Get to Step 3: Configure Transformations
+5. Click **"🌍 Auto-Detect Timezones from Addresses"**
+6. Watch it work automatically!
+
+### Option 2: Test with cURL (Advanced)
+
+**Step 1: Get Your Session Token**
+
+1. Log into your dashboard
+2. Open browser DevTools (F12)
+3. Go to Console tab
+4. Run this command:
+```javascript
+supabase.auth.getSession().then(s => console.log(s.data.session.access_token))
+```
+5. Copy the token (starts with `eyJ...`)
+
+**Step 2: Test with cURL**
 
 ```bash
 curl -X POST https://YOUR_PROJECT.supabase.co/functions/v1/detect-timezone \
-  -H "Authorization: Bearer YOUR_SUPABASE_ANON_KEY" \
+  -H "Authorization: Bearer YOUR_SESSION_TOKEN_HERE" \
   -H "Content-Type: application/json" \
   -d '{
     "address": "123 Main Street, New York, NY 10001"
   }'
 ```
+
+**Note:** Replace `YOUR_SESSION_TOKEN_HERE` with the token from Step 1.
 
 ### Expected Response:
 
@@ -110,7 +136,7 @@ curl -X POST https://YOUR_PROJECT.supabase.co/functions/v1/detect-timezone \
 
 ```bash
 curl -X POST https://YOUR_PROJECT.supabase.co/functions/v1/detect-timezone \
-  -H "Authorization: Bearer YOUR_SUPABASE_ANON_KEY" \
+  -H "Authorization: Bearer YOUR_SESSION_TOKEN_HERE" \
   -H "Content-Type: application/json" \
   -d '{
     "addresses": [
@@ -120,6 +146,13 @@ curl -X POST https://YOUR_PROJECT.supabase.co/functions/v1/detect-timezone \
     ]
   }'
 ```
+
+### Why Not the Anon Key?
+
+❌ **Anon key won't work** - It's just a public identifier
+✅ **Session token required** - Proves you're a logged-in user
+✅ **Better security** - Prevents unauthorized API usage
+✅ **Cost control** - Only your users can trigger geocoding
 
 ---
 
