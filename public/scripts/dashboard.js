@@ -2250,7 +2250,29 @@ function resetImportState() {
     document.getElementById('importNextBtn').disabled = true;
 
     // Hide file info
-    document.getElementById('fileInfo').style.display = 'none';
+    const fileInfo = document.getElementById('fileInfo');
+    if (fileInfo) fileInfo.style.display = 'none';
+
+    // Clear all container contents from previous imports
+    const containers = [
+        'columnMappingContainer',
+        'transformationsContainer',
+        'rowSelectionContainer',
+        'validationSummary',
+        'previewContainer',
+        'importResults'
+    ];
+
+    containers.forEach(containerId => {
+        const container = document.getElementById(containerId);
+        if (container) container.innerHTML = '';
+    });
+
+    // Reset progress indicators
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    if (progressBar) progressBar.style.width = '0%';
+    if (progressText) progressText.textContent = '';
 }
 
 // Navigate to next step
