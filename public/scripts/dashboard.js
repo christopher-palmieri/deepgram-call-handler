@@ -3032,8 +3032,7 @@ async function startImport() {
         resultsDiv.innerHTML = resultsHTML;
         resultsDiv.style.display = 'block';
 
-        // Reload dashboard
-        await loadPendingCalls();
+        // No need to reload - realtime subscription will pick up the new rows automatically
 
     } catch (error) {
         console.error('Import error:', error);
