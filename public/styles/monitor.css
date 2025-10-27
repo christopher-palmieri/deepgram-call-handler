@@ -2444,9 +2444,14 @@ body:has(.login-container) {
     vertical-align: middle;
 }
 
-.make-call-btn {
-    padding: 6px 10px;
-    background: #3b82f6;
+/* Action Buttons - Uniform Sizing */
+.make-call-btn,
+.edit-classification-btn,
+.archive-call-btn,
+.delete-call-btn {
+    padding: 6px 8px;
+    width: 32px;
+    height: 32px;
     color: white;
     border: none;
     border-radius: 6px;
@@ -2455,39 +2460,35 @@ body:has(.login-container) {
     align-items: center;
     justify-content: center;
     transition: all 0.2s ease;
-    box-shadow: 0 1px 3px rgba(59, 130, 246, 0.2);
+    flex-shrink: 0;
+}
+
+.edit-classification-btn,
+.archive-call-btn,
+.delete-call-btn {
+    margin-left: 4px;
+}
+
+/* Make Call Button - Green */
+.make-call-btn {
+    background: #10b981;
+    box-shadow: 0 1px 3px rgba(16, 185, 129, 0.2);
 }
 
 .make-call-btn:hover {
-    background: #2563eb;
+    background: #059669;
     transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+    box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
 }
 
 .make-call-btn:active {
     transform: translateY(0);
 }
 
-.play-icon {
-    width: 16px;
-    height: 16px;
-    color: white;
-}
-
-/* Edit Classification Button */
+/* Edit Classification Button - Green */
 .edit-classification-btn {
-    padding: 6px 10px;
     background: #10b981;
-    color: white;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
     box-shadow: 0 1px 3px rgba(16, 185, 129, 0.2);
-    margin-left: 4px;
 }
 
 .edit-classification-btn:hover {
@@ -2500,27 +2501,10 @@ body:has(.login-container) {
     transform: translateY(0);
 }
 
-.edit-icon {
-    width: 14px;
-    height: 14px;
-    color: white;
-}
-
-/* Archive Call Button */
+/* Archive Call Button - Orange */
 .archive-call-btn {
-    padding: 8px 12px;
     background: #f59e0b;
-    color: white;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    transition: all 0.2s ease;
     box-shadow: 0 1px 3px rgba(245, 158, 11, 0.2);
-    margin-left: 4px;
 }
 
 .archive-call-btn:hover {
@@ -2544,28 +2528,10 @@ body:has(.login-container) {
     box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
 }
 
-.archive-icon {
-    width: 16px;
-    height: 16px;
-    color: white;
-    flex-shrink: 0;
-}
-
-/* Delete Button */
+/* Delete Button - Red */
 .delete-call-btn {
-    padding: 8px 12px;
     background: #dc2626;
-    color: white;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    transition: all 0.2s ease;
     box-shadow: 0 1px 3px rgba(220, 38, 38, 0.2);
-    margin-left: 4px;
 }
 
 .delete-call-btn:hover {
@@ -2578,9 +2544,13 @@ body:has(.login-container) {
     transform: translateY(0);
 }
 
+/* Action Button Icons - Uniform Sizing */
+.play-icon,
+.edit-icon,
+.archive-icon,
 .delete-icon {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     color: white;
     flex-shrink: 0;
 }
