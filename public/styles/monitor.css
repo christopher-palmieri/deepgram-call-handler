@@ -2449,12 +2449,12 @@ body:has(.login-container) {
 .edit-classification-btn,
 .archive-call-btn,
 .delete-call-btn {
-    padding: 6px 8px;
-    width: 32px;
-    height: 32px;
+    padding: 4px 6px;
+    width: 26px;
+    height: 26px;
     color: white;
     border: none;
-    border-radius: 6px;
+    border-radius: 4px;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
@@ -2466,7 +2466,7 @@ body:has(.login-container) {
 .edit-classification-btn,
 .archive-call-btn,
 .delete-call-btn {
-    margin-left: 4px;
+    margin-left: 3px;
 }
 
 /* Make Call Button - Green */
@@ -2549,8 +2549,8 @@ body:has(.login-container) {
 .edit-icon,
 .archive-icon,
 .delete-icon {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     color: white;
     flex-shrink: 0;
 }
