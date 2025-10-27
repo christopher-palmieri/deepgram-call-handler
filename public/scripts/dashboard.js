@@ -2784,7 +2784,6 @@ function buildPreview() {
         const row = importState.rows[rowIndex];
         const mappedRow = {};
         let hasErrors = false;
-        let hasWarnings = false;
 
         // Map and transform data
         for (const [colIndex, dbField] of Object.entries(importState.columnMapping)) {
@@ -2808,13 +2807,18 @@ function buildPreview() {
             errorRows.push({ rowIndex, reason: `Missing required fields: ${missing.join(', ')}` });
         }
 
-        // Validate phone format
-        if (mappedRow.phone && !mappedRow.phone.match(/^\+?1?\d{10}$/)) {
-            hasWarnings = true;
-            warningRows.push({ rowIndex, reason: 'Phone number may need formatting' });
+        // Validate phone format (strip non-digits first)
+        if (mappedRow.phone) {
+            const digitsOnly = mappedRow.phone.toString().replace(/\D/g, '');
+            // Valid: 10 digits or 11 digits starting with 1
+            if (digitsOnly.length !== 10 && !(digitsOnly.length === 11 && digitsOnly.startsWith('1'))) {
+                hasErrors = true;
+                errorRows.push({ rowIndex, reason: `Invalid phone number: ${mappedRow.phone}` });
+            }
         }
 
-        if (!hasErrors && !hasWarnings) {
+        // Only add to validRows if no ERRORS (warnings are ok)
+        if (!hasErrors) {
             validRows.push(rowIndex);
         }
     });
