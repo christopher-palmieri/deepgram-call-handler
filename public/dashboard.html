@@ -429,25 +429,18 @@
                     <div id="columnMappingContainer"></div>
                 </div>
 
-                <!-- Step 3: Transformations -->
-                <div id="importStep3" class="import-step" style="display: none;">
-                    <h4>Step 3: Configure Transformations</h4>
-                    <p style="color: #666; margin-bottom: 16px;">Review and adjust data transformations</p>
-                    <div id="transformationsContainer"></div>
-
-                    <!-- Timezone Detection -->
-                    <div id="timezoneDetectionSection" style="margin-top: 24px; display: none;">
-                        <h4 style="margin-bottom: 8px;">Timezone Detection</h4>
-                        <div id="timezoneDetectionInfo" style="padding: 12px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 6px;">
-                            <strong>⚠️ Missing Timezones Detected</strong>
-                            <p style="margin: 4px 0 0 0; color: #92400e;">Auto-detecting timezones from addresses...</p>
-                        </div>
+                <!-- Processing Step (shown while detecting timezones) -->
+                <div id="importStepProcessing" class="import-step" style="display: none;">
+                    <div style="text-align: center; padding: 48px 24px;">
+                        <div style="font-size: 48px; margin-bottom: 16px;">🌍</div>
+                        <h4 style="margin-bottom: 8px;">Processing Data...</h4>
+                        <p id="processingMessage" style="color: #666;">Detecting timezones from addresses...</p>
                     </div>
                 </div>
 
-                <!-- Step 4: Row Selection -->
-                <div id="importStep4" class="import-step" style="display: none;">
-                    <h4>Step 4: Select Rows to Import</h4>
+                <!-- Step 3: Row Selection -->
+                <div id="importStep3" class="import-step" style="display: none;">
+                    <h4>Step 3: Select Rows to Import</h4>
                     <p style="color: #666; margin-bottom: 16px;">Choose which rows you want to import</p>
                     <div style="margin-bottom: 12px;">
                         <button class="modal-btn secondary" onclick="selectAllRows()">Select All</button>
@@ -457,16 +450,16 @@
                     <div id="rowSelectionContainer" style="max-height: 400px; overflow-y: auto;"></div>
                 </div>
 
-                <!-- Step 5: Preview -->
-                <div id="importStep5" class="import-step" style="display: none;">
-                    <h4>Step 5: Preview & Validate</h4>
+                <!-- Step 4: Preview -->
+                <div id="importStep4" class="import-step" style="display: none;">
+                    <h4>Step 4: Preview & Validate</h4>
                     <p style="color: #666; margin-bottom: 16px;">Review data before importing</p>
                     <div id="validationSummary" style="margin-bottom: 16px;"></div>
                     <div id="previewContainer" style="max-height: 400px; overflow-y: auto;"></div>
                 </div>
 
-                <!-- Step 6: Import Progress -->
-                <div id="importStep6" class="import-step" style="display: none;">
+                <!-- Step 5: Import Progress -->
+                <div id="importStep5" class="import-step" style="display: none;">
                     <h4>Importing...</h4>
                     <div id="importProgress" style="margin: 32px 0;">
                         <div style="background: #e5e7eb; border-radius: 8px; height: 24px; overflow: hidden; margin-bottom: 12px;">
