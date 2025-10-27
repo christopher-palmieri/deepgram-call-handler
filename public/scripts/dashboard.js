@@ -2367,6 +2367,27 @@ function handleFileUpload(event) {
     reader.readAsArrayBuffer(file);
 }
 
+// Format Excel date serial for display
+function formatExcelDate(value, fieldType) {
+    if (typeof value !== 'number') return value;
+
+    try {
+        if (fieldType === 'employee_dob') {
+            // Date only (no time)
+            const date = XLSX.SSF.parse_date_code(value);
+            return `${date.m}/${date.d}/${date.y}`;
+        } else if (fieldType === 'appointment_time') {
+            // Date and time
+            const jsDate = new Date((value - 25569) * 86400 * 1000);
+            return jsDate.toLocaleString();
+        }
+    } catch (e) {
+        console.error('Error formatting Excel date:', e);
+    }
+
+    return value;
+}
+
 // Calculate similarity between two strings (simple fuzzy matching)
 function stringSimilarity(str1, str2) {
     str1 = str1.toLowerCase().trim();
@@ -2542,8 +2563,10 @@ function buildRowSelection() {
         html += '<tr>';
         html += `<td><input type="checkbox" class="row-checkbox" onchange="toggleRowSelection(${rowIndex}, this.checked)"></td>`;
         html += `<td>${rowIndex + 1}</td>`;
-        displayHeaders.forEach(({ colIndex }) => {
-            const value = row[colIndex] || '';
+        displayHeaders.forEach(({ colIndex, dbField }) => {
+            let value = row[colIndex] || '';
+            // Format dates for display
+            value = formatExcelDate(value, dbField);
             html += `<td>${value}</td>`;
         });
         html += '</tr>';
@@ -2695,9 +2718,14 @@ function buildPreview() {
         for (const [colIndex, dbField] of Object.entries(importState.columnMapping)) {
             let value = row[colIndex] || '';
 
+            // Format dates for display first
+            const displayValue = formatExcelDate(value, dbField);
+
             // Apply transformation preview
             if (TRANSFORMATION_RULES[dbField] && TRANSFORMATION_RULES[dbField][value]) {
-                value = `${value} → ${TRANSFORMATION_RULES[dbField][value]}`;
+                value = `${displayValue} → ${TRANSFORMATION_RULES[dbField][value]}`;
+            } else {
+                value = displayValue;
             }
 
             previewHTML += `<td>${value}</td>`;
