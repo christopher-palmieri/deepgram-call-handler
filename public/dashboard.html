@@ -434,6 +434,19 @@
                     <h4>Step 3: Configure Transformations</h4>
                     <p style="color: #666; margin-bottom: 16px;">Review and adjust data transformations</p>
                     <div id="transformationsContainer"></div>
+
+                    <!-- Timezone Detection -->
+                    <div id="timezoneDetectionSection" style="margin-top: 24px; display: none;">
+                        <h4 style="margin-bottom: 8px;">Timezone Detection</h4>
+                        <div id="timezoneDetectionInfo" style="padding: 12px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 6px; margin-bottom: 12px;">
+                            <strong>⚠️ Missing Timezones Detected</strong>
+                            <p style="margin: 4px 0 0 0; color: #92400e;">Some rows are missing timezone information. Click below to auto-detect from addresses.</p>
+                        </div>
+                        <button class="modal-btn primary" onclick="detectTimezones()" id="detectTimezonesBtn">
+                            🌍 Auto-Detect Timezones from Addresses
+                        </button>
+                        <div id="timezoneDetectionResults" style="margin-top: 12px; display: none;"></div>
+                    </div>
                 </div>
 
                 <!-- Step 4: Row Selection -->

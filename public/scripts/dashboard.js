@@ -2535,6 +2535,156 @@ function buildTransformations() {
     }
 
     container.innerHTML = html;
+
+    // Check for missing timezones
+    checkMissingTimezones();
+}
+
+// Check for missing timezones and show detection section
+function checkMissingTimezones() {
+    const timezoneSection = document.getElementById('timezoneDetectionSection');
+
+    // Check if timezone column is mapped
+    const timezoneColIndex = Object.entries(importState.columnMapping)
+        .find(([_, field]) => field === 'clinic_timezone')?.[0];
+
+    if (!timezoneColIndex) {
+        // No timezone column mapped, hide section
+        timezoneSection.style.display = 'none';
+        return;
+    }
+
+    // Check if any rows are missing timezone
+    const missingCount = importState.rows.filter(row => !row[timezoneColIndex] || row[timezoneColIndex].toString().trim() === '').length;
+
+    if (missingCount > 0) {
+        timezoneSection.style.display = 'block';
+        document.getElementById('timezoneDetectionInfo').innerHTML = `
+            <strong>⚠️ Missing Timezones Detected</strong>
+            <p style="margin: 4px 0 0 0; color: #92400e;">${missingCount} of ${importState.rows.length} rows are missing timezone information. Click below to auto-detect from addresses.</p>
+        `;
+    } else {
+        timezoneSection.style.display = 'none';
+    }
+}
+
+// Detect timezones from addresses
+async function detectTimezones() {
+    const btn = document.getElementById('detectTimezonesBtn');
+    const resultsDiv = document.getElementById('timezoneDetectionResults');
+
+    try {
+        // Disable button
+        btn.disabled = true;
+        btn.textContent = 'Detecting timezones...';
+
+        // Get column indices
+        const addressColIndex = Object.entries(importState.columnMapping)
+            .find(([_, field]) => field === 'clinic_provider_address')?.[0];
+        const timezoneColIndex = Object.entries(importState.columnMapping)
+            .find(([_, field]) => field === 'clinic_timezone')?.[0];
+
+        if (!addressColIndex) {
+            showToast('No address column mapped');
+            return;
+        }
+
+        if (!timezoneColIndex) {
+            showToast('No timezone column mapped');
+            return;
+        }
+
+        // Collect addresses that need timezone detection
+        const addressesToDetect = [];
+        const rowIndices = [];
+
+        importState.rows.forEach((row, index) => {
+            const timezone = row[timezoneColIndex];
+            const address = row[addressColIndex];
+
+            if ((!timezone || timezone.toString().trim() === '') && address && address.toString().trim() !== '') {
+                addressesToDetect.push(address.toString().trim());
+                rowIndices.push(index);
+            }
+        });
+
+        if (addressesToDetect.length === 0) {
+            showToast('No addresses need timezone detection');
+            resultsDiv.innerHTML = '<div class="validation-success">All rows already have timezones!</div>';
+            resultsDiv.style.display = 'block';
+            return;
+        }
+
+        console.log(`Detecting timezones for ${addressesToDetect.length} addresses`);
+
+        // Call edge function
+        const { data: { session } } = await supabase.auth.getSession();
+        const response = await fetch(`${supabaseUrl}/functions/v1/detect-timezone`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                addresses: addressesToDetect
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to detect timezones');
+        }
+
+        const result = await response.json();
+        console.log('Timezone detection results:', result);
+
+        // Apply detected timezones to rows
+        result.results.forEach((item, i) => {
+            if (item.timezone) {
+                const rowIndex = rowIndices[i];
+                importState.rows[rowIndex][timezoneColIndex] = item.timezone;
+            }
+        });
+
+        // Show results
+        let resultsHTML = '<div class="import-summary-card">';
+        resultsHTML += `<div class="summary-stat"><div class="summary-stat-value">${result.summary.successful}</div><div class="summary-stat-label">Detected</div></div>`;
+        resultsHTML += `<div class="summary-stat"><div class="summary-stat-value">${result.summary.failed}</div><div class="summary-stat-label">Failed</div></div>`;
+        resultsHTML += '</div>';
+
+        if (result.summary.successful > 0) {
+            resultsHTML += '<div class="validation-success"><strong>✓ Timezones detected successfully!</strong></div>';
+        }
+
+        if (result.summary.failed > 0) {
+            resultsHTML += '<div class="validation-warning"><strong>Some addresses could not be geocoded:</strong><ul style="margin: 8px 0 0 0;">';
+            result.results.forEach(item => {
+                if (item.error) {
+                    resultsHTML += `<li>${item.address}: ${item.error}</li>`;
+                }
+            });
+            resultsHTML += '</ul></div>';
+        }
+
+        resultsDiv.innerHTML = resultsHTML;
+        resultsDiv.style.display = 'block';
+
+        // Hide the detection section if all successful
+        if (result.summary.failed === 0) {
+            setTimeout(() => {
+                document.getElementById('timezoneDetectionSection').style.display = 'none';
+            }, 3000);
+        }
+
+    } catch (error) {
+        console.error('Error detecting timezones:', error);
+        showToast('Error: ' + error.message);
+        resultsDiv.innerHTML = `<div class="validation-error">Error: ${error.message}</div>`;
+        resultsDiv.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🌍 Auto-Detect Timezones from Addresses';
+    }
 }
 
 // Apply transformations to data
@@ -2909,3 +3059,4 @@ window.selectNoneRows = selectNoneRows;
 window.toggleAllRows = toggleAllRows;
 window.toggleRowSelection = toggleRowSelection;
 window.finishImport = finishImport;
+window.detectTimezones = detectTimezones;
