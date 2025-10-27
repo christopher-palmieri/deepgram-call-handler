@@ -2901,10 +2901,29 @@ async function startImport() {
     try {
         // Only import valid rows
         const { validRows, errorRows } = importState.validationResults;
+
+        console.log('Import Debug:', {
+            selectedRows: importState.selectedRows,
+            validRows: validRows,
+            errorRows: errorRows,
+            validationResults: importState.validationResults
+        });
+
         const rowsToImport = importState.selectedRows.filter(i => validRows.includes(i));
 
         if (rowsToImport.length === 0) {
-            resultsDiv.innerHTML = '<div class="validation-error">No valid rows to import</div>';
+            let errorMsg = '<div class="validation-error"><strong>No valid rows to import</strong>';
+            if (errorRows && errorRows.length > 0) {
+                errorMsg += '<p style="margin-top: 8px;">Errors found:</p><ul style="margin: 8px 0 0 0;">';
+                errorRows.forEach(({ rowIndex, reason }) => {
+                    errorMsg += `<li>Row ${rowIndex + 1}: ${reason}</li>`;
+                });
+                errorMsg += '</ul>';
+            } else {
+                errorMsg += '<p style="margin-top: 8px;">Please check the preview step for validation errors.</p>';
+            }
+            errorMsg += '</div>';
+            resultsDiv.innerHTML = errorMsg;
             resultsDiv.style.display = 'block';
             return;
         }
