@@ -62,7 +62,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     
     // Initialize dropdown filters
     initializeDropdownFilters();
-    
+
+    // Initialize drag and drop for file upload
+    initializeFileUploadDragDrop();
+
     // Load saved filters from localStorage
     loadSavedFilters();
     
@@ -2324,7 +2327,20 @@ function updateStepDisplay() {
 // Handle file upload
 function handleFileUpload(event) {
     const file = event.target.files[0];
+    processFile(file);
+}
+
+// Process file (used by both file input and drag & drop)
+function processFile(file) {
     if (!file) return;
+
+    // Validate file type
+    const validTypes = ['.xlsx', '.xls', '.csv'];
+    const fileExt = '.' + file.name.split('.').pop().toLowerCase();
+    if (!validTypes.includes(fileExt)) {
+        showToast('Invalid file type. Please upload .xlsx, .xls, or .csv files');
+        return;
+    }
 
     const reader = new FileReader();
     reader.onload = function(e) {
@@ -2366,6 +2382,48 @@ function handleFileUpload(event) {
     };
 
     reader.readAsArrayBuffer(file);
+}
+
+// Initialize drag and drop for file upload
+function initializeFileUploadDragDrop() {
+    const dropArea = document.getElementById('fileUploadArea');
+    if (!dropArea) return;
+
+    // Prevent default drag behaviors
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropArea.addEventListener(eventName, preventDefaults, false);
+        document.body.addEventListener(eventName, preventDefaults, false);
+    });
+
+    // Highlight drop area when dragging over it
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropArea.addEventListener(eventName, () => {
+            dropArea.classList.add('drag-over');
+        }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropArea.addEventListener(eventName, () => {
+            dropArea.classList.remove('drag-over');
+        }, false);
+    });
+
+    // Handle dropped files
+    dropArea.addEventListener('drop', handleDrop, false);
+}
+
+function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function handleDrop(e) {
+    const dt = e.dataTransfer;
+    const files = dt.files;
+
+    if (files.length > 0) {
+        processFile(files[0]);
+    }
 }
 
 // Format Excel date serial for display

@@ -2908,6 +2908,13 @@ body:has(.login-container) {
     background: #f7fafc;
 }
 
+.file-upload-area.drag-over {
+    border-color: #008d6f;
+    background: #e6f7f4;
+    border-style: solid;
+    transform: scale(1.02);
+}
+
 .upload-prompt {
     color: #4a5568;
 }
