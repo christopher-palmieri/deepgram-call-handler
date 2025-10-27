@@ -44,6 +44,13 @@ The Deepgram Call Handler system provides a comprehensive web-based interface fo
 
 #### Dashboard Features
 
+##### 📝 Call Management
+- **New Call Form**: Create individual pending calls with comprehensive form
+- **Edit Modal**: Two-tab interface for editing call data and classifications
+- **Delete Calls**: Permanently remove calls with confirmation modal
+- **Archive/Unarchive**: Soft delete with reversible archive functionality
+- **Import Wizard**: Bulk upload calls from Excel/CSV files with 6-step workflow
+
 ##### 🔄 Real-Time Updates
 - **WebSocket Integration**: Automatic updates when call data changes
 - **Live Status Monitoring**: Real-time workflow state changes
@@ -113,10 +120,20 @@ The Deepgram Call Handler system provides a comprehensive web-based interface fo
 - **Frozen First Column**: Employee name remains visible during horizontal scroll
 - **Persistent Sizing**: Maintains column widths across sessions
 
+**Action Buttons (Per Row)**
+- **Make Call** (Green): Start call monitoring session
+- **Edit Call** (Green): Open edit modal with tabbed interface
+- **Archive** (Orange): Soft-delete call (reversible)
+- **Delete** (Red): Permanently remove call with confirmation
+- **Compact Design**: 26px × 26px uniform sizing prevents wrapping
+- **Hover Effects**: Visual feedback on all buttons
+- **Icon Clarity**: 12px icons for optimal visibility
+
 **Responsive Design**
 - **Compact Layout**: Optimized for information density
 - **Horizontal Scroll**: Wide tables remain accessible on smaller screens
 - **Mobile Friendly**: Touch-optimized interactions
+- **Action Button Sizing**: Prevents button overflow on smaller screens
 
 ### 4. Call Monitor (`/monitor.html`)
 - **Purpose**: Live monitoring of active calls
@@ -189,6 +206,88 @@ These pages are stored in `/test-pages/` directory and are not served publicly:
 - **Location**: `/test-pages/monitor-test.html`
 - **Purpose**: Testing monitor functionality
 - **Usage**: Developer testing only
+
+## Edge Functions
+
+### Supabase Edge Functions (Deno Runtime)
+
+The application uses several edge functions for server-side operations that require elevated permissions or external API calls:
+
+#### `save-classification`
+**Purpose**: Create or update call classification data
+- **Input**: Phone number, clinic name, classification type, IVR actions, confidence score
+- **Authentication**: Requires user session token
+- **Output**: Created/updated classification ID
+- **Location**: `supabase-functions/save-classification.ts`
+
+#### `delete-call`
+**Purpose**: Permanently delete a pending call record
+- **Input**: Call ID
+- **Authentication**: Requires user session token
+- **Validation**: Verifies call exists before deletion
+- **Output**: Success confirmation with deleted call details
+- **Location**: `supabase-functions/delete-call.ts`
+- **Note**: This is a permanent deletion, not archival
+
+#### `archive-call`
+**Purpose**: Soft-delete a call by setting is_active to false
+- **Input**: Call ID
+- **Authentication**: Requires user session token
+- **Output**: Success confirmation
+- **Location**: `supabase-functions/archive-call.ts`
+- **Reversible**: Can be undone with unarchive-call
+
+#### `unarchive-call`
+**Purpose**: Restore an archived call by setting is_active to true
+- **Input**: Call ID
+- **Authentication**: Requires user session token
+- **Output**: Success confirmation
+- **Location**: `supabase-functions/unarchive-call.ts`
+
+#### `detect-timezone`
+**Purpose**: Auto-detect timezone from clinic address using Google Maps APIs
+- **Input**: Single address or array of addresses
+- **External APIs**:
+  - Google Maps Geocoding API (address → coordinates)
+  - Google Maps Time Zone API (coordinates → timezone)
+- **Authentication**: Requires user session token
+- **Output**: Array of results with timezone, lat/lng, or error messages
+- **Location**: `supabase-functions/detect-timezone.ts`
+- **Configuration**: Requires `GOOGLE_MAPS_API_KEY` environment variable
+- **Setup Guide**: See `GOOGLE-MAPS-SETUP.md` for detailed setup instructions
+- **Cost**: $10 per 1,000 addresses (with $200/month free tier)
+
+#### `import-calls`
+**Purpose**: Bulk import multiple calls from parsed file data
+- **Input**: Array of call records with all required fields
+- **Validation**: Phone number format, required fields, date formats
+- **Authentication**: Requires user session token
+- **Output**: Success count and any error details
+- **Location**: `supabase-functions/import-calls.ts`
+- **Features**: Batch processing, duplicate detection, error reporting
+
+### Edge Function Authentication
+
+All edge functions require user authentication:
+```javascript
+const authHeader = req.headers.get('Authorization')
+const token = authHeader.replace('Bearer ', '')
+const { data: { user }, error } = await supabase.auth.getUser(token)
+
+if (error || !user) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
+}
+```
+
+### CORS Headers
+
+All edge functions include CORS headers for browser access:
+```javascript
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+```
 
 ## Configuration
 
@@ -424,6 +523,31 @@ UI Update with Animation
 4. **Search & Investigate**: Use search to find specific calls
 5. **Take Action**: Click through to monitor or manage specific calls
 
+### Creating a New Call Workflow
+1. **Click "New Call"**: Open the new call form from dashboard
+2. **Fill Employee Information**: Enter exam ID, name, DOB, client name
+3. **Set Appointment Details**: Date/time, visit type, procedures
+4. **Enter Clinic Information**: Name, phone, address, timezone
+5. **Configure Task**: Select task type (Records Request, etc.)
+6. **Submit**: Call appears in dashboard immediately
+
+### Bulk Import Workflow
+1. **Open Import Wizard**: Click "Import Calls" button
+2. **Upload File**: Drag & drop or select Excel/CSV file
+3. **Map Columns**: Verify automatic column mapping or adjust manually
+4. **Select Rows**: Choose which rows to import (or select all)
+5. **Review Data**: Check transformations and data quality
+6. **Auto-Detect Timezones**: (Optional) Let system detect timezones from addresses
+7. **Import**: Complete import and verify success
+
+### Edit Call Workflow
+1. **Click Edit Button**: Green edit icon in call row
+2. **Choose Tab**:
+   - **Edit Call Tab**: Modify call details, appointment info, clinic data
+   - **Edit Classification Tab**: Configure call handling and IVR actions
+3. **Make Changes**: Update fields as needed
+4. **Save**: Changes applied immediately with real-time update
+
 ### Filter Management Workflow
 1. **Set Filters**: Configure desired filter combination
 2. **Save Preset**: Click "Save Filter" and name the combination
@@ -435,6 +559,12 @@ UI Update with Animation
 2. **Review Results**: See filtered results instantly
 3. **Clear Search**: Use clear button or empty field to reset
 4. **Combine Filters**: Use search with existing filters for precise results
+
+### Archive/Delete Workflow
+1. **Archive**: Click orange archive icon to soft-delete call
+2. **Unarchive**: Change filter to "Inactive", click green unarchive icon
+3. **Delete**: Click red delete icon, confirm in modal (permanent)
+4. **Verify**: Call removed or archived status updated immediately
 
 ## Performance Considerations
 
@@ -452,22 +582,35 @@ UI Update with Animation
 
 ## File Structure
 ```
-/public/                    # Publicly accessible files
-├── login.html             # Login page
-├── mfa.html              # MFA verification
-├── dashboard.html        # Main dashboard
-├── monitor.html          # Call monitor
-├── /scripts/             # JavaScript files
-│   ├── config.js         # Configuration loader
-│   ├── dashboard.js      # Dashboard logic
-│   └── call-monitor.js   # Monitor logic
-├── /styles/              # CSS files
-│   └── monitor.css       # Main stylesheet
-└── config.json          # Production config (git-ignored)
+/public/                        # Publicly accessible files
+├── login.html                 # Login page
+├── mfa.html                  # MFA verification
+├── dashboard.html            # Main dashboard
+├── monitor.html              # Call monitor
+├── /scripts/                 # JavaScript files
+│   ├── config.js             # Configuration loader
+│   ├── dashboard.js          # Dashboard logic (3300+ lines)
+│   └── call-monitor.js       # Monitor logic (2600+ lines)
+├── /styles/                  # CSS files
+│   └── monitor.css           # Main stylesheet (2600+ lines)
+└── config.json              # Production config (git-ignored)
 
-/test-pages/              # Internal test pages (not served)
-├── test-realtime.html    # Realtime testing
-└── monitor-test.html     # Monitor testing
+/test-pages/                  # Internal test pages (not served)
+├── test-realtime.html        # Realtime testing
+└── monitor-test.html         # Monitor testing
+
+/supabase-functions/          # Edge functions (Deno runtime)
+├── save-classification.ts    # Create/update call classifications
+├── delete-call.ts           # Permanently delete calls
+├── archive-call.ts          # Soft-delete calls
+├── unarchive-call.ts        # Restore archived calls
+├── detect-timezone.ts       # Auto-detect timezones via Google Maps
+└── import-calls.ts          # Bulk import calls from files
+
+/docs/                        # Documentation
+├── UI_DOCUMENTATION.md       # This file - comprehensive UI guide
+├── GOOGLE-MAPS-SETUP.md     # Setup guide for timezone detection
+└── RLS_POLICY_REVIEW.md     # Security policy documentation
 ```
 
 ## Deployment
@@ -531,33 +674,279 @@ npm run serve
 ## Future Enhancements
 
 ### Planned Features
-- [ ] Export Functionality: Download filtered data
-- [ ] Advanced Analytics: Call statistics and trends  
-- [ ] Notification System: Alerts for critical events
-- [ ] Bulk Actions: Multi-select operations
-- [ ] Column Customization: User-defined column visibility
-- [ ] Call Recording Playback: Audio playback interface
-- [ ] User Preference Persistence: Save user settings
+- [ ] Export Functionality: Download filtered data as CSV/Excel
+- [ ] Advanced Analytics: Call statistics, success rates, and trends dashboard
+- [ ] Notification System: Browser notifications for critical events
+- [ ] Bulk Actions: Multi-select operations for batch processing
+- [ ] Column Customization: User-defined column visibility and order
+- [ ] Call Recording Playback: Audio playback interface in monitor
+- [ ] Advanced Timezone Detection: Batch timezone fix for existing calls
+- [ ] Duplicate Detection: Warn about potential duplicate calls during import
+- [ ] Call Templates: Save and reuse common call configurations
+- [ ] Advanced IVR Testing: Test IVR flows before making calls
 
 ### Performance Optimizations
-- [ ] Virtual scrolling for large datasets
-- [ ] Debounced real-time updates
-- [ ] Progressive data loading
-- [ ] WebSocket reconnection backoff
+- [ ] Virtual scrolling for large datasets (1000+ calls)
+- [ ] Debounced real-time updates for high-frequency changes
+- [ ] Progressive data loading with pagination
+- [ ] WebSocket reconnection with exponential backoff
+- [ ] Optimized import for very large files (10,000+ rows)
+- [ ] Client-side caching for classification data
+
+### Recently Completed ✅
+- [x] Bulk Import: Excel/CSV file upload with 6-step wizard
+- [x] New Call Form: Create individual calls from dashboard
+- [x] Edit Call Modal: Comprehensive editing with tabs
+- [x] Delete Functionality: Permanent call deletion with confirmation
+- [x] Archive/Unarchive: Soft delete with reversible archive
+- [x] Timezone Auto-Detection: Google Maps API integration
+- [x] Enhanced Search: Real-time filtering across all fields
+- [x] Action Buttons: Standardized, responsive button design
+- [x] Mobile Responsive: Optimized layouts for all screen sizes
+- [x] Modal Scrolling: Proper overflow handling for long forms
+
+## Recent Major Updates
+
+### October 2025 - Dashboard v10 & Call Monitor v3
+
+#### 📁 Import Wizard (Bulk Call Uploads)
+**Complete 6-step import workflow for uploading multiple calls from Excel/CSV files**
+
+**Step 1: File Upload**
+- **Drag & Drop Support**: Drop files directly onto upload area
+- **File Type Support**: Excel (.xlsx, .xls) and CSV (.csv) files
+- **Visual Feedback**: Drag hover effects and upload status
+- **File Preview**: Shows file name and record count after upload
+
+**Step 2: Column Mapping**
+- **Automatic Mapping**: Smart detection of column headers to database fields
+- **Manual Adjustment**: Dropdown selectors for each required field
+- **Required Fields**:
+  - Exam ID
+  - Employee Name
+  - Employee DOB
+  - Client Name
+  - Appointment Time
+  - Type of Visit
+  - Clinic Name
+  - Phone Number
+  - Clinic Timezone
+- **Optional Fields**:
+  - Procedures
+  - Clinic Provider Address
+  - Task Type
+- **Visual Validation**: Shows mapped vs unmapped columns
+
+**Step 3: Row Selection**
+- **Bulk Actions**: Select All, Select None, Toggle Selection
+- **Individual Selection**: Click rows to include/exclude from import
+- **Live Preview**: Shows data from mapped columns
+- **Import Count**: Real-time count of selected rows
+
+**Step 4: Review & Transformations**
+- **Automatic Transformations**:
+  - Walk-in visit type normalization
+  - Phone number formatting
+  - Date formatting for Excel serial dates
+  - Timezone standardization
+- **Visual Review**: Table showing all data to be imported
+- **Edit Before Import**: Final chance to review data
+
+**Step 5: Auto-Detect Timezones** (Optional)
+- **Google Maps Integration**: Automatic timezone detection from clinic addresses
+- **Batch Processing**: Processes all addresses with missing timezones
+- **Progress Indicator**: Shows processing status
+- **Fallback**: Manual timezone entry if auto-detection fails
+- **Configuration Required**: Google Maps API key (see GOOGLE-MAPS-SETUP.md)
+
+**Step 6: Final Import**
+- **Batch Upload**: Efficiently uploads all selected records
+- **Progress Bar**: Visual feedback during upload
+- **Error Handling**: Reports any failed imports with reasons
+- **Success Summary**: Shows count of successfully imported calls
+- **Automatic Refresh**: Dashboard updates with new calls
+
+**Import Features**:
+- **Reset Between Imports**: Clean state for consecutive imports
+- **Validation**: Phone number format validation (accepts formatted numbers)
+- **Error Messages**: Clear feedback for validation issues
+- **Duplicate Prevention**: Checks for existing records
+- **Debug Logging**: Detailed logs for troubleshooting
+
+#### ➕ New Pending Call Form
+**Create individual calls directly from the dashboard**
+
+**Form Features**:
+- **Comprehensive Fields**: All required pending_call attributes
+- **Employee Information**:
+  - Exam ID
+  - Employee Name
+  - Employee Date of Birth
+  - Client Name
+- **Appointment Details**:
+  - Appointment Date/Time (datetime-local picker)
+  - Type of Visit (Appointment/Walk-in)
+  - Procedures (optional textarea)
+- **Clinic Information**:
+  - Clinic Name
+  - Phone Number (with format validation)
+  - Clinic Provider Address (optional)
+  - Clinic Timezone (dropdown selector)
+- **Task Configuration**:
+  - Task Type (Records Request, etc.)
+- **Validation**: Required field validation before submission
+- **Default State**: Sets workflow_state to 'pending' for new calls
+- **Real-time Update**: New call appears in table immediately after creation
+
+#### ✏️ Enhanced Edit Modal with Tabs
+**Comprehensive editing interface for both call data and classifications**
+
+**Two-Tab Interface**:
+
+**Tab 1: Edit Call**
+- **Full Call Editing**: Edit all pending_call fields
+- **Same Fields as New Call Form**: Consistent interface
+- **Employee Information**: Exam ID, name, DOB, client name
+- **Appointment Information**: Time, visit type, procedures
+- **Clinic Information**: Name, phone, address, timezone
+- **Task Information**: Task type configuration
+- **Validation**: Required fields enforced
+- **Smart Save**: Updates only call data when on this tab
+
+**Tab 2: Edit Classification**
+- **Classification Management**: Configure call handling behavior
+- **Phone & Clinic**: Phone number and clinic name association
+- **Classification Types**:
+  - Human Only
+  - IVR Only
+  - IVR then Human
+  - Transfer
+- **IVR Actions Configuration**:
+  - Action Type: DTMF, Speech, Transfer, Wait
+  - Action Value: Button press, speech text, or transfer number
+  - Timing (ms): When to execute action
+  - Add/Remove Actions: Dynamic action list
+- **Confidence Score**: Slider for classification confidence (0-1)
+- **Smart Save**: Updates classification data when on this tab
+
+**Modal Features**:
+- **Tab Switching**: Click tabs to switch between Call and Classification editing
+- **Visual Active State**: Green underline and background for active tab
+- **Persistent Data**: Loads existing data when editing
+- **Cancel Option**: Discard changes and close modal
+- **Success Feedback**: Toast notifications on successful save
+- **Error Handling**: Clear error messages on validation or save failures
+
+#### 🗑️ Delete Call Functionality
+**Permanently remove pending calls with confirmation**
+
+**Features**:
+- **Delete Button**: Red trash icon button in action column
+- **Confirmation Modal**:
+  - Warning message with call details
+  - Shows employee name and clinic name
+  - "This action cannot be undone" warning
+  - Cancel and Delete options
+- **Edge Function**: `delete-call` Supabase function
+- **Authentication Required**: User must be logged in
+- **Success Feedback**: Toast notification with deleted call info
+- **Real-time Update**: Call removed from table immediately
+- **Audit Trail**: Console logging of deletion events
+
+#### 📦 Archive/Unarchive Functionality
+**Manage call visibility with archive toggle**
+
+**Dashboard Implementation**:
+- **Active Status Filter**: Toggle between Active/Inactive/All calls
+- **Archive Button**: Orange archive icon in action column
+- **Batch Archive**: Archive multiple calls
+- **Visual Indicator**: Archived calls shown with muted styling
+- **Persistent Filter**: Remembers active/inactive preference
+
+**Monitor Page Implementation**:
+- **Archive Call Button**: Full-width button with icon and text
+- **Unarchive Mode**: Button changes to green "Unarchive Call" when viewing archived call
+- **Real-time Update**: Immediate feedback on archive status change
+- **Edge Function**: `archive-call` and `unarchive-call` Supabase functions
+- **Success Feedback**: Toast notifications
+
+**Archive Features**:
+- **Soft Delete**: Calls remain in database but hidden from active view
+- **Reversible**: Can unarchive calls at any time
+- **Filter Integration**: Works with existing filter system
+- **Search Compatibility**: Archived calls excluded from search unless filter includes inactive
+
+#### 🎨 Action Button Improvements
+**Standardized, responsive action buttons across the application**
+
+**Dashboard Buttons**:
+- **Compact Design**: 26px × 26px uniform sizing
+- **Icon-Only**: Space-efficient for table rows
+- **Color Coding**:
+  - Green: Play (make call) and Edit buttons
+  - Orange: Archive button
+  - Red: Delete button
+- **Icon Size**: 12px icons for clarity
+- **Spacing**: 3px margin between buttons
+- **Hover Effects**: Subtle lift and shadow on hover
+- **No Wrapping**: Optimized sizing prevents button wrap to second line
+
+**Monitor Page Buttons**:
+- **Full-Size Design**: Larger buttons with text labels
+- **Button Styles**:
+  - **Reset & Retry Call**: Blue button with circular arrow icon
+  - **Edit Classification**: Green button with pencil icon
+  - **Archive Call**: Orange button with archive icon
+- **Padding**: 10px 16px for comfortable clicking
+- **Icon Size**: 18px icons with text labels
+- **Font Weight**: 600 weight for button text
+- **Border Radius**: 8px rounded corners
+- **Responsive**: Adapts to container width
+
+**Consistent Behavior**:
+- **Hover Effects**: Transform translateY(-1px) with enhanced shadow
+- **Active State**: Press down effect
+- **Disabled State**: Grayed out with no-cursor
+- **Visual Feedback**: All button clicks show immediate feedback
+
+#### 🔍 Enhanced Search Functionality
+**Improved search with better performance and coverage**
+
+**Search Improvements**:
+- **Real-Time Filtering**: Instant results as you type
+- **Comprehensive Coverage**: Searches all visible fields
+- **Case-Insensitive**: Smart matching regardless of case
+- **Clear Button**: Quick reset with visual X button
+- **Keyboard Support**: Enter key support
+- **Performance**: Optimized search algorithm
+- **Filter Compatibility**: Works alongside dropdown filters
+- **Persistent State**: Maintains search during real-time updates
+
+#### 📱 Mobile & Responsive Design
+**Optimized layouts for all screen sizes**
+
+**Responsive Features**:
+- **Mobile Layout**: Stacked form fields on small screens
+- **Tablet Optimization**: 2-column layouts where appropriate
+- **Touch Targets**: Larger buttons and clickable areas
+- **Horizontal Scroll**: Table scrolls horizontally on narrow screens
+- **Modal Responsiveness**: Modals adapt to screen size
+- **Font Scaling**: Readable text on all devices
+- **Navigation**: Touch-friendly menu and controls
+
+#### 🔐 Security & RLS Improvements
+**Enhanced security policies and documentation**
+
+**RLS Policy Review**:
+- **Comprehensive Documentation**: Detailed RLS policy review
+- **Service Role Policies**: Documented edge function authentication
+- **Policy Testing**: Verified all policies work correctly
+- **Access Control**: Proper row-level security for all tables
+- **Edge Function Auth**: Session token required for sensitive operations
 
 ---
 
-*Last Updated: September 2025*  
-*Dashboard Version: v8*  
-*Call Monitor Version: v2*  
-*Based on commit: 1e7e2f1*
-
-## Recent Updates (September 2025)
-
-### Call Monitor Enhancements (v2)
-- **Flyout Panel Redesign**: Modern fixed-position panel with full-height layout
-- **Foldable Sections**: Collapsible Workflow Metadata and IVR Events sections
-- **Compact IVR Events**: Condensed display format for better space utilization
-- **Calling Status Animation**: Real-time visual feedback for active calls
-- **Improved Header Layout**: Session date/time moved to header area
-- **Enhanced Information Hierarchy**: Better organization of session details
+*Last Updated: October 2025*
+*Dashboard Version: v10*
+*Call Monitor Version: v3*
+*Based on commit: 9f29da3*
