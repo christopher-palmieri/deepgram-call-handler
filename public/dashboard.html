@@ -144,6 +144,47 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Row Limit Selector -->
+                    <div class="filter-group">
+                        <label class="filter-label">Show:</label>
+                        <div class="dropdown-filter">
+                            <button class="dropdown-toggle" id="rowLimitToggle">
+                                <span class="filter-text">50 rows</span>
+                                <span class="dropdown-arrow">▼</span>
+                            </button>
+                            <div class="dropdown-menu" id="rowLimitMenu">
+                                <label class="dropdown-item">
+                                    <input type="radio" name="rowLimit" value="10"> 10 rows
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="radio" name="rowLimit" value="50" checked> 50 rows
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="radio" name="rowLimit" value="100"> 100 rows
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Old Calls Toggle -->
+                    <div class="filter-group">
+                        <label class="filter-label">Age:</label>
+                        <div class="dropdown-filter">
+                            <button class="dropdown-toggle" id="ageFilterToggle">
+                                <span class="filter-text">Last 6 Months</span>
+                                <span class="dropdown-arrow">▼</span>
+                            </button>
+                            <div class="dropdown-menu" id="ageFilterMenu">
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="recent" checked> Last 6 Months
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="old"> Include Old (6+ months)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                     <!-- Filter Presets Section -->
@@ -197,6 +238,14 @@
                         </tr>
                     </tbody>
                 </table>
+
+                <!-- Show More Button -->
+                <div class="show-more-container" style="text-align: center; padding: 20px; display: none;">
+                    <button class="show-more-btn" onclick="loadMoreCalls()">
+                        <span class="btn-text">Show More</span>
+                        <span class="btn-subtext" id="showMoreCount">(Load 50 more)</span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>

@@ -7,7 +7,9 @@ let currentFilters = {
     status: ['all'],
     dateRange: ['all'],
     taskType: ['all'],
-    activeStatus: ['active']  // Default to active only
+    activeStatus: ['active'],  // Default to active only
+    rowLimit: 50,  // Default row limit
+    ageFilter: ['recent']  // Default to last 6 months only
 };
 let realtimeChannel = null;
 let callSessionsChannel = null;
@@ -15,6 +17,10 @@ let pollingInterval = null;
 let isRealtimeWorking = false;
 let currentSort = { field: null, direction: 'asc' };
 let searchQuery = '';
+
+// Pagination state
+let currentOffset = 0;
+let hasMoreRows = false;
 
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', async () => {
@@ -88,11 +94,17 @@ window.addEventListener('DOMContentLoaded', async () => {
 });
 
 // Load pending calls
-async function loadPendingCalls() {
+async function loadPendingCalls(append = false) {
     try {
+        // Reset offset if not appending
+        if (!append) {
+            currentOffset = 0;
+            allCalls = [];
+        }
+
         let query = supabase
             .from('pending_calls')
-            .select('*, call_sessions(*)');
+            .select('*, call_sessions(*)', { count: 'exact' });
 
         // Apply is_active filter based on current selection
         const activeFilter = currentFilters.activeStatus;
@@ -105,19 +117,64 @@ async function loadPendingCalls() {
         }
         // If both or neither selected, don't filter (show all)
 
-        const { data: calls, error } = await query
+        // Apply age filter (server-side date filtering)
+        const ageFilter = currentFilters.ageFilter;
+        if (ageFilter.includes('recent') && !ageFilter.includes('old')) {
+            // Only show calls from last 6 months
+            const sixMonthsAgo = new Date();
+            sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+            query = query.gte('appointment_time', sixMonthsAgo.toISOString());
+        }
+        // If 'old' is selected or both are selected, show all ages
+
+        // Get row limit
+        const limit = currentFilters.rowLimit || 50;
+
+        const { data: calls, error, count } = await query
             .order('created_at', { ascending: false })
-            .limit(50);
+            .range(currentOffset, currentOffset + limit - 1);
 
         if (error) throw error;
 
-        allCalls = calls || [];
+        // Check if there are more rows to load
+        hasMoreRows = count && count > (currentOffset + (calls?.length || 0));
+
+        // Update offset for next load
+        currentOffset += calls?.length || 0;
+
+        // Append or replace calls
+        if (append) {
+            allCalls = [...allCalls, ...(calls || [])];
+        } else {
+            allCalls = calls || [];
+        }
+
         renderCallsTable();
+        updateShowMoreButton();
 
     } catch (error) {
         console.error('Error loading calls:', error);
         document.getElementById('callsTableBody').innerHTML =
             '<tr><td colspan="12" class="empty-table">Error loading calls</td></tr>';
+    }
+}
+
+// Load more calls (pagination)
+async function loadMoreCalls() {
+    await loadPendingCalls(true);
+}
+
+// Update Show More button visibility and text
+function updateShowMoreButton() {
+    const container = document.querySelector('.show-more-container');
+    const countText = document.getElementById('showMoreCount');
+
+    if (hasMoreRows) {
+        container.style.display = 'block';
+        const limit = currentFilters.rowLimit || 50;
+        countText.textContent = `(Load ${limit} more)`;
+    } else {
+        container.style.display = 'none';
     }
 }
 
@@ -847,6 +904,8 @@ function initializeDropdownFilters() {
     initializeDropdown('dateFilterToggle', 'dateFilterMenu', 'dateRange');
     initializeDropdown('taskFilterToggle', 'taskFilterMenu', 'taskType');
     initializeDropdown('activeFilterToggle', 'activeFilterMenu', 'activeStatus');
+    initializeRowLimitDropdown('rowLimitToggle', 'rowLimitMenu');
+    initializeDropdown('ageFilterToggle', 'ageFilterMenu', 'ageFilter');
 
     // Close dropdowns when clicking outside
     document.addEventListener('click', (e) => {
@@ -859,25 +918,66 @@ function initializeDropdownFilters() {
 function initializeDropdown(toggleId, menuId, filterType) {
     const toggle = document.getElementById(toggleId);
     const menu = document.getElementById(menuId);
-    
+
     if (!toggle || !menu) return;
-    
+
     toggle.addEventListener('click', (e) => {
         e.stopPropagation();
         const isOpen = menu.classList.contains('show');
-        
+
         closeAllDropdowns();
-        
+
         if (!isOpen) {
             menu.classList.add('show');
             toggle.classList.add('active');
         }
     });
-    
+
     // Handle checkbox changes
     menu.addEventListener('change', (e) => {
         if (e.target.type === 'checkbox') {
             handleFilterChange(filterType, e.target.value, e.target.checked);
+        }
+    });
+}
+
+// Special handler for row limit dropdown (uses radio buttons)
+function initializeRowLimitDropdown(toggleId, menuId) {
+    const toggle = document.getElementById(toggleId);
+    const menu = document.getElementById(menuId);
+
+    if (!toggle || !menu) return;
+
+    toggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = menu.classList.contains('show');
+
+        closeAllDropdowns();
+
+        if (!isOpen) {
+            menu.classList.add('show');
+            toggle.classList.add('active');
+        }
+    });
+
+    // Handle radio button changes
+    menu.addEventListener('change', (e) => {
+        if (e.target.type === 'radio' && e.target.name === 'rowLimit') {
+            const limit = parseInt(e.target.value);
+            currentFilters.rowLimit = limit;
+
+            // Update display text
+            const filterText = toggle.querySelector('.filter-text');
+            filterText.textContent = `${limit} rows`;
+
+            // Reload calls from beginning with new limit
+            loadPendingCalls();
+
+            // Save to localStorage
+            saveFiltersToStorage();
+
+            // Close dropdown after selection
+            setTimeout(() => closeAllDropdowns(), 150);
         }
     });
 }
@@ -925,8 +1025,8 @@ function handleFilterChange(filterType, value, checked) {
     updateFilterDisplay(filterType);
     saveFiltersToStorage();
 
-    // For activeStatus filter, we need to reload data from database
-    if (filterType === 'activeStatus') {
+    // For activeStatus and ageFilter, we need to reload data from database
+    if (filterType === 'activeStatus' || filterType === 'ageFilter') {
         loadPendingCalls();
     } else {
         renderCallsTable();
@@ -937,7 +1037,8 @@ function updateCheckboxes(filterType, selectedValues) {
     const menuId = filterType === 'status' ? 'statusFilterMenu' :
                    filterType === 'dateRange' ? 'dateFilterMenu' :
                    filterType === 'taskType' ? 'taskFilterMenu' :
-                   filterType === 'activeStatus' ? 'activeFilterMenu' : null;
+                   filterType === 'activeStatus' ? 'activeFilterMenu' :
+                   filterType === 'ageFilter' ? 'ageFilterMenu' : null;
     const menu = document.getElementById(menuId);
 
     if (!menu) return;
@@ -951,7 +1052,8 @@ function updateFilterDisplay(filterType) {
     const toggleId = filterType === 'status' ? 'statusFilterToggle' :
                      filterType === 'dateRange' ? 'dateFilterToggle' :
                      filterType === 'taskType' ? 'taskFilterToggle' :
-                     filterType === 'activeStatus' ? 'activeFilterToggle' : null;
+                     filterType === 'activeStatus' ? 'activeFilterToggle' :
+                     filterType === 'ageFilter' ? 'ageFilterToggle' : null;
     const toggle = document.getElementById(toggleId);
 
     if (!toggle) return;
@@ -964,11 +1066,14 @@ function updateFilterDisplay(filterType) {
         displayText = filterType === 'status' ? 'All Statuses' :
                      filterType === 'dateRange' ? 'All Dates' :
                      filterType === 'taskType' ? 'All Tasks' :
-                     filterType === 'activeStatus' ? 'All' : 'All';
+                     filterType === 'activeStatus' ? 'All' :
+                     filterType === 'ageFilter' ? 'All Ages' : 'All';
     } else if (selected.length === 1) {
         displayText = formatFilterValue(selected[0]);
     } else if (selected.length === 2 && filterType === 'activeStatus') {
         displayText = 'All'; // Both active and inactive = all
+    } else if (selected.length === 2 && filterType === 'ageFilter') {
+        displayText = 'All Ages'; // Both recent and old = all ages
     } else {
         displayText = `${selected.length} selected`;
     }
@@ -1003,7 +1108,11 @@ function formatFilterValue(value) {
 
         // Active status values
         'active': 'Active Only',
-        'inactive': 'Inactive Only'
+        'inactive': 'Inactive Only',
+
+        // Age filter values
+        'recent': 'Last 6 Months',
+        'old': 'Include Old (6+ months)'
     };
 
     return formatMap[value] || value;
@@ -3339,6 +3448,7 @@ window.confirmDeleteCall = confirmDeleteCall;
 window.viewCallDetails = viewCallDetails;
 window.monitorCall = monitorCall;
 window.logout = logout;
+window.loadMoreCalls = loadMoreCalls;
 window.showSaveFilterModal = showSaveFilterModal;
 window.closeSaveFilterModal = closeSaveFilterModal;
 window.saveFilterPreset = saveFilterPreset;
