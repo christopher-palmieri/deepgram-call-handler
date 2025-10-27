@@ -6,6 +6,7 @@
     <title>AI Active Calls</title>
     <link rel="icon" type="image/png" href="/favicon.png">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="/styles/monitor.css">
 </head>
 <body>
@@ -156,7 +157,10 @@
                 
                 <!-- Search Section -->
                 <div class="search-section">
-                    <button class="refresh-btn new-call-btn" onclick="showNewCallModal()">+ New Call</button>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="refresh-btn new-call-btn" onclick="showNewCallModal()">+ New Call</button>
+                        <button class="refresh-btn new-call-btn" onclick="showImportModal()">📁 Import Calls</button>
+                    </div>
                     <div class="search-container">
                         <input type="text" id="searchInput" placeholder="Search calls..." class="search-input">
                         <button class="search-clear" id="searchClear" onclick="clearSearch()" style="display: none;">&times;</button>
@@ -390,10 +394,93 @@
         </div>
     </div>
 
+    <!-- Import Calls Modal -->
+    <div id="importModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 900px; max-height: 90vh;">
+            <div class="modal-header">
+                <h3 id="importModalTitle">Import Calls</h3>
+                <button class="modal-close" onclick="closeImportModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="overflow-y: auto;">
+
+                <!-- Step 1: File Upload -->
+                <div id="importStep1" class="import-step">
+                    <h4>Step 1: Upload File</h4>
+                    <p style="color: #666; margin-bottom: 16px;">Upload an .xlsx or .csv file containing call data</p>
+                    <div class="file-upload-area" id="fileUploadArea">
+                        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display: none;" onchange="handleFileUpload(event)">
+                        <div class="upload-prompt" onclick="document.getElementById('fileInput').click()">
+                            <div style="font-size: 48px; margin-bottom: 12px;">📁</div>
+                            <div style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">Click to browse or drag & drop</div>
+                            <div style="font-size: 14px; color: #666;">Supports .xlsx, .xls, .csv files</div>
+                        </div>
+                    </div>
+                    <div id="fileInfo" style="display: none; margin-top: 16px; padding: 12px; background: #f0f9ff; border-radius: 6px; border: 1px solid #bae6fd;">
+                        <div style="font-weight: 600; margin-bottom: 4px;">File loaded:</div>
+                        <div id="fileName" style="color: #666;"></div>
+                        <div id="fileStats" style="color: #666; margin-top: 4px;"></div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Column Mapping -->
+                <div id="importStep2" class="import-step" style="display: none;">
+                    <h4>Step 2: Map Columns</h4>
+                    <p style="color: #666; margin-bottom: 16px;">Match your file columns to database fields</p>
+                    <div id="columnMappingContainer"></div>
+                </div>
+
+                <!-- Step 3: Transformations -->
+                <div id="importStep3" class="import-step" style="display: none;">
+                    <h4>Step 3: Configure Transformations</h4>
+                    <p style="color: #666; margin-bottom: 16px;">Review and adjust data transformations</p>
+                    <div id="transformationsContainer"></div>
+                </div>
+
+                <!-- Step 4: Row Selection -->
+                <div id="importStep4" class="import-step" style="display: none;">
+                    <h4>Step 4: Select Rows to Import</h4>
+                    <p style="color: #666; margin-bottom: 16px;">Choose which rows you want to import</p>
+                    <div style="margin-bottom: 12px;">
+                        <button class="modal-btn secondary" onclick="selectAllRows()">Select All</button>
+                        <button class="modal-btn secondary" onclick="selectNoneRows()">Select None</button>
+                        <span id="selectionCount" style="margin-left: 12px; color: #666;"></span>
+                    </div>
+                    <div id="rowSelectionContainer" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>
+
+                <!-- Step 5: Preview -->
+                <div id="importStep5" class="import-step" style="display: none;">
+                    <h4>Step 5: Preview & Validate</h4>
+                    <p style="color: #666; margin-bottom: 16px;">Review data before importing</p>
+                    <div id="validationSummary" style="margin-bottom: 16px;"></div>
+                    <div id="previewContainer" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>
+
+                <!-- Step 6: Import Progress -->
+                <div id="importStep6" class="import-step" style="display: none;">
+                    <h4>Importing...</h4>
+                    <div id="importProgress" style="margin: 32px 0;">
+                        <div style="background: #e5e7eb; border-radius: 8px; height: 24px; overflow: hidden; margin-bottom: 12px;">
+                            <div id="progressBar" style="background: #10b981; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                        </div>
+                        <div id="progressText" style="text-align: center; color: #666;"></div>
+                    </div>
+                    <div id="importResults" style="display: none;"></div>
+                </div>
+
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" id="importBackBtn" onclick="importPreviousStep()" style="display: none;">Back</button>
+                <button class="modal-btn secondary" onclick="closeImportModal()">Cancel</button>
+                <button class="modal-btn primary" id="importNextBtn" onclick="importNextStep()">Next</button>
+            </div>
+        </div>
+    </div>
+
     <footer class="footer">
         <img src="https://nmshealth.com/wp-content/uploads/2021/12/nms-health-logo-white-18-300x84.png" alt="NMS Health Logo" class="footer-logo">
     </footer>
-    
+
     <script src="/scripts/config.js?v=20250109-7"></script>
     <script src="/scripts/dashboard.js?v=20250109-7"></script>
 </body>

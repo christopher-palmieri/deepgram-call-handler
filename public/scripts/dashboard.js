@@ -2138,6 +2138,713 @@ async function saveNewCall() {
     }
 }
 
+// ============================================
+// IMPORT CALLS FUNCTIONALITY
+// ============================================
+
+// Import state
+let importState = {
+    currentStep: 1,
+    fileData: null,
+    fileName: '',
+    headers: [],
+    rows: [],
+    columnMapping: {},
+    transformations: {},
+    selectedRows: [],
+    validationResults: []
+};
+
+// Column mapping configuration with aliases and fuzzy matching
+const COLUMN_MAPPINGS = {
+    'exam_id': ['ExamIDExternal', 'Exam ID', 'ExamID', 'ID'],
+    'employee_name': ['FullName', 'Employee Name', 'Name', 'Employee'],
+    'employee_dob': ['Birthdate', 'DOB', 'Date of Birth', 'Birth Date'],
+    'client_name': ['Client', 'Client Name', 'Company'],
+    'appointment_time': ['ExamDateTime', 'Appointment Time', 'Appointment', 'DateTime', 'Date Time'],
+    'type_of_visit': ['AppointmentType', 'Visit Type', 'Type', 'Appointment Type'],
+    'phone': ['ProviderPhone', 'Phone', 'Phone Number', 'Clinic Phone'],
+    'clinic_name': ['Provider', 'Clinic', 'Clinic Name', 'Provider Name'],
+    'clinic_provider_address': ['clinicaddress', 'Clinic Address', 'Address', 'Provider Address'],
+    'procedures': ['ProcedureNames', 'Procedures', 'Procedure'],
+    'clinic_timezone': ['TimeZone', 'Timezone', 'TZ'],
+    'task_type': ['TaskType', 'Task', 'Type']
+};
+
+// Transformation rules
+const TRANSFORMATION_RULES = {
+    task_type: {
+        'records': 'records_request',
+        'Records': 'records_request',
+        'schedule': 'schedule',
+        'Schedule': 'schedule',
+        'kit': 'kit_confirmation',
+        'Kit': 'kit_confirmation'
+    },
+    type_of_visit: {
+        'walk-in': 'walk-in',
+        'walkin': 'walk-in',
+        'walk in': 'walk-in',
+        'Walk-in': 'walk-in',
+        'appointment': 'appointment',
+        'Appointment': 'appointment',
+        'appt': 'appointment'
+    },
+    clinic_timezone: {
+        'Eastern': 'America/New_York',
+        'EST': 'America/New_York',
+        'Central': 'America/Chicago',
+        'CST': 'America/Chicago',
+        'Mountain': 'America/Denver',
+        'MST': 'America/Denver',
+        'Pacific': 'America/Los_Angeles',
+        'PST': 'America/Los_Angeles'
+    }
+};
+
+// Show import modal
+function showImportModal() {
+    const modal = document.getElementById('importModal');
+    resetImportState();
+    modal.style.display = 'flex';
+}
+
+// Close import modal
+function closeImportModal() {
+    document.getElementById('importModal').style.display = 'none';
+    resetImportState();
+}
+
+// Reset import state
+function resetImportState() {
+    importState = {
+        currentStep: 1,
+        fileData: null,
+        fileName: '',
+        headers: [],
+        rows: [],
+        columnMapping: {},
+        transformations: {},
+        selectedRows: [],
+        validationResults: []
+    };
+
+    // Reset file input
+    const fileInput = document.getElementById('fileInput');
+    if (fileInput) fileInput.value = '';
+
+    // Show step 1
+    for (let i = 1; i <= 6; i++) {
+        const step = document.getElementById(`importStep${i}`);
+        if (step) step.style.display = i === 1 ? 'block' : 'none';
+    }
+
+    // Reset buttons
+    document.getElementById('importBackBtn').style.display = 'none';
+    document.getElementById('importNextBtn').textContent = 'Next';
+    document.getElementById('importNextBtn').disabled = true;
+
+    // Hide file info
+    document.getElementById('fileInfo').style.display = 'none';
+}
+
+// Navigate to next step
+function importNextStep() {
+    if (importState.currentStep === 1 && importState.fileData) {
+        buildColumnMapping();
+        importState.currentStep = 2;
+    } else if (importState.currentStep === 2) {
+        applyColumnMapping();
+        buildTransformations();
+        importState.currentStep = 3;
+    } else if (importState.currentStep === 3) {
+        applyTransformations();
+        buildRowSelection();
+        importState.currentStep = 4;
+    } else if (importState.currentStep === 4) {
+        if (importState.selectedRows.length === 0) {
+            showToast('Please select at least one row to import');
+            return;
+        }
+        buildPreview();
+        importState.currentStep = 5;
+    } else if (importState.currentStep === 5) {
+        startImport();
+        importState.currentStep = 6;
+    }
+
+    updateStepDisplay();
+}
+
+// Navigate to previous step
+function importPreviousStep() {
+    if (importState.currentStep > 1) {
+        importState.currentStep--;
+        updateStepDisplay();
+    }
+}
+
+// Update step display
+function updateStepDisplay() {
+    // Hide all steps
+    for (let i = 1; i <= 6; i++) {
+        const step = document.getElementById(`importStep${i}`);
+        if (step) step.style.display = 'none';
+    }
+
+    // Show current step
+    const currentStepEl = document.getElementById(`importStep${importState.currentStep}`);
+    if (currentStepEl) currentStepEl.style.display = 'block';
+
+    // Update buttons
+    const backBtn = document.getElementById('importBackBtn');
+    const nextBtn = document.getElementById('importNextBtn');
+
+    backBtn.style.display = importState.currentStep > 1 && importState.currentStep < 6 ? 'inline-block' : 'none';
+
+    if (importState.currentStep === 5) {
+        nextBtn.textContent = 'Import';
+    } else if (importState.currentStep === 6) {
+        nextBtn.style.display = 'none';
+    } else {
+        nextBtn.textContent = 'Next';
+        nextBtn.style.display = 'inline-block';
+    }
+
+    // Enable/disable next button based on current step
+    if (importState.currentStep === 1) {
+        nextBtn.disabled = !importState.fileData;
+    } else {
+        nextBtn.disabled = false;
+    }
+}
+
+// Handle file upload
+function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+
+            // Get first sheet
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+
+            if (jsonData.length < 2) {
+                showToast('File must contain at least a header row and one data row');
+                return;
+            }
+
+            // Store file data
+            importState.fileName = file.name;
+            importState.headers = jsonData[0];
+            importState.rows = jsonData.slice(1).filter(row => row.some(cell => cell !== undefined && cell !== ''));
+            importState.fileData = jsonData;
+
+            // Show file info
+            document.getElementById('fileName').textContent = file.name;
+            document.getElementById('fileStats').textContent = `${importState.headers.length} columns, ${importState.rows.length} rows`;
+            document.getElementById('fileInfo').style.display = 'block';
+
+            // Enable next button
+            document.getElementById('importNextBtn').disabled = false;
+
+            console.log('File loaded:', {
+                headers: importState.headers,
+                rows: importState.rows.length
+            });
+        } catch (error) {
+            console.error('Error parsing file:', error);
+            showToast('Error parsing file: ' + error.message);
+        }
+    };
+
+    reader.readAsArrayBuffer(file);
+}
+
+// Calculate similarity between two strings (simple fuzzy matching)
+function stringSimilarity(str1, str2) {
+    str1 = str1.toLowerCase().trim();
+    str2 = str2.toLowerCase().trim();
+
+    if (str1 === str2) return 100;
+
+    // Check if one contains the other
+    if (str1.includes(str2) || str2.includes(str1)) return 85;
+
+    // Simple character-based similarity
+    const longer = str1.length > str2.length ? str1 : str2;
+    const shorter = str1.length > str2.length ? str2 : str1;
+
+    let matches = 0;
+    for (let char of shorter) {
+        if (longer.includes(char)) matches++;
+    }
+
+    return Math.round((matches / longer.length) * 100);
+}
+
+// Find best matching database field for a file column
+function findBestMatch(fileColumn) {
+    let bestMatch = { field: null, confidence: 0 };
+
+    for (const [dbField, aliases] of Object.entries(COLUMN_MAPPINGS)) {
+        for (const alias of aliases) {
+            const similarity = stringSimilarity(fileColumn, alias);
+            if (similarity > bestMatch.confidence) {
+                bestMatch = { field: dbField, confidence: similarity };
+            }
+        }
+    }
+
+    return bestMatch.confidence >= 70 ? bestMatch : { field: null, confidence: 0 };
+}
+
+// Build column mapping UI
+function buildColumnMapping() {
+    const container = document.getElementById('columnMappingContainer');
+    let html = '';
+
+    importState.headers.forEach((header, index) => {
+        const match = findBestMatch(header);
+        const isHighConfidence = match.confidence >= 90;
+        const isMediumConfidence = match.confidence >= 75 && match.confidence < 90;
+
+        // Auto-set mapping if high confidence
+        if (isHighConfidence && match.field) {
+            importState.columnMapping[index] = match.field;
+        }
+
+        const confidenceBadge = match.confidence > 0
+            ? `<span class="confidence-badge ${isHighConfidence ? 'confidence-high' : isMediumConfidence ? 'confidence-medium' : 'confidence-low'}">${match.confidence}% match</span>`
+            : '';
+
+        html += `
+            <div class="column-mapping-row ${isHighConfidence ? 'suggested' : ''}">
+                <div class="column-label">
+                    ${header || `Column ${index + 1}`}
+                    ${confidenceBadge}
+                </div>
+                <div class="column-arrow">→</div>
+                <div>
+                    <select class="column-select" onchange="updateColumnMapping(${index}, this.value)">
+                        <option value="">-- Skip this column --</option>
+                        <option value="exam_id" ${match.field === 'exam_id' ? 'selected' : ''}>Exam ID *</option>
+                        <option value="employee_name" ${match.field === 'employee_name' ? 'selected' : ''}>Employee Name *</option>
+                        <option value="employee_dob" ${match.field === 'employee_dob' ? 'selected' : ''}>Employee DOB *</option>
+                        <option value="client_name" ${match.field === 'client_name' ? 'selected' : ''}>Client Name *</option>
+                        <option value="appointment_time" ${match.field === 'appointment_time' ? 'selected' : ''}>Appointment Time *</option>
+                        <option value="type_of_visit" ${match.field === 'type_of_visit' ? 'selected' : ''}>Type of Visit *</option>
+                        <option value="phone" ${match.field === 'phone' ? 'selected' : ''}>Phone *</option>
+                        <option value="clinic_name" ${match.field === 'clinic_name' ? 'selected' : ''}>Clinic Name *</option>
+                        <option value="clinic_provider_address" ${match.field === 'clinic_provider_address' ? 'selected' : ''}>Clinic Address</option>
+                        <option value="procedures" ${match.field === 'procedures' ? 'selected' : ''}>Procedures</option>
+                        <option value="clinic_timezone" ${match.field === 'clinic_timezone' ? 'selected' : ''}>Clinic Timezone *</option>
+                        <option value="task_type" ${match.field === 'task_type' ? 'selected' : ''}>Task Type *</option>
+                    </select>
+                </div>
+            </div>
+        `;
+    });
+
+    container.innerHTML = html;
+}
+
+// Update column mapping when user changes selection
+function updateColumnMapping(columnIndex, dbField) {
+    if (dbField) {
+        importState.columnMapping[columnIndex] = dbField;
+    } else {
+        delete importState.columnMapping[columnIndex];
+    }
+    console.log('Column mapping updated:', importState.columnMapping);
+}
+
+// Apply column mapping to create mapped data
+function applyColumnMapping() {
+    // This will be used in later steps
+    console.log('Applying column mapping:', importState.columnMapping);
+}
+
+// Build transformations UI
+function buildTransformations() {
+    const container = document.getElementById('transformationsContainer');
+    let html = '<p style="color: #666; margin-bottom: 12px;">The following transformations will be applied automatically:</p>';
+
+    // Detect which transformations will be applied
+    const detectedTransformations = [];
+
+    for (const [colIndex, dbField] of Object.entries(importState.columnMapping)) {
+        if (TRANSFORMATION_RULES[dbField]) {
+            // Check if any rows have values that need transformation
+            const rules = TRANSFORMATION_RULES[dbField];
+            const hasTransformations = importState.rows.some(row => {
+                const value = row[colIndex];
+                return value && rules[value];
+            });
+
+            if (hasTransformations) {
+                detectedTransformations.push({
+                    field: dbField,
+                    rules: rules
+                });
+            }
+        }
+    }
+
+    if (detectedTransformations.length === 0) {
+        html += '<p style="color: #666;">No transformations needed - data looks good!</p>';
+    } else {
+        detectedTransformations.forEach(transform => {
+            html += `
+                <div class="transformation-item transformation-detected">
+                    <div class="transformation-label">${transform.field}</div>
+                    ${Object.entries(transform.rules).map(([from, to]) =>
+                        `<div class="transformation-rule">"${from}" → "${to}"</div>`
+                    ).join('')}
+                </div>
+            `;
+        });
+    }
+
+    container.innerHTML = html;
+}
+
+// Apply transformations to data
+function applyTransformations() {
+    importState.transformations = TRANSFORMATION_RULES;
+    console.log('Transformations applied');
+}
+
+// Build row selection UI
+function buildRowSelection() {
+    const container = document.getElementById('rowSelectionContainer');
+
+    // Get mapped headers for display
+    const displayHeaders = Object.entries(importState.columnMapping)
+        .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+        .map(([colIndex, dbField]) => ({ colIndex: parseInt(colIndex), dbField }));
+
+    let html = '<table class="row-selection-table"><thead><tr>';
+    html += '<th><input type="checkbox" class="row-checkbox" onchange="toggleAllRows(this.checked)"></th>';
+    html += '<th>Row</th>';
+    displayHeaders.forEach(({ dbField }) => {
+        html += `<th>${dbField.replace(/_/g, ' ')}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+
+    importState.rows.forEach((row, rowIndex) => {
+        html += '<tr>';
+        html += `<td><input type="checkbox" class="row-checkbox" onchange="toggleRowSelection(${rowIndex}, this.checked)"></td>`;
+        html += `<td>${rowIndex + 1}</td>`;
+        displayHeaders.forEach(({ colIndex }) => {
+            const value = row[colIndex] || '';
+            html += `<td>${value}</td>`;
+        });
+        html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+
+    // Reset selected rows
+    importState.selectedRows = [];
+    updateSelectionCount();
+}
+
+// Toggle all rows
+function toggleAllRows(checked) {
+    const checkboxes = document.querySelectorAll('#rowSelectionContainer .row-checkbox');
+    importState.selectedRows = checked ? importState.rows.map((_, i) => i) : [];
+    checkboxes.forEach((checkbox, index) => {
+        if (index > 0) checkbox.checked = checked; // Skip the header checkbox
+    });
+    updateSelectionCount();
+}
+
+// Toggle single row selection
+function toggleRowSelection(rowIndex, checked) {
+    if (checked) {
+        if (!importState.selectedRows.includes(rowIndex)) {
+            importState.selectedRows.push(rowIndex);
+        }
+    } else {
+        importState.selectedRows = importState.selectedRows.filter(i => i !== rowIndex);
+    }
+    updateSelectionCount();
+}
+
+// Update selection count display
+function updateSelectionCount() {
+    const count = importState.selectedRows.length;
+    const total = importState.rows.length;
+    document.getElementById('selectionCount').textContent = `${count} of ${total} rows selected`;
+}
+
+// Select all rows (button handler)
+function selectAllRows() {
+    toggleAllRows(true);
+}
+
+// Select none rows (button handler)
+function selectNoneRows() {
+    toggleAllRows(false);
+}
+
+// Build preview
+function buildPreview() {
+    const summaryContainer = document.getElementById('validationSummary');
+    const previewContainer = document.getElementById('previewContainer');
+
+    // Validate selected rows
+    const validRows = [];
+    const warningRows = [];
+    const errorRows = [];
+
+    importState.selectedRows.forEach(rowIndex => {
+        const row = importState.rows[rowIndex];
+        const mappedRow = {};
+        let hasErrors = false;
+        let hasWarnings = false;
+
+        // Map and transform data
+        for (const [colIndex, dbField] of Object.entries(importState.columnMapping)) {
+            let value = row[colIndex];
+
+            // Apply transformation if exists
+            if (TRANSFORMATION_RULES[dbField] && TRANSFORMATION_RULES[dbField][value]) {
+                value = TRANSFORMATION_RULES[dbField][value];
+            }
+
+            mappedRow[dbField] = value;
+        }
+
+        // Validate required fields
+        const required = ['exam_id', 'employee_name', 'employee_dob', 'client_name', 'appointment_time',
+                         'type_of_visit', 'phone', 'clinic_name', 'clinic_timezone', 'task_type'];
+        const missing = required.filter(field => !mappedRow[field]);
+
+        if (missing.length > 0) {
+            hasErrors = true;
+            errorRows.push({ rowIndex, reason: `Missing required fields: ${missing.join(', ')}` });
+        }
+
+        // Validate phone format
+        if (mappedRow.phone && !mappedRow.phone.match(/^\+?1?\d{10}$/)) {
+            hasWarnings = true;
+            warningRows.push({ rowIndex, reason: 'Phone number may need formatting' });
+        }
+
+        if (!hasErrors && !hasWarnings) {
+            validRows.push(rowIndex);
+        }
+    });
+
+    // Summary
+    let summaryHTML = '<div class="import-summary-card">';
+    summaryHTML += `<div class="summary-stat"><div class="summary-stat-value">${validRows.length}</div><div class="summary-stat-label">Valid Rows</div></div>`;
+    summaryHTML += `<div class="summary-stat"><div class="summary-stat-value">${warningRows.length}</div><div class="summary-stat-label">Warnings</div></div>`;
+    summaryHTML += `<div class="summary-stat"><div class="summary-stat-value">${errorRows.length}</div><div class="summary-stat-label">Errors</div></div>`;
+    summaryHTML += '</div>';
+
+    if (errorRows.length > 0) {
+        summaryHTML += '<div class="validation-error"><strong>Errors:</strong><ul style="margin: 8px 0 0 0;">';
+        errorRows.forEach(({ rowIndex, reason }) => {
+            summaryHTML += `<li>Row ${rowIndex + 1}: ${reason}</li>`;
+        });
+        summaryHTML += '</ul></div>';
+    }
+
+    if (warningRows.length > 0) {
+        summaryHTML += '<div class="validation-warning"><strong>Warnings:</strong><ul style="margin: 8px 0 0 0;">';
+        warningRows.forEach(({ rowIndex, reason }) => {
+            summaryHTML += `<li>Row ${rowIndex + 1}: ${reason}</li>`;
+        });
+        summaryHTML += '</ul></div>';
+    }
+
+    if (validRows.length > 0 && errorRows.length === 0) {
+        summaryHTML += '<div class="validation-success"><strong>✓ All selected rows are valid and ready to import!</strong></div>';
+    }
+
+    summaryContainer.innerHTML = summaryHTML;
+
+    // Store validation results
+    importState.validationResults = { validRows, warningRows, errorRows };
+
+    // Preview data (first 5 rows)
+    let previewHTML = '<p style="color: #666; margin-bottom: 12px;">Preview of first 5 rows:</p>';
+    previewHTML += '<div style="overflow-x: auto;"><table class="row-selection-table"><thead><tr><th>Row</th>';
+
+    const displayHeaders = Object.values(importState.columnMapping);
+    displayHeaders.forEach(dbField => {
+        previewHTML += `<th>${dbField.replace(/_/g, ' ')}</th>`;
+    });
+    previewHTML += '</tr></thead><tbody>';
+
+    const previewRows = importState.selectedRows.slice(0, 5);
+    previewRows.forEach(rowIndex => {
+        const row = importState.rows[rowIndex];
+        previewHTML += `<tr><td>${rowIndex + 1}</td>`;
+
+        for (const [colIndex, dbField] of Object.entries(importState.columnMapping)) {
+            let value = row[colIndex] || '';
+
+            // Apply transformation preview
+            if (TRANSFORMATION_RULES[dbField] && TRANSFORMATION_RULES[dbField][value]) {
+                value = `${value} → ${TRANSFORMATION_RULES[dbField][value]}`;
+            }
+
+            previewHTML += `<td>${value}</td>`;
+        }
+        previewHTML += '</tr>';
+    });
+
+    previewHTML += '</tbody></table></div>';
+    previewContainer.innerHTML = previewHTML;
+}
+
+// Start import process
+async function startImport() {
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const resultsDiv = document.getElementById('importResults');
+
+    try {
+        // Only import valid rows
+        const { validRows, errorRows } = importState.validationResults;
+        const rowsToImport = importState.selectedRows.filter(i => validRows.includes(i));
+
+        if (rowsToImport.length === 0) {
+            resultsDiv.innerHTML = '<div class="validation-error">No valid rows to import</div>';
+            resultsDiv.style.display = 'block';
+            return;
+        }
+
+        const total = rowsToImport.length;
+        let imported = 0;
+        let failed = 0;
+        const errors = [];
+
+        progressText.textContent = `Importing 0 of ${total} rows...`;
+
+        // Import rows in batches of 5
+        const batchSize = 5;
+        for (let i = 0; i < rowsToImport.length; i += batchSize) {
+            const batch = rowsToImport.slice(i, i + batchSize);
+            const batchData = [];
+
+            batch.forEach(rowIndex => {
+                const row = importState.rows[rowIndex];
+                const callData = {
+                    workflow_state: 'pending',
+                    retry_count: 0,
+                    max_retries: 3,
+                    is_active: true,
+                    next_action_at: new Date().toISOString()
+                };
+
+                // Map and transform columns
+                for (const [colIndex, dbField] of Object.entries(importState.columnMapping)) {
+                    let value = row[colIndex];
+
+                    // Apply transformation
+                    if (TRANSFORMATION_RULES[dbField] && TRANSFORMATION_RULES[dbField][value]) {
+                        value = TRANSFORMATION_RULES[dbField][value];
+                    }
+
+                    // Format phone number
+                    if (dbField === 'phone' && value) {
+                        value = value.toString().replace(/\D/g, '');
+                        if (value.length === 10) {
+                            value = '+1' + value;
+                        } else if (value.length === 11 && value.startsWith('1')) {
+                            value = '+' + value;
+                        }
+                    }
+
+                    // Parse date for employee_dob if it's an Excel serial
+                    if (dbField === 'employee_dob' && typeof value === 'number') {
+                        const date = XLSX.SSF.parse_date_code(value);
+                        value = `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
+                    }
+
+                    // Parse datetime for appointment_time if it's an Excel serial
+                    if (dbField === 'appointment_time' && typeof value === 'number') {
+                        const date = new Date((value - 25569) * 86400 * 1000);
+                        value = date.toISOString();
+                    }
+
+                    callData[dbField] = value || null;
+                }
+
+                batchData.push(callData);
+            });
+
+            // Insert batch
+            try {
+                const { data, error } = await supabase
+                    .from('pending_calls')
+                    .insert(batchData);
+
+                if (error) throw error;
+
+                imported += batchData.length;
+            } catch (error) {
+                console.error('Batch import error:', error);
+                failed += batchData.length;
+                errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${error.message}`);
+            }
+
+            // Update progress
+            const progress = Math.round(((imported + failed) / total) * 100);
+            progressBar.style.width = progress + '%';
+            progressText.textContent = `Imported ${imported} of ${total} rows...`;
+        }
+
+        // Show results
+        let resultsHTML = '<div class="import-summary-card">';
+        resultsHTML += `<div class="summary-stat"><div class="summary-stat-value">${imported}</div><div class="summary-stat-label">Imported</div></div>`;
+        resultsHTML += `<div class="summary-stat"><div class="summary-stat-value">${failed}</div><div class="summary-stat-label">Failed</div></div>`;
+        resultsHTML += '</div>';
+
+        if (imported > 0) {
+            resultsHTML += '<div class="validation-success"><strong>✓ Import completed successfully!</strong></div>';
+        }
+
+        if (errors.length > 0) {
+            resultsHTML += '<div class="validation-error"><strong>Errors:</strong><ul style="margin: 8px 0 0 0;">';
+            errors.forEach(error => {
+                resultsHTML += `<li>${error}</li>`;
+            });
+            resultsHTML += '</ul></div>';
+        }
+
+        resultsHTML += '<div style="margin-top: 16px;"><button class="modal-btn primary" onclick="finishImport()">Finish</button></div>';
+
+        resultsDiv.innerHTML = resultsHTML;
+        resultsDiv.style.display = 'block';
+
+        // Reload dashboard
+        await loadPendingCalls();
+
+    } catch (error) {
+        console.error('Import error:', error);
+        resultsDiv.innerHTML = `<div class="validation-error">Import failed: ${error.message}</div>`;
+        resultsDiv.style.display = 'block';
+    }
+}
+
+// Finish import and close modal
+function finishImport() {
+    closeImportModal();
+    showToast('Import completed!');
+}
+
 // Expose functions to global window object for inline onclick handlers
 window.makeCall = makeCall;
 window.archiveCall = archiveCall;
@@ -2161,3 +2868,14 @@ window.saveClassification = saveClassification;
 window.showNewCallModal = showNewCallModal;
 window.closeNewCallModal = closeNewCallModal;
 window.saveNewCall = saveNewCall;
+window.showImportModal = showImportModal;
+window.closeImportModal = closeImportModal;
+window.importNextStep = importNextStep;
+window.importPreviousStep = importPreviousStep;
+window.handleFileUpload = handleFileUpload;
+window.updateColumnMapping = updateColumnMapping;
+window.selectAllRows = selectAllRows;
+window.selectNoneRows = selectNoneRows;
+window.toggleAllRows = toggleAllRows;
+window.toggleRowSelection = toggleRowSelection;
+window.finishImport = finishImport;
