@@ -1233,7 +1233,11 @@ async function loadIvrEventsForSession(session) {
     }
 }
 
-// WebSocket connection management
+// WebSocket connection management - DEPRECATED
+// This code is no longer used. The monitor page now uses Supabase Realtime
+// for updates instead of the standalone WebSocket server.
+// Keeping this code commented out for reference in case it's needed again.
+/*
 function toggleConnection() {
     if (isConnected) {
         disconnect();
@@ -1247,33 +1251,33 @@ function connect() {
         showError('Please log in first');
         return;
     }
-    
+
     const callId = document.getElementById('callIdInput').value.trim();
-    
+
     if (!callId) {
         showError('Please enter a Call SID');
         return;
     }
-    
+
     if (!config || !config.wsUrl) {
         showError('WebSocket URL not configured');
         return;
     }
-    
+
     updateStatus('connecting');
     connectionAttempts++;
-    
+
     // Clear existing content
     clearContent();
     addEvent('Connecting to monitor...', '🔄', 'event-info');
-    
+
     // Build WebSocket URL with authentication
     const wsUrl = `${config.wsUrl}?callId=${callId}&token=${encodeURIComponent(currentUser.access_token)}`;
     console.log('Connecting to:', wsUrl.replace(currentUser.access_token, '[TOKEN]'));
-    
+
     try {
         ws = new WebSocket(wsUrl);
-        
+
         // Set connection timeout
         const connectionTimeout = setTimeout(() => {
             if (ws && ws.readyState === WebSocket.CONNECTING) {
@@ -1281,7 +1285,7 @@ function connect() {
                 handleConnectionError('Connection timeout');
             }
         }, 10000); // 10 second timeout
-        
+
         ws.onopen = () => {
             clearTimeout(connectionTimeout);
             console.log('Connected to monitor');
@@ -1292,11 +1296,11 @@ function connect() {
             document.getElementById('callIdDisplay').textContent = callId;
             document.getElementById('callInfo').style.display = 'block';
             addEvent('Connected! Loading data...', '✅', 'event-audio');
-            
+
             // Send heartbeat every 30 seconds
             startHeartbeat();
         };
-        
+
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
@@ -1306,13 +1310,13 @@ function connect() {
                 addEvent(`Parse error: ${error.message}`, '⚠️', 'event-error');
             }
         };
-        
+
         ws.onerror = (error) => {
             clearTimeout(connectionTimeout);
             console.error('WebSocket error:', error);
             handleConnectionError('Connection error - check console');
         };
-        
+
         ws.onclose = (event) => {
             clearTimeout(connectionTimeout);
             stopHeartbeat();
@@ -1322,10 +1326,10 @@ function connect() {
             document.getElementById('connectBtn').textContent = 'Connect';
             document.getElementById('callInfo').style.display = 'none';
             stopAudioVisualizer();
-            
+
             if (event.code !== 1000 && event.code !== 1005) {
                 addEvent(`Disconnected (code: ${event.code})`, '📡', 'event-error');
-                
+
                 // Auto-reconnect for unexpected disconnections
                 if (connectionAttempts < maxConnectionAttempts) {
                     addEvent(`Attempting to reconnect... (${connectionAttempts}/${maxConnectionAttempts})`, '🔄', 'event-info');
@@ -1380,6 +1384,7 @@ function stopHeartbeat() {
         heartbeatInterval = null;
     }
 }
+*/
 
 function updateStatus(status) {
     const badge = document.getElementById('statusBadge');

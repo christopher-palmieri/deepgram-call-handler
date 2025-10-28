@@ -32,8 +32,7 @@ async function loadConfig() {
             // Fallback configuration
             config = {
                 supabaseUrl: '',
-                supabaseAnonKey: '',
-                wsUrl: 'ws://localhost:3001/monitor'
+                supabaseAnonKey: ''
             };
         }
 
