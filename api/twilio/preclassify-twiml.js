@@ -186,9 +186,10 @@ export default async function handler(req, res) {
     const sipUri = buildSipUriWithHeaders(baseSipUri, customHeaders);
     twiml += `
       <Start>
-        <Stream url="${process.env.DEEPGRAM_WS_URL}?token=${process.env.WS_AUTH_TOKEN}">
+        <Stream url="${process.env.DEEPGRAM_WS_URL}">
           <Parameter name="streamSid" value="${callSid}" />
           <Parameter name="phoneNumber" value="${phoneNumber}" />
+          <Parameter name="token" value="${process.env.WS_AUTH_TOKEN}" />
         </Stream>
       </Start>
       <Dial record="record-from-answer-dual" recordingStatusCallback="${recordingStatusUrl}" recordingStatusCallbackMethod="POST"><Sip>${sipUri}</Sip></Dial>`;
