@@ -13,6 +13,7 @@ export default async function handler(req, res) {
         <Stream url="${process.env.DEEPGRAM_WS_URL}">
           <Parameter name="streamSid" value="${sessionId}" />
           <Parameter name="isPreClassification" value="true" />
+          <Parameter name="token" value="${process.env.WS_AUTH_TOKEN}" />
         </Stream>
       </Start>
       <Pause length="15"/>

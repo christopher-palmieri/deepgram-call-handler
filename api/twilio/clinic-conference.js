@@ -10,6 +10,7 @@ export default async function handler(req, res) {
       <Start>
         <Stream url="${process.env.DEEPGRAM_WS_URL}">
           <Parameter name="streamSid" value="${conferenceId}" />
+          <Parameter name="token" value="${process.env.WS_AUTH_TOKEN}" />
         </Stream>
       </Start>
       <Dial>
