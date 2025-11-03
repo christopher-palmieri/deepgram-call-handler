@@ -770,6 +770,9 @@ async function showSessionDetails(session) {
     
     let html = `
         <div class="close-panel-btn-container">
+            <button class="export-transcript-btn" onclick="exportTranscript('${session.id}', '${session.call_id}')" title="Export Transcript">
+                📥 Export
+            </button>
             <button class="close-panel-btn" onclick="closeDetailsPanel()">×</button>
         </div>
         <div class="session-datetime">
@@ -2614,6 +2617,79 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Export functions for global access
 window.toggleConnection = toggleConnection;
+// Export transcript function
+async function exportTranscript(sessionId, callId) {
+    try {
+        // Fetch IVR events for this session
+        const { data: events, error } = await supabase
+            .from('ivr_events')
+            .select('*')
+            .eq('call_id', callId)
+            .order('created_at', { ascending: true });
+
+        if (error) {
+            console.error('Error fetching IVR events:', error);
+            alert('Failed to fetch transcript data');
+            return;
+        }
+
+        if (!events || events.length === 0) {
+            alert('No transcript data available for this session');
+            return;
+        }
+
+        // Format transcript as text
+        let transcriptText = `Call Transcript\n`;
+        transcriptText += `=================\n`;
+        transcriptText += `Call ID: ${callId}\n`;
+        transcriptText += `Session ID: ${sessionId}\n`;
+        transcriptText += `Exported: ${new Date().toLocaleString()}\n`;
+        transcriptText += `=================\n\n`;
+
+        events.forEach(event => {
+            const timestamp = new Date(event.created_at).toLocaleString();
+            transcriptText += `[${timestamp}]\n`;
+
+            if (event.action_type) {
+                transcriptText += `Action: ${event.action_type}`;
+                if (event.action_value) {
+                    transcriptText += ` - ${event.action_value}`;
+                }
+                transcriptText += `\n`;
+            }
+
+            if (event.transcript) {
+                transcriptText += `Human: "${event.transcript}"\n`;
+            }
+
+            if (event.ai_reply) {
+                transcriptText += `AI: ${event.ai_reply}\n`;
+            }
+
+            if (event.client_state) {
+                transcriptText += `State: ${event.client_state}\n`;
+            }
+
+            transcriptText += `\n`;
+        });
+
+        // Create and download the file
+        const blob = new Blob([transcriptText], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `transcript_${callId}_${sessionId}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+    } catch (err) {
+        console.error('Error exporting transcript:', err);
+        alert('Failed to export transcript');
+    }
+}
+
 window.toggleAudio = toggleAudio;
 window.setVolume = setVolume;
 window.goToDashboard = goToDashboard;
@@ -2635,3 +2711,4 @@ window.addIvrAction = addIvrAction;
 window.handleActionTypeChange = handleActionTypeChange;
 window.removeIvrAction = removeIvrAction;
 window.saveClassification = saveClassification;
+window.exportTranscript = exportTranscript;

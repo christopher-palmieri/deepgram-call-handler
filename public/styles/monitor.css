@@ -1900,7 +1900,26 @@ body:has(.login-container) {
     display: flex;
     justify-content: flex-end;
     align-items: center;
+    gap: 8px;
     margin-bottom: 16px;
+}
+
+.export-transcript-btn {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: background-color 0.2s;
+}
+
+.export-transcript-btn:hover {
+    background: #2563eb;
 }
 
 .session-datetime {
