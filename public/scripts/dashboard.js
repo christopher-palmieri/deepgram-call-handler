@@ -2555,6 +2555,37 @@ const TRANSFORMATION_RULES = {
         'MST': 'America/Denver',
         'Pacific': 'America/Los_Angeles',
         'PST': 'America/Los_Angeles'
+    },
+    procedures: {
+        // Transform to simpler names
+        'Consent to Use or Disclose Health Information Form': 'Consent form',
+        'Custom Panel Quest Diagnostics - 20453N': 'Drug Screen',
+        'Custom Panel Quest Diagnostics - 41748N': 'Drug Screen',
+        'Drug Collection (Urine)': 'Urine Drug Collection',
+        'Drug Collection (Urine) - Regulated': 'Urine Drug Collection',
+        'Drug Screen (Urine) 10 Panel': 'Drug Screen',
+        'Drug Screen (Urine) Regulated': 'Urine Drug Collection',
+        'Drug Screening - (729625) U10-Bund+SVT': 'Drug Screen',
+        'Heplisav-B Vaccine Second Dose': 'Heplisav-B Vaccine',
+        'Medical Examination Report/Certificate Page': 'Medical Examination Report',
+        'OSHA Medical Questionnaire': 'OSHA Respiratory Protection Quesitonnaire',
+        'Physical Ability Assessment - Level 1': 'Physical Ability Assessment',
+        'Respirator Fit Test - Quantitative': 'Respirator Fit Test',
+        'TB Test - Blood Test (Quantiferon Gold)': 'TB Blood Test',
+        'TB Test - Blood Test - Clinic (Quantiferon Gold)': 'TB Blood Test',
+        'TB Test - PPD Skin Test': 'TB Skin Test',
+        'Varicella Vaccine - Full Series': 'Varicella Vaccine',
+        'Venipuncture - Clinic Site Collection': 'Venipuncture',
+        'Venipuncture - Lab Site Collection': 'Venipuncture - Clinic Site Collection',
+        'Vision Screen - Jaeger (Near)': 'Jaeger Vision Screening',
+        'Vision Screening - Titmus': 'Vision Titmus',
+
+        // Remove these procedures (map to empty string)
+        'Copy of Photo ID': '',
+        'Rescheduled Appointment Requested by Patient': '',
+        'Vaccine Administration': '',
+        'Whisper Test': '',
+        'Whisper Test (No Audiogram)': ''
     }
 };
 
