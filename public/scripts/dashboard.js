@@ -3218,8 +3218,20 @@ function buildPreview() {
             let value = row[colIndex];
 
             // Apply transformation if exists
-            if (TRANSFORMATION_RULES[dbField] && TRANSFORMATION_RULES[dbField][value]) {
-                value = TRANSFORMATION_RULES[dbField][value];
+            if (TRANSFORMATION_RULES[dbField]) {
+                // For procedures field, handle comma-separated values
+                if (dbField === 'procedures' && value) {
+                    const items = value.split(',').map(item => item.trim());
+                    const transformedItems = items
+                        .map(item => TRANSFORMATION_RULES[dbField][item] !== undefined
+                            ? TRANSFORMATION_RULES[dbField][item]
+                            : item)
+                        .filter(item => item !== ''); // Remove empty strings
+                    value = transformedItems.join(', ');
+                } else if (TRANSFORMATION_RULES[dbField][value]) {
+                    // For other fields, do exact match
+                    value = TRANSFORMATION_RULES[dbField][value];
+                }
             }
 
             mappedRow[dbField] = value;
@@ -3305,8 +3317,31 @@ function buildPreview() {
             const displayValue = formatExcelDate(value, dbField);
 
             // Apply transformation preview
-            if (TRANSFORMATION_RULES[dbField] && TRANSFORMATION_RULES[dbField][value]) {
-                value = `${displayValue} → ${TRANSFORMATION_RULES[dbField][value]}`;
+            if (TRANSFORMATION_RULES[dbField]) {
+                // For procedures field, handle comma-separated values
+                if (dbField === 'procedures' && value) {
+                    const items = value.split(',').map(item => item.trim());
+                    const transformedDisplay = items
+                        .map(item => {
+                            const transformed = TRANSFORMATION_RULES[dbField][item];
+                            if (transformed !== undefined) {
+                                return transformed === '' ? `<s>${item}</s>` : `${item} → ${transformed}`;
+                            }
+                            return item;
+                        })
+                        .filter((_, index) => {
+                            // Filter out items that were removed (empty string)
+                            const item = items[index];
+                            return TRANSFORMATION_RULES[dbField][item] !== '';
+                        })
+                        .join(', ');
+                    value = transformedDisplay;
+                } else if (TRANSFORMATION_RULES[dbField][value]) {
+                    // For other fields, do exact match
+                    value = `${displayValue} → ${TRANSFORMATION_RULES[dbField][value]}`;
+                } else {
+                    value = displayValue;
+                }
             } else {
                 value = displayValue;
             }
@@ -3384,8 +3419,20 @@ async function startImport() {
                     let value = row[colIndex];
 
                     // Apply transformation
-                    if (TRANSFORMATION_RULES[dbField] && TRANSFORMATION_RULES[dbField][value]) {
-                        value = TRANSFORMATION_RULES[dbField][value];
+                    if (TRANSFORMATION_RULES[dbField]) {
+                        // For procedures field, handle comma-separated values
+                        if (dbField === 'procedures' && value) {
+                            const items = value.split(',').map(item => item.trim());
+                            const transformedItems = items
+                                .map(item => TRANSFORMATION_RULES[dbField][item] !== undefined
+                                    ? TRANSFORMATION_RULES[dbField][item]
+                                    : item)
+                                .filter(item => item !== ''); // Remove empty strings
+                            value = transformedItems.join(', ');
+                        } else if (TRANSFORMATION_RULES[dbField][value]) {
+                            // For other fields, do exact match
+                            value = TRANSFORMATION_RULES[dbField][value];
+                        }
                     }
 
                     // Format phone number
