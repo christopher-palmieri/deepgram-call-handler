@@ -173,7 +173,7 @@ export default async function handler(req, res) {
     let workflowState;
     let nextActionAt = null;
     let retryCount = currentCall.retry_count || 0;
-    
+
     if (successEvaluation === 'Sending Records') {
       workflowState = 'completed';
       // Reset retry count on success
@@ -181,23 +181,39 @@ export default async function handler(req, res) {
     } else if (successEvaluation === 'No Show') {
       workflowState = 'completed';
       // Keep retry count for record
+    } else if (successEvaluation === 'Already Sent') {
+      // Terminal state - clinic already sent records
+      workflowState = 'completed';
+      // Keep retry count for record
+    } else if (successEvaluation === 'Policy Restriction') {
+      // Terminal state - clinic requires formal request or portal access
+      workflowState = 'completed';
+      // Keep retry count for record
+    } else if (successEvaluation === 'Insufficient Information') {
+      // Terminal state - not enough patient info to locate
+      workflowState = 'completed';
+      // Keep retry count for record
+    } else if (successEvaluation === 'Requested to call back') {
+      // Terminal state - clinic asked to call back
+      workflowState = 'completed';
+      // Keep retry count for record
     } else if (successEvaluation === 'Unable to connect') {
       // Increment retry count (only for ACTUAL task call failures)
       retryCount = retryCount + 1;
-      
+
       // CHECK MAX RETRIES
       const maxRetries = currentCall.max_retries || 3;
-      
+
       if (retryCount >= maxRetries) {
         // MAX RETRIES EXCEEDED - MARK AS FAILED
         workflowState = 'failed';
         nextActionAt = null; // No next action for failed calls
-        
+
         console.log(`❌ Call ${pendingCallId} failed after ${retryCount} attempts (max: ${maxRetries})`);
       } else {
         // Still have retries left
         workflowState = 'retry_pending';
-        
+
         // Calculate exponential backoff: 5 min, 15 min, 30 min
         let retryDelayMinutes;
         if (retryCount === 1) {
@@ -207,7 +223,7 @@ export default async function handler(req, res) {
         } else {
           retryDelayMinutes = 30;
         }
-        
+
         nextActionAt = new Date(Date.now() + retryDelayMinutes * 60 * 1000).toISOString();
         console.log(`⏰ Retry #${retryCount} scheduled in ${retryDelayMinutes} minutes`);
       }
@@ -215,7 +231,7 @@ export default async function handler(req, res) {
       console.warn('Unknown success evaluation:', successEvaluation);
       // Treat unknown as retry, but increment count
       retryCount = retryCount + 1;
-      
+
       const maxRetries = currentCall.max_retries || 3;
       if (retryCount >= maxRetries) {
         workflowState = 'failed';
@@ -235,6 +251,10 @@ export default async function handler(req, res) {
       records_being_sent: successEvaluation === 'Sending Records',
       employee_no_show: successEvaluation === 'No Show',
       connection_failed: successEvaluation === 'Unable to connect',
+      already_sent: successEvaluation === 'Already Sent',
+      policy_restriction: successEvaluation === 'Policy Restriction',
+      insufficient_information: successEvaluation === 'Insufficient Information',
+      requested_callback: successEvaluation === 'Requested to call back',
       call_sid: callSid,
       session_id: sessionId,
       attempt_number: retryCount,
@@ -340,6 +360,10 @@ export default async function handler(req, res) {
         records_being_sent: successEvaluation === 'Sending Records',
         employee_no_show: successEvaluation === 'No Show',
         connection_failed: successEvaluation === 'Unable to connect',
+        already_sent: successEvaluation === 'Already Sent',
+        policy_restriction: successEvaluation === 'Policy Restriction',
+        insufficient_information: successEvaluation === 'Insufficient Information',
+        requested_callback: successEvaluation === 'Requested to call back',
         pending_call_id: pendingCallId,
         call_outcome: successEvaluation,
         is_successful: successEvaluation === 'Sending Records',
@@ -381,6 +405,10 @@ export default async function handler(req, res) {
             records_being_sent: successEvaluation === 'Sending Records',
             employee_no_show: successEvaluation === 'No Show',
             connection_failed: successEvaluation === 'Unable to connect',
+            already_sent: successEvaluation === 'Already Sent',
+            policy_restriction: successEvaluation === 'Policy Restriction',
+            insufficient_information: successEvaluation === 'Insufficient Information',
+            requested_callback: successEvaluation === 'Requested to call back',
             call_outcome: successEvaluation,
             is_successful: successEvaluation === 'Sending Records',
             created_from_post_call: true,
