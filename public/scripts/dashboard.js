@@ -8,6 +8,7 @@ let currentFilters = {
     dateRange: ['last6months'],  // Default to last 6 months
     taskType: ['all'],
     activeStatus: ['active'],  // Default to active only
+    successEval: ['all'],  // Default to all success evaluations
     rowLimit: 50  // Default row limit
 };
 let realtimeChannel = null;
@@ -434,6 +435,21 @@ function formatPhoneNumber(phone) {
     }
 }
 
+// Get color-coded badge for success evaluation
+function getSuccessBadge(successEval) {
+    if (!successEval) {
+        return '<span class="success-badge success-none">-</span>';
+    }
+
+    // Map success evaluation to badge class
+    const badgeClass = successEval
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[()]/g, '');
+
+    return `<span class="success-badge success-${badgeClass}">${successEval}</span>`;
+}
+
 // Create HTML for a single call row
 function createCallRowHtml(call) {
     const lastAttempt = call.last_attempt_at ?
@@ -477,7 +493,7 @@ function createCallRowHtml(call) {
         <td>${appointmentTime}</td>
         <td><span class="task-type-badge">${call.task_type || 'records_request'}</span></td>
         <td><span class="workflow-badge workflow-${call.workflow_state}">${call.workflow_state}</span></td>
-        <td>${call.success_evaluation || '-'}</td>
+        <td>${getSuccessBadge(call.success_evaluation)}</td>
         <td>${call.retry_count || 0}/${call.max_retries || 3}</td>
         <td>${call.client_name || '-'}</td>
         <td>${call.clinic_name || '-'}</td>
@@ -904,6 +920,7 @@ function initializeDropdownFilters() {
     initializeDropdown('dateFilterToggle', 'dateFilterMenu', 'dateRange');
     initializeDropdown('taskFilterToggle', 'taskFilterMenu', 'taskType');
     initializeDropdown('activeFilterToggle', 'activeFilterMenu', 'activeStatus');
+    initializeDropdown('successFilterToggle', 'successFilterMenu', 'successEval');
     initializeRowLimitDropdown('rowLimitToggle', 'rowLimitMenu');
 
     // Close dropdowns when clicking outside
@@ -1060,7 +1077,8 @@ function updateFilterDisplay(filterType) {
     const toggleId = filterType === 'status' ? 'statusFilterToggle' :
                      filterType === 'dateRange' ? 'dateFilterToggle' :
                      filterType === 'taskType' ? 'taskFilterToggle' :
-                     filterType === 'activeStatus' ? 'activeFilterToggle' : null;
+                     filterType === 'activeStatus' ? 'activeFilterToggle' :
+                     filterType === 'successEval' ? 'successFilterToggle' : null;
     const toggle = document.getElementById(toggleId);
 
     if (!toggle) return;
@@ -1073,7 +1091,8 @@ function updateFilterDisplay(filterType) {
         displayText = filterType === 'status' ? 'All Statuses' :
                      filterType === 'dateRange' ? 'All Dates' :
                      filterType === 'taskType' ? 'All Tasks' :
-                     filterType === 'activeStatus' ? 'All' : 'All';
+                     filterType === 'activeStatus' ? 'All' :
+                     filterType === 'successEval' ? 'All Outcomes' : 'All';
     } else if (selected.length === 1) {
         displayText = formatFilterValue(selected[0]);
     } else if (selected.length === 2 && filterType === 'activeStatus') {
@@ -1149,6 +1168,19 @@ function applyFilters(calls) {
             }
         }
 
+        // Success evaluation filter
+        if (!currentFilters.successEval.includes('all')) {
+            const successEval = call.success_evaluation || null;
+            if (successEval === null) {
+                // Handle null/blank success_evaluation
+                if (!currentFilters.successEval.includes('none')) {
+                    return false;
+                }
+            } else if (!currentFilters.successEval.includes(successEval)) {
+                return false;
+            }
+        }
+
         return true;
     });
 }
@@ -1161,6 +1193,7 @@ function saveFiltersToStorage() {
             dateRange: currentFilters.dateRange,
             taskType: currentFilters.taskType,
             activeStatus: currentFilters.activeStatus,
+            successEval: currentFilters.successEval,
             savedAt: new Date().toISOString()
         };
         localStorage.setItem('dashboardFilters', JSON.stringify(filterState));
@@ -1187,17 +1220,20 @@ function loadSavedFilters() {
         if (filterState.dateRange) currentFilters.dateRange = filterState.dateRange;
         if (filterState.taskType) currentFilters.taskType = filterState.taskType;
         if (filterState.activeStatus) currentFilters.activeStatus = filterState.activeStatus;
+        if (filterState.successEval) currentFilters.successEval = filterState.successEval;
 
         // Update UI to reflect loaded filters
         updateCheckboxes('status', currentFilters.status);
         updateCheckboxes('dateRange', currentFilters.dateRange);
         updateCheckboxes('taskType', currentFilters.taskType);
         updateCheckboxes('activeStatus', currentFilters.activeStatus);
+        updateCheckboxes('successEval', currentFilters.successEval);
 
         updateFilterDisplay('status');
         updateFilterDisplay('dateRange');
         updateFilterDisplay('taskType');
         updateFilterDisplay('activeStatus');
+        updateFilterDisplay('successEval');
 
         console.log('Filters restored from localStorage');
     } catch (error) {

@@ -157,6 +157,46 @@
                         </div>
                     </div>
 
+                    <!-- Success Evaluation Filter -->
+                    <div class="filter-group">
+                        <label class="filter-label">Outcome:</label>
+                        <div class="dropdown-filter">
+                            <button class="dropdown-toggle" id="successFilterToggle">
+                                <span class="filter-text">All Outcomes</span>
+                                <span class="dropdown-arrow">▼</span>
+                            </button>
+                            <div class="dropdown-menu" id="successFilterMenu">
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="all" checked> All
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="Sending Records"> Sending Records
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="No Show"> No Show
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="Already Sent"> Already Sent
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="Policy Restriction"> Policy Restriction
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="Insufficient Information"> Insufficient Information
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="Requested to call back"> Requested to call back
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="Unable to connect"> Unable to connect
+                                </label>
+                                <label class="dropdown-item">
+                                    <input type="checkbox" value="none"> None (blank)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Row Limit Selector -->
                     <div class="filter-group">
                         <label class="filter-label">Show:</label>
@@ -640,6 +680,6 @@
     </footer>
 
     <script src="/scripts/config.js?v=20250109-7"></script>
-    <script src="/scripts/dashboard.js?v=20250111-1"></script>
+    <script src="/scripts/dashboard.js?v=20250204-1"></script>
 </body>
 </html>

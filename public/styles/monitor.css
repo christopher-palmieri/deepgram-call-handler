@@ -928,6 +928,56 @@ body:has(.login-container) {
 .workflow-classifying { background: #e9d5ff; color: #6b21a8; }
 .workflow-ready_to_call { background: #bfdbfe; color: #1e3a8a; }
 
+/* Success Evaluation Badge Styles */
+.success-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+/* Success - Green */
+.success-sending-records {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+/* Informational - Blue */
+.success-no-show {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+/* Needs Follow-up - Yellow/Amber */
+.success-requested-to-call-back,
+.success-already-sent {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+/* Action Required - Orange */
+.success-policy-restriction,
+.success-insufficient-information {
+    background: #fed7aa;
+    color: #9a3412;
+}
+
+/* Failure/Retry - Red */
+.success-unable-to-connect {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+/* No evaluation yet - Gray */
+.success-none {
+    background: #f1f5f9;
+    color: #64748b;
+}
+
 /* Call Classifications Styles */
 .call-session-card {
     background: #f8fafc;
@@ -2349,7 +2399,7 @@ body:has(.login-container) {
 
 .reset-call-btn {
     padding: 10px 20px;
-    background: #3b82f6;
+    background: #008d6f;
     color: white;
     border: none;
     border-radius: 8px;
@@ -2360,13 +2410,13 @@ body:has(.login-container) {
     align-items: center;
     gap: 8px;
     transition: all 0.2s;
-    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+    box-shadow: 0 2px 4px rgba(0, 141, 111, 0.2);
 }
 
 .reset-call-btn:hover {
-    background: #2563eb;
+    background: #00614d;
     transform: translateY(-1px);
-    box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);
+    box-shadow: 0 4px 6px rgba(0, 141, 111, 0.3);
 }
 
 .reset-call-btn:active {
@@ -2504,16 +2554,16 @@ body:has(.login-container) {
     transform: translateY(0);
 }
 
-/* Edit Classification Button - Green */
+/* Edit Classification Button - Teal (matches dashboard) */
 .edit-classification-btn {
-    background: #10b981;
-    box-shadow: 0 1px 3px rgba(16, 185, 129, 0.2);
+    background: #008d6f;
+    box-shadow: 0 1px 3px rgba(0, 141, 111, 0.2);
 }
 
 .edit-classification-btn:hover {
-    background: #059669;
+    background: #00614d;
     transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+    box-shadow: 0 2px 4px rgba(0, 141, 111, 0.3);
 }
 
 .edit-classification-btn:active {
@@ -2577,7 +2627,8 @@ body:has(.login-container) {
 /* Monitor Page - Larger Action Buttons */
 /* Override small button styles for monitor page buttons that have text labels */
 .call-actions .edit-classification-btn,
-.call-actions .archive-call-btn {
+.call-actions .archive-call-btn,
+.call-actions .delete-call-btn {
     width: auto;
     height: auto;
     padding: 10px 16px;
@@ -2588,7 +2639,8 @@ body:has(.login-container) {
 }
 
 .call-actions .edit-icon,
-.call-actions .archive-icon {
+.call-actions .archive-icon,
+.call-actions .delete-icon {
     width: 18px;
     height: 18px;
 }

@@ -26,6 +26,21 @@ function getUrlParam(param) {
     return urlParams.get(param);
 }
 
+// Get color-coded badge for success evaluation
+function getSuccessBadge(successEval) {
+    if (!successEval) {
+        return '<span class="success-badge success-none">-</span>';
+    }
+
+    // Map success evaluation to badge class
+    const badgeClass = successEval
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[()]/g, '');
+
+    return `<span class="success-badge success-${badgeClass}">${successEval}</span>`;
+}
+
 // Function to dynamically adjust flyout positioning based on actual top bar height
 function adjustFlyoutPosition() {
     const topBar = document.querySelector('.top-bar');
@@ -199,8 +214,8 @@ async function loadCallDetails(pendingCallId) {
         // Display workflow state with badge
         const workflowElement = document.getElementById('infoWorkflow');
         workflowElement.innerHTML = `<span class="workflow-badge workflow-${pendingCall.workflow_state || 'pending'}">${pendingCall.workflow_state || '-'}</span>`;
-        
-        document.getElementById('infoSuccessEval').textContent = pendingCall.success_evaluation || '-';
+
+        document.getElementById('infoSuccessEval').innerHTML = getSuccessBadge(pendingCall.success_evaluation);
         
         // Display combined summary and structured data
         if (pendingCall.summary || pendingCall.structured_data) {
@@ -515,9 +530,9 @@ async function handlePendingCallUpdate(updatedPendingCall) {
     // Update workflow state with badge
     const workflowElement = document.getElementById('infoWorkflow');
     workflowElement.innerHTML = `<span class="workflow-badge workflow-${updatedPendingCall.workflow_state || 'pending'}">${updatedPendingCall.workflow_state || '-'}</span>`;
-    
+
     // Update success evaluation
-    document.getElementById('infoSuccessEval').textContent = updatedPendingCall.success_evaluation || '-';
+    document.getElementById('infoSuccessEval').innerHTML = getSuccessBadge(updatedPendingCall.success_evaluation);
     
     // Update combined summary and structured data
     if (updatedPendingCall.summary || updatedPendingCall.structured_data) {
@@ -2148,6 +2163,77 @@ async function confirmResetCall() {
         // Re-enable button
         confirmBtn.disabled = false;
         confirmBtn.innerHTML = '<span class="btn-icon">↻</span> Reset & Retry';
+    }
+}
+
+// Delete call functionality
+function showDeleteConfirmationMonitor() {
+    if (!currentPendingCall) {
+        showError('No call loaded');
+        return;
+    }
+
+    document.getElementById('deleteEmployeeName').textContent = currentPendingCall.employee_name || '-';
+    document.getElementById('deleteClinicName').textContent = currentPendingCall.clinic_name || '-';
+    document.getElementById('deleteConfirmModal').style.display = 'flex';
+}
+
+function closeDeleteConfirmationMonitor() {
+    document.getElementById('deleteConfirmModal').style.display = 'none';
+}
+
+async function confirmDeleteCallMonitor() {
+    if (!currentPendingCall) {
+        showError('No call loaded');
+        return;
+    }
+
+    const confirmBtn = document.getElementById('confirmDeleteBtnMonitor');
+
+    try {
+        // Disable button and show loading
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Deleting...';
+
+        // Get auth token
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            throw new Error('Not authenticated');
+        }
+
+        // Call edge function
+        const response = await fetch(`${config.supabaseUrl}/functions/v1/delete-call`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ callId: currentPendingCall.id })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to delete call');
+        }
+
+        // Show success message
+        showInfo('Call deleted successfully');
+
+        // Close modal
+        closeDeleteConfirmationMonitor();
+
+        // Redirect back to dashboard
+        setTimeout(() => {
+            window.location.href = '/dashboard.html';
+        }, 1000);
+
+    } catch (error) {
+        console.error('Error deleting call:', error);
+        showError(`Failed to delete call: ${error.message}`);
+    } finally {
+        // Re-enable button
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Delete';
     }
 }
 

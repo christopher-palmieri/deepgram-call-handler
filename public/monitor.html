@@ -93,6 +93,12 @@
                     </svg>
                     Archive Call
                 </button>
+                <button class="delete-call-btn" id="deleteCallBtn" onclick="showDeleteConfirmationMonitor()" title="Delete this call">
+                    <svg class="delete-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/>
+                    </svg>
+                    Delete Call
+                </button>
             </div>
             
             <div class="call-details-section" id="callDetailsSection" style="display: none;">
@@ -199,6 +205,28 @@
                 <button class="modal-btn secondary" onclick="closeResetCallModal()">Cancel</button>
                 <button class="modal-btn primary" onclick="confirmResetCall()" id="confirmResetBtn">
                     <span class="btn-icon">↻</span> Reset & Retry
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Call Confirmation Modal -->
+    <div id="deleteConfirmModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Delete Call</h3>
+                <button class="modal-close" onclick="closeDeleteConfirmationMonitor()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color: #dc2626; font-weight: 600; margin-bottom: 16px;">⚠️ Warning: This action cannot be undone.</p>
+                <p>Are you sure you want to permanently delete this call?</p>
+                <p><strong>Employee:</strong> <span id="deleteEmployeeName">-</span></p>
+                <p><strong>Clinic:</strong> <span id="deleteClinicName">-</span></p>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" onclick="closeDeleteConfirmationMonitor()">Cancel</button>
+                <button class="modal-btn primary" onclick="confirmDeleteCallMonitor()" id="confirmDeleteBtnMonitor" style="background-color: #dc2626;">
+                    Delete
                 </button>
             </div>
         </div>
