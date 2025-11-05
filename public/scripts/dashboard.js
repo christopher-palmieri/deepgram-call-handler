@@ -2738,6 +2738,8 @@ const COLUMN_MAPPINGS = {
     'exam_id': ['ExamIDExternal', 'Exam ID', 'ExamID', 'ID'],
     'employee_name': ['FullName', 'Employee Name', 'Name', 'Employee'],
     'employee_dob': ['Birthdate', 'DOB', 'Date of Birth', 'Birth Date'],
+    'employee_phone_number': ['EmployeePhone', 'Employee Phone', 'Employee Phone Number', 'Patient Phone', 'Phone Number'],
+    'employee_address': ['EmployeeAddress', 'Employee Address', 'Patient Address', 'Home Address'],
     'client_name': ['Client', 'Client Name', 'Company'],
     'appointment_time': ['ExamDateTime', 'Appointment Time', 'Appointment', 'DateTime', 'Date Time'],
     'type_of_visit': ['AppointmentType', 'Visit Type', 'Type', 'Appointment Type'],
@@ -2812,6 +2814,36 @@ const TRANSFORMATION_RULES = {
         'Whisper Test (No Audiogram)': ''
     }
 };
+
+// Phone number normalization function
+function normalizePhoneNumber(phone) {
+    // Return null for empty/null input
+    if (!phone || phone.trim() === '') {
+        return null;
+    }
+
+    // Extract only digits
+    const digitsOnly = String(phone).replace(/\D/g, '');
+
+    // Handle +1 country code (11 digits starting with 1)
+    let cleanDigits = digitsOnly;
+    if (digitsOnly.length === 11 && digitsOnly[0] === '1') {
+        cleanDigits = digitsOnly.substring(1);
+    }
+
+    // Must be exactly 10 digits for US phone number
+    if (cleanDigits.length !== 10) {
+        console.warn(`Invalid phone number (not 10 digits): ${phone}`);
+        return phone; // Return original if invalid
+    }
+
+    // Format as (XXX) XXX-XXXX
+    const areaCode = cleanDigits.substring(0, 3);
+    const prefix = cleanDigits.substring(3, 6);
+    const lineNumber = cleanDigits.substring(6, 10);
+
+    return `(${areaCode}) ${prefix}-${lineNumber}`;
+}
 
 // Show import modal
 function showImportModal() {
@@ -3233,6 +3265,8 @@ function buildColumnMapping() {
                         <option value="exam_id" ${match.field === 'exam_id' ? 'selected' : ''}>Exam ID *</option>
                         <option value="employee_name" ${match.field === 'employee_name' ? 'selected' : ''}>Employee Name *</option>
                         <option value="employee_dob" ${match.field === 'employee_dob' ? 'selected' : ''}>Employee DOB *</option>
+                        <option value="employee_phone_number" ${match.field === 'employee_phone_number' ? 'selected' : ''}>Employee Phone Number</option>
+                        <option value="employee_address" ${match.field === 'employee_address' ? 'selected' : ''}>Employee Address</option>
                         <option value="client_name" ${match.field === 'client_name' ? 'selected' : ''}>Client Name *</option>
                         <option value="appointment_time" ${match.field === 'appointment_time' ? 'selected' : ''}>Appointment Time *</option>
                         <option value="type_of_visit" ${match.field === 'type_of_visit' ? 'selected' : ''}>Type of Visit *</option>
@@ -3459,6 +3493,14 @@ function buildPreview() {
             }
 
             mappedRow[dbField] = value;
+        }
+
+        // Normalize phone numbers
+        if (mappedRow.employee_phone_number) {
+            mappedRow.employee_phone_number = normalizePhoneNumber(mappedRow.employee_phone_number);
+        }
+        if (mappedRow.phone) {
+            mappedRow.phone = normalizePhoneNumber(mappedRow.phone);
         }
 
         // Validate required fields
