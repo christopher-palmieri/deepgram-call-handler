@@ -2122,7 +2122,7 @@ async function killLiveCallsMonitor() {
             .from('call_sessions')
             .select('call_id, call_status')
             .eq('pending_call_id', currentPendingCall.id)
-            .is('call_ended_at', null); // Only get calls that haven't ended
+            .eq('call_status', 'active'); // Only get active calls
 
         if (sessionError) {
             throw new Error('Failed to fetch call sessions: ' + sessionError.message);

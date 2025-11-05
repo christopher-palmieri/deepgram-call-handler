@@ -107,9 +107,7 @@ serve(async (req) => {
     const { data: sessionData, error: sessionError } = await supabase
       .from('call_sessions')
       .update({
-        call_ended_at: new Date().toISOString(),
-        call_status: 'terminated',
-        updated_at: new Date().toISOString()
+        call_status: 'terminated'
       })
       .eq('call_id', callSid)
       .select('id, pending_call_id')
