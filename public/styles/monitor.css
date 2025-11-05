@@ -3450,8 +3450,8 @@ body:has(.login-container) {
 }
 
 .kill-call-btn .kill-icon {
-    width: 20px;
-    height: 20px;
+    width: 12px;
+    height: 12px;
     fill: white;
     stroke: white;
 }
