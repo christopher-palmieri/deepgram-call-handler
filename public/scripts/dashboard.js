@@ -596,12 +596,18 @@ async function saveTags(callId, tagsString, cell) {
         cell.innerHTML = renderTags(tagsArray);
         console.log('✅ Tags updated successfully:', tagsArray);
 
+        // Reapply column visibility to ensure cell respects hidden/visible state
+        applySavedColumnVisibility();
+
     } catch (error) {
         console.error('Error saving tags:', error);
         alert('Failed to save tags');
         // Revert to original display
         const call = allCalls.find(c => c.id === callId);
         cell.innerHTML = renderTags(call?.tag);
+
+        // Reapply column visibility after reverting
+        applySavedColumnVisibility();
     }
 }
 
