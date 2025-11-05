@@ -2120,7 +2120,7 @@ async function killLiveCallsMonitor() {
         // Find all active call sessions for this pending call
         const { data: sessions, error: sessionError } = await supabase
             .from('call_sessions')
-            .select('call_sid, call_status')
+            .select('call_id, call_status')
             .eq('pending_call_id', currentPendingCall.id)
             .is('call_ended_at', null); // Only get calls that haven't ended
 
@@ -2138,7 +2138,7 @@ async function killLiveCallsMonitor() {
         let successCount = 0;
         // Kill each active call
         for (const sess of sessions) {
-            if (sess.call_sid) {
+            if (sess.call_id) {
                 try {
                     const response = await fetch(`${config.supabaseUrl}/functions/v1/kill-call`, {
                         method: 'POST',
@@ -2146,19 +2146,19 @@ async function killLiveCallsMonitor() {
                             'Authorization': `Bearer ${session.access_token}`,
                             'Content-Type': 'application/json'
                         },
-                        body: JSON.stringify({ callSid: sess.call_sid })
+                        body: JSON.stringify({ callSid: sess.call_id })
                     });
 
                     if (response.ok) {
                         const result = await response.json();
-                        console.log(`Killed call ${sess.call_sid}:`, result);
+                        console.log(`Killed call ${sess.call_id}:`, result);
                         successCount++;
                     } else {
                         const error = await response.json();
-                        console.warn(`Failed to kill call ${sess.call_sid}:`, error);
+                        console.warn(`Failed to kill call ${sess.call_id}:`, error);
                     }
                 } catch (error) {
-                    console.error(`Error killing call ${sess.call_sid}:`, error);
+                    console.error(`Error killing call ${sess.call_id}:`, error);
                 }
             }
         }

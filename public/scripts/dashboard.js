@@ -1993,7 +1993,7 @@ async function killLiveCallsForPendingCall(pendingCallId, accessToken) {
     // Find all active call sessions for this pending call
     const { data: sessions, error: sessionError } = await supabase
         .from('call_sessions')
-        .select('call_sid, call_status')
+        .select('call_id, call_status')
         .eq('pending_call_id', pendingCallId)
         .is('call_ended_at', null); // Only get calls that haven't ended
 
@@ -2010,7 +2010,7 @@ async function killLiveCallsForPendingCall(pendingCallId, accessToken) {
 
     // Kill each active call
     for (const session of sessions) {
-        if (session.call_sid) {
+        if (session.call_id) {
             try {
                 const response = await fetch(`${config.supabaseUrl}/functions/v1/kill-call`, {
                     method: 'POST',
@@ -2018,19 +2018,19 @@ async function killLiveCallsForPendingCall(pendingCallId, accessToken) {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ callSid: session.call_sid })
+                    body: JSON.stringify({ callSid: session.call_id })
                 });
 
                 if (!response.ok) {
                     const error = await response.json();
-                    console.warn(`Failed to kill call ${session.call_sid}:`, error);
+                    console.warn(`Failed to kill call ${session.call_id}:`, error);
                     // Continue with other calls even if one fails
                 } else {
                     const result = await response.json();
-                    console.log(`Killed call ${session.call_sid}:`, result);
+                    console.log(`Killed call ${session.call_id}:`, result);
                 }
             } catch (error) {
-                console.error(`Error killing call ${session.call_sid}:`, error);
+                console.error(`Error killing call ${session.call_id}:`, error);
                 // Continue with other calls even if one fails
             }
         }
