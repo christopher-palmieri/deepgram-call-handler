@@ -156,7 +156,7 @@ async function loadPendingCalls(append = false) {
     } catch (error) {
         console.error('Error loading calls:', error);
         document.getElementById('callsTableBody').innerHTML =
-            '<tr><td colspan="13" class="empty-table">Error loading calls</td></tr>';
+            '<tr><td colspan="17" class="empty-table">Error loading calls</td></tr>';
     }
 }
 
@@ -192,7 +192,7 @@ function renderCallsTable() {
     filteredCalls = applySearch(filteredCalls);
     
     if (filteredCalls.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="13" class="empty-table">No calls found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="17" class="empty-table">No calls found</td></tr>';
         return;
     }
     
@@ -450,6 +450,15 @@ function getSuccessBadge(successEval) {
     return `<span class="success-badge success-${badgeClass}">${successEval}</span>`;
 }
 
+// Get classification badge
+function getClassificationBadge(classificationId) {
+    if (!classificationId) {
+        return '<span style="color: #9ca3af; font-style: italic;">No classification</span>';
+    }
+    // If there's a classification ID, show a checkmark badge
+    return '<span class="classification-badge">✓ Classified</span>';
+}
+
 // Create HTML for a single call row
 function createCallRowHtml(call) {
     const lastAttempt = call.last_attempt_at ?
@@ -489,18 +498,22 @@ function createCallRowHtml(call) {
                 </svg>
             </button>
         </td>
-        <td>${call.employee_name || '-'}</td>
-        <td>${appointmentTime}</td>
-        <td><span class="task-type-badge">${call.task_type || 'records_request'}</span></td>
-        <td><span class="workflow-badge workflow-${call.workflow_state}">${call.workflow_state}</span></td>
-        <td>${getSuccessBadge(call.success_evaluation)}</td>
-        <td>${call.retry_count || 0}/${call.max_retries || 3}</td>
-        <td>${call.client_name || '-'}</td>
-        <td>${call.clinic_name || '-'}</td>
-        <td>${formattedPhone}</td>
-        <td>${lastAttempt}</td>
-        <td>${nextAction}</td>
-        <td class="tags-cell" onclick="event.stopPropagation(); editTags('${call.id}', this)">${renderTags(call.tag)}</td>
+        <td data-column="employee">${call.employee_name || '-'}</td>
+        <td data-column="appointment">${appointmentTime}</td>
+        <td data-column="task"><span class="task-type-badge">${call.task_type || 'records_request'}</span></td>
+        <td data-column="status"><span class="workflow-badge workflow-${call.workflow_state}">${call.workflow_state}</span></td>
+        <td data-column="success">${getSuccessBadge(call.success_evaluation)}</td>
+        <td data-column="retries">${call.retry_count || 0}/${call.max_retries || 3}</td>
+        <td data-column="client">${call.client_name || '-'}</td>
+        <td data-column="clinic">${call.clinic_name || '-'}</td>
+        <td data-column="phone">${formattedPhone}</td>
+        <td data-column="procedures">${call.procedures || '-'}</td>
+        <td data-column="address">${call.clinic_provider_address || '-'}</td>
+        <td data-column="classification">${getClassificationBadge(call.classification_id)}</td>
+        <td data-column="last_error">${call.last_error ? `<span class="error-text" title="${call.last_error}">${call.last_error.substring(0, 50)}${call.last_error.length > 50 ? '...' : ''}</span>` : '-'}</td>
+        <td data-column="last_try">${lastAttempt}</td>
+        <td data-column="next">${nextAction}</td>
+        <td data-column="tags" class="tags-cell" onclick="event.stopPropagation(); editTags('${call.id}', this)">${renderTags(call.tag)}</td>
     </tr>`;
 }
 
@@ -3639,6 +3652,87 @@ function finishImport() {
 // Expose functions to global window object for inline onclick handlers
 window.makeCall = makeCall;
 window.archiveCall = archiveCall;
+// Column visibility toggle functions
+function showColumnToggleModal() {
+    document.getElementById('columnToggleModal').style.display = 'flex';
+    loadColumnVisibility();
+}
+
+function closeColumnToggleModal() {
+    document.getElementById('columnToggleModal').style.display = 'none';
+}
+
+function loadColumnVisibility() {
+    const savedColumns = JSON.parse(localStorage.getItem('visibleColumns') || '{}');
+    document.querySelectorAll('#columnToggleModal input[type="checkbox"]').forEach(checkbox => {
+        const column = checkbox.dataset.column;
+        if (savedColumns.hasOwnProperty(column)) {
+            checkbox.checked = savedColumns[column];
+        }
+    });
+}
+
+function applyColumnVisibility() {
+    const visibleColumns = {};
+    document.querySelectorAll('#columnToggleModal input[type="checkbox"]').forEach(checkbox => {
+        const column = checkbox.dataset.column;
+        visibleColumns[column] = checkbox.checked;
+
+        // Show/hide column headers
+        document.querySelectorAll(`th[data-column="${column}"]`).forEach(th => {
+            th.style.display = checkbox.checked ? '' : 'none';
+        });
+
+        // Show/hide column cells
+        document.querySelectorAll(`td[data-column="${column}"]`).forEach(td => {
+            td.style.display = checkbox.checked ? '' : 'none';
+        });
+    });
+
+    // Save to localStorage
+    localStorage.setItem('visibleColumns', JSON.stringify(visibleColumns));
+    closeColumnToggleModal();
+}
+
+function resetColumnVisibility() {
+    // Default visible columns
+    const defaultColumns = {
+        employee: true,
+        appointment: true,
+        task: true,
+        status: true,
+        success: true,
+        retries: true,
+        client: true,
+        clinic: true,
+        phone: true,
+        procedures: false,
+        address: false,
+        classification: false,
+        last_error: false,
+        last_try: true,
+        next: true,
+        tags: true
+    };
+
+    localStorage.setItem('visibleColumns', JSON.stringify(defaultColumns));
+    loadColumnVisibility();
+    applyColumnVisibility();
+}
+
+// Apply saved column visibility on page load
+function applySavedColumnVisibility() {
+    const savedColumns = JSON.parse(localStorage.getItem('visibleColumns') || '{}');
+    Object.entries(savedColumns).forEach(([column, visible]) => {
+        document.querySelectorAll(`th[data-column="${column}"]`).forEach(th => {
+            th.style.display = visible ? '' : 'none';
+        });
+        document.querySelectorAll(`td[data-column="${column}"]`).forEach(td => {
+            td.style.display = visible ? '' : 'none';
+        });
+    });
+}
+
 window.unarchiveCall = unarchiveCall;
 window.toggleArchiveCall = toggleArchiveCall;
 window.showDeleteConfirmation = showDeleteConfirmation;
@@ -3677,3 +3771,12 @@ window.toggleAllRows = toggleAllRows;
 window.toggleRowSelection = toggleRowSelection;
 window.finishImport = finishImport;
 window.detectTimezones = detectTimezones;
+window.showColumnToggleModal = showColumnToggleModal;
+window.closeColumnToggleModal = closeColumnToggleModal;
+window.applyColumnVisibility = applyColumnVisibility;
+window.resetColumnVisibility = resetColumnVisibility;
+
+// Apply saved column visibility on page load
+document.addEventListener('DOMContentLoaded', () => {
+    applySavedColumnVisibility();
+});

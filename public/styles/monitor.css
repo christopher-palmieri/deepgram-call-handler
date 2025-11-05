@@ -3294,3 +3294,47 @@ body:has(.login-container) {
     font-family: inherit;
     font-size: 14px;
 }
+
+/* Column Toggle Modal */
+.column-toggle-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.column-toggle-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.column-toggle-item:hover {
+    background-color: #f3f4f6;
+}
+
+.column-toggle-item input[type="checkbox"] {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+}
+
+/* Classification Badge */
+.classification-badge {
+    display: inline-block;
+    background-color: #10b981;
+    color: white;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+}
+
+/* Error Text */
+.error-text {
+    color: #dc2626;
+    font-size: 13px;
+    cursor: help;
+}

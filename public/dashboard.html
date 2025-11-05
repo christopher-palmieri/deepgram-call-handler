@@ -234,6 +234,7 @@
                     <div style="display: flex; gap: 10px;">
                         <button class="refresh-btn new-call-btn" onclick="showNewCallModal()">+ New Call</button>
                         <button class="refresh-btn new-call-btn" onclick="showImportModal()">📁 Import Calls</button>
+                        <button class="refresh-btn new-call-btn" onclick="showColumnToggleModal()">⚙️ Columns</button>
                     </div>
                     <div class="search-container">
                         <input type="text" id="searchInput" placeholder="Search calls..." class="search-input">
@@ -252,23 +253,27 @@
                     <thead>
                         <tr>
                             <th>Actions</th>
-                            <th data-sort="employee_name" class="sortable">Employee <span class="sort-arrow"></span></th>
-                            <th data-sort="appointment_time" class="sortable">Appointment <span class="sort-arrow"></span></th>
-                            <th data-sort="task_type" class="sortable">Task <span class="sort-arrow"></span></th>
-                            <th data-sort="workflow_state" class="sortable">Status <span class="sort-arrow"></span></th>
-                            <th data-sort="success_evaluation" class="sortable">Success <span class="sort-arrow"></span></th>
-                            <th data-sort="retry_count" class="sortable">Retries <span class="sort-arrow"></span></th>
-                            <th data-sort="client_name" class="sortable">Client <span class="sort-arrow"></span></th>
-                            <th data-sort="clinic_name" class="sortable">Clinic <span class="sort-arrow"></span></th>
-                            <th data-sort="phone" class="sortable">Phone <span class="sort-arrow"></span></th>
-                            <th data-sort="last_attempt_at" class="sortable">Last Try <span class="sort-arrow"></span></th>
-                            <th data-sort="next_action_at" class="sortable">Next <span class="sort-arrow"></span></th>
-                            <th>Tags</th>
+                            <th data-sort="employee_name" class="sortable" data-column="employee">Employee <span class="sort-arrow"></span></th>
+                            <th data-sort="appointment_time" class="sortable" data-column="appointment">Appointment <span class="sort-arrow"></span></th>
+                            <th data-sort="task_type" class="sortable" data-column="task">Task <span class="sort-arrow"></span></th>
+                            <th data-sort="workflow_state" class="sortable" data-column="status">Status <span class="sort-arrow"></span></th>
+                            <th data-sort="success_evaluation" class="sortable" data-column="success">Success Evaluation <span class="sort-arrow"></span></th>
+                            <th data-sort="retry_count" class="sortable" data-column="retries">Retries <span class="sort-arrow"></span></th>
+                            <th data-sort="client_name" class="sortable" data-column="client">Client <span class="sort-arrow"></span></th>
+                            <th data-sort="clinic_name" class="sortable" data-column="clinic">Clinic <span class="sort-arrow"></span></th>
+                            <th data-sort="phone" class="sortable" data-column="phone">Phone <span class="sort-arrow"></span></th>
+                            <th data-sort="procedures" class="sortable" data-column="procedures">Procedures <span class="sort-arrow"></span></th>
+                            <th data-sort="clinic_provider_address" class="sortable" data-column="address">Clinic Address <span class="sort-arrow"></span></th>
+                            <th data-column="classification">Classification</th>
+                            <th data-column="last_error">Last Error</th>
+                            <th data-sort="last_attempt_at" class="sortable" data-column="last_try">Last Try <span class="sort-arrow"></span></th>
+                            <th data-sort="next_action_at" class="sortable" data-column="next">Next <span class="sort-arrow"></span></th>
+                            <th data-column="tags">Tags</th>
                         </tr>
                     </thead>
                     <tbody id="callsTableBody">
                         <tr>
-                            <td colspan="13" class="empty-table">Loading calls...</td>
+                            <td colspan="17" class="empty-table">Loading calls...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -672,6 +677,73 @@
             <div class="modal-footer">
                 <button class="modal-btn secondary" onclick="closeDeleteConfirmation()">Cancel</button>
                 <button class="modal-btn primary" id="confirmDeleteBtn" onclick="confirmDeleteCall()" style="background-color: #dc2626;">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Column Toggle Modal -->
+    <div id="columnToggleModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h3>Show/Hide Columns</h3>
+                <button class="modal-close" onclick="closeColumnToggleModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color: #666; margin-bottom: 16px;">Select which columns to display in the table:</p>
+                <div class="column-toggle-grid">
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="employee" checked> Employee
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="appointment" checked> Appointment
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="task" checked> Task
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="status" checked> Status
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="success" checked> Success Evaluation
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="retries" checked> Retries
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="client" checked> Client
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="clinic" checked> Clinic
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="phone" checked> Phone
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="procedures"> Procedures
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="address"> Clinic Address
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="classification"> Classification
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="last_error"> Last Error
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="last_try" checked> Last Try
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="next" checked> Next
+                    </label>
+                    <label class="column-toggle-item">
+                        <input type="checkbox" data-column="tags" checked> Tags
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" onclick="resetColumnVisibility()">Reset to Default</button>
+                <button class="modal-btn primary" onclick="applyColumnVisibility()">Apply</button>
             </div>
         </div>
     </div>
