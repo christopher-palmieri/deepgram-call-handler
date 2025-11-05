@@ -512,6 +512,11 @@ function createCallRowHtml(call) {
                     <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/>
                 </svg>
             </button>
+            <button class="export-call-btn" onclick="event.stopPropagation(); exportCall('${call.id}')" title="Export Call Data">
+                <svg class="export-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z" fill="currentColor"/>
+                </svg>
+            </button>
         </td>
         <td data-column="employee">${call.employee_name || '-'}</td>
         <td data-column="appointment">${appointmentTime}</td>
@@ -4078,6 +4083,56 @@ window.batchMakeCalls = batchMakeCalls;
 window.closeBatchMakeCallsModal = closeBatchMakeCallsModal;
 window.confirmBatchMakeCalls = confirmBatchMakeCalls;
 window.killCall = killCall;
+
+// Export single call
+async function exportCall(callId) {
+    const call = allCalls.find(c => c.id === callId);
+    if (!call) {
+        showToast('Call not found');
+        return;
+    }
+
+    // Convert to JSON and download
+    const dataStr = JSON.stringify(call, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `call-${call.exam_id || callId}-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showToast('Call exported successfully');
+}
+
+// Export multiple calls (batch)
+async function batchExport() {
+    if (selectedCallIds.size === 0) {
+        showToast('No calls selected');
+        return;
+    }
+
+    const callsToExport = allCalls.filter(call => selectedCallIds.has(call.id));
+
+    // Convert to JSON and download
+    const dataStr = JSON.stringify(callsToExport, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `calls-export-${callsToExport.length}-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showToast(`Exported ${callsToExport.length} call(s) successfully`);
+}
+
+window.exportCall = exportCall;
+window.batchExport = batchExport;
 
 // Apply saved column visibility on page load
 document.addEventListener('DOMContentLoaded', () => {

@@ -2620,11 +2620,27 @@ body:has(.login-container) {
     transform: translateY(0);
 }
 
+.export-call-btn {
+    background: #059669;
+    box-shadow: 0 1px 3px rgba(5, 150, 105, 0.2);
+}
+
+.export-call-btn:hover {
+    background: #047857;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(5, 150, 105, 0.3);
+}
+
+.export-call-btn:active {
+    transform: translateY(0);
+}
+
 /* Action Button Icons - Uniform Sizing */
 .play-icon,
 .edit-icon,
 .archive-icon,
-.delete-icon {
+.delete-icon,
+.export-icon {
     width: 12px;
     height: 12px;
     color: white;
