@@ -2869,7 +2869,7 @@ function callToCSV(call) {
         'client_name', 'appointment_time', 'type_of_visit', 'phone', 'clinic_name',
         'clinic_provider_address', 'procedures', 'clinic_timezone', 'task_type',
         'workflow_state', 'success_evaluation', 'retry_count', 'max_retries',
-        'is_active', 'classification_id', 'last_error', 'tag', 'created_at', 'last_attempt_at'
+        'is_active', 'classification_id', 'last_error', 'summary', 'tag', 'created_at', 'last_attempt_at'
     ];
 
     let csv = headers.join(',') + '\n';

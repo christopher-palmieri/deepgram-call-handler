@@ -517,11 +517,6 @@ function createCallRowHtml(call) {
                     <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/>
                 </svg>
             </button>
-            <button class="export-call-btn" onclick="event.stopPropagation(); exportCall('${call.id}')" title="Export Call Data">
-                <svg class="export-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z" fill="currentColor"/>
-                </svg>
-            </button>
         </td>
         <td data-column="employee">${call.employee_name || '-'}</td>
         <td data-column="appointment">${appointmentTime}</td>
@@ -4099,7 +4094,7 @@ function callsToCSV(calls) {
         'client_name', 'appointment_time', 'type_of_visit', 'phone', 'clinic_name',
         'clinic_provider_address', 'procedures', 'clinic_timezone', 'task_type',
         'workflow_state', 'success_evaluation', 'retry_count', 'max_retries',
-        'is_active', 'classification_id', 'last_error', 'tag', 'created_at', 'last_attempt_at'
+        'is_active', 'classification_id', 'last_error', 'summary', 'tag', 'created_at', 'last_attempt_at'
     ];
 
     // Create CSV content
