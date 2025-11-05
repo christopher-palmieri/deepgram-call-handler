@@ -400,7 +400,10 @@ function updateSingleCallRow(call) {
             // Add a brief highlight animation
             newRow.style.backgroundColor = '#f0f9ff';
             existingRow.replaceWith(newRow);
-            
+
+            // Reapply column visibility to the new row
+            applySavedColumnVisibility();
+
             // Remove highlight after animation
             setTimeout(() => {
                 if (newRow && newRow.style) {
