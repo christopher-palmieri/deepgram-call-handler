@@ -2620,15 +2620,29 @@ body:has(.login-container) {
     transform: translateY(0);
 }
 
+/* Export Call Button - Blue */
 .export-call-btn {
-    background: #059669;
-    box-shadow: 0 1px 3px rgba(5, 150, 105, 0.2);
+    padding: 4px 6px;
+    width: 26px;
+    height: 26px;
+    background: #3b82f6;
+    box-shadow: 0 1px 3px rgba(59, 130, 246, 0.2);
+    margin-left: 3px;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
 }
 
 .export-call-btn:hover {
-    background: #047857;
+    background: #2563eb;
     transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(5, 150, 105, 0.3);
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
 }
 
 .export-call-btn:active {
@@ -2650,7 +2664,9 @@ body:has(.login-container) {
 /* Monitor Page - Larger Action Buttons */
 /* Override small button styles for monitor page buttons that have text labels */
 .call-actions .edit-classification-btn,
+.call-actions .export-call-btn,
 .call-actions .archive-call-btn,
+.call-actions .kill-call-btn,
 .call-actions .delete-call-btn {
     width: auto;
     height: auto;
@@ -2662,7 +2678,9 @@ body:has(.login-container) {
 }
 
 .call-actions .edit-icon,
+.call-actions .export-icon,
 .call-actions .archive-icon,
+.call-actions .kill-icon,
 .call-actions .delete-icon {
     width: 18px;
     height: 18px;
@@ -3454,22 +3472,33 @@ body:has(.login-container) {
     background: rgba(255, 255, 255, 0.3);
 }
 
-/* Kill Call Button */
+/* Kill Call Button - Red (matches delete style) */
 .kill-call-btn {
-    background-color: #dc2626;
+    padding: 4px 6px;
+    width: 26px;
+    height: 26px;
+    background: #dc2626;
+    box-shadow: 0 1px 3px rgba(220, 38, 38, 0.2);
+    margin-left: 3px;
+    color: white;
     border: none;
-    padding: 8px;
-    border-radius: 6px;
+    border-radius: 4px;
     cursor: pointer;
-    transition: all 0.2s;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
 }
 
 .kill-call-btn:hover {
-    background-color: #b91c1c;
-    transform: scale(1.05);
+    background: #b91c1c;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(220, 38, 38, 0.3);
+}
+
+.kill-call-btn:active {
+    transform: translateY(0);
 }
 
 .kill-call-btn .kill-icon {

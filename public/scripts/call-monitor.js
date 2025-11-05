@@ -2862,6 +2862,69 @@ async function exportTranscript(sessionId, callId) {
     }
 }
 
+// Export call data as CSV
+function callToCSV(call) {
+    const headers = [
+        'exam_id', 'employee_name', 'employee_dob', 'employee_phone_number', 'employee_address',
+        'client_name', 'appointment_time', 'type_of_visit', 'phone', 'clinic_name',
+        'clinic_provider_address', 'procedures', 'clinic_timezone', 'task_type',
+        'workflow_state', 'success_evaluation', 'retry_count', 'max_retries',
+        'is_active', 'classification_id', 'last_error', 'tag', 'created_at', 'last_attempt_at'
+    ];
+
+    let csv = headers.join(',') + '\n';
+
+    const row = headers.map(header => {
+        let value = call[header];
+
+        // Handle null/undefined
+        if (value === null || value === undefined) {
+            return '';
+        }
+
+        // Handle arrays
+        if (Array.isArray(value)) {
+            value = value.join('; ');
+        }
+
+        // Handle objects
+        if (typeof value === 'object') {
+            value = JSON.stringify(value);
+        }
+
+        // Escape quotes and wrap in quotes
+        value = String(value).replace(/"/g, '""');
+        return `"${value}"`;
+    });
+
+    csv += row.join(',') + '\n';
+    return csv;
+}
+
+async function exportCurrentCall() {
+    if (!currentPendingCall) {
+        showError('No call loaded to export');
+        return;
+    }
+
+    try {
+        const csv = callToCSV(currentPendingCall);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const examId = currentPendingCall.exam_id || currentPendingCall.id;
+        const date = new Date().toISOString().split('T')[0];
+        link.download = `call-${examId}-${date}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+        showInfo('Call data exported successfully');
+    } catch (error) {
+        console.error('Error exporting call:', error);
+        showError('Failed to export call data');
+    }
+}
+
 window.toggleAudio = toggleAudio;
 window.setVolume = setVolume;
 window.goToDashboard = goToDashboard;
@@ -2885,3 +2948,4 @@ window.handleActionTypeChange = handleActionTypeChange;
 window.removeIvrAction = removeIvrAction;
 window.saveClassification = saveClassification;
 window.exportTranscript = exportTranscript;
+window.exportCurrentCall = exportCurrentCall;

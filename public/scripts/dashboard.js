@@ -493,6 +493,11 @@ function createCallRowHtml(call) {
                     <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>
                 </svg>
             </button>
+            <button class="export-call-btn" onclick="event.stopPropagation(); exportCall('${call.id}')" title="Export Call Data">
+                <svg class="export-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z" fill="currentColor"/>
+                </svg>
+            </button>
             <button class="archive-call-btn${call.is_active ? '' : ' unarchive-mode'}" onclick="event.stopPropagation(); toggleArchiveCall('${call.id}')" title="${call.is_active ? 'Archive Call' : 'Unarchive Call'}">
                 <svg class="archive-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     ${call.is_active
@@ -4084,6 +4089,47 @@ window.closeBatchMakeCallsModal = closeBatchMakeCallsModal;
 window.confirmBatchMakeCalls = confirmBatchMakeCalls;
 window.killCall = killCall;
 
+// Convert call data to CSV format
+function callsToCSV(calls) {
+    if (!calls || calls.length === 0) return '';
+
+    // Define headers
+    const headers = [
+        'exam_id', 'employee_name', 'employee_dob', 'employee_phone_number', 'employee_address',
+        'client_name', 'appointment_time', 'type_of_visit', 'phone', 'clinic_name',
+        'clinic_provider_address', 'procedures', 'clinic_timezone', 'task_type',
+        'workflow_state', 'success_evaluation', 'retry_count', 'max_retries',
+        'is_active', 'classification_id', 'last_error', 'tag', 'created_at', 'last_attempt_at'
+    ];
+
+    // Create CSV content
+    let csv = headers.join(',') + '\n';
+
+    calls.forEach(call => {
+        const row = headers.map(header => {
+            let value = call[header];
+
+            // Handle special cases
+            if (value === null || value === undefined) {
+                return '';
+            }
+            if (Array.isArray(value)) {
+                value = value.join('; ');
+            }
+            if (typeof value === 'object') {
+                value = JSON.stringify(value);
+            }
+
+            // Escape and quote the value
+            value = String(value).replace(/"/g, '""');
+            return `"${value}"`;
+        });
+        csv += row.join(',') + '\n';
+    });
+
+    return csv;
+}
+
 // Export single call
 async function exportCall(callId) {
     const call = allCalls.find(c => c.id === callId);
@@ -4092,13 +4138,13 @@ async function exportCall(callId) {
         return;
     }
 
-    // Convert to JSON and download
-    const dataStr = JSON.stringify(call, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
+    // Convert to CSV and download
+    const csv = callsToCSV([call]);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `call-${call.exam_id || callId}-${new Date().toISOString().split('T')[0]}.json`;
+    link.download = `call-${call.exam_id || callId}-${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -4116,13 +4162,13 @@ async function batchExport() {
 
     const callsToExport = allCalls.filter(call => selectedCallIds.has(call.id));
 
-    // Convert to JSON and download
-    const dataStr = JSON.stringify(callsToExport, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
+    // Convert to CSV and download
+    const csv = callsToCSV(callsToExport);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `calls-export-${callsToExport.length}-${new Date().toISOString().split('T')[0]}.json`;
+    link.download = `calls-export-${callsToExport.length}-${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
