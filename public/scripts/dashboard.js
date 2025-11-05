@@ -500,7 +500,7 @@ function createCallRowHtml(call) {
         <td>${formattedPhone}</td>
         <td>${lastAttempt}</td>
         <td>${nextAction}</td>
-        <td class="tags-cell" onclick="event.stopPropagation(); editTags('${call.id}', this)">${renderTags(call.tags)}</td>
+        <td class="tags-cell" onclick="event.stopPropagation(); editTags('${call.id}', this)">${renderTags(call.tag)}</td>
     </tr>`;
 }
 
@@ -517,7 +517,7 @@ function editTags(callId, cell) {
     const call = allCalls.find(c => c.id === callId);
     if (!call) return;
 
-    const currentTags = call.tags || [];
+    const currentTags = call.tag || [];
     const tagsString = Array.isArray(currentTags) ? currentTags.join(', ') : '';
 
     // Replace cell content with input
@@ -549,7 +549,7 @@ async function saveTags(callId, tagsString, cell) {
         // Update in database
         const { error } = await supabase
             .from('pending_calls')
-            .update({ tags: tagsArray })
+            .update({ tag: tagsArray })
             .eq('id', callId);
 
         if (error) {
@@ -557,14 +557,14 @@ async function saveTags(callId, tagsString, cell) {
             alert('Failed to update tags: ' + error.message);
             // Revert to original display
             const call = allCalls.find(c => c.id === callId);
-            cell.innerHTML = renderTags(call?.tags);
+            cell.innerHTML = renderTags(call?.tag);
             return;
         }
 
         // Update local cache
         const call = allCalls.find(c => c.id === callId);
         if (call) {
-            call.tags = tagsArray;
+            call.tag = tagsArray;
         }
 
         // Update display
@@ -576,7 +576,7 @@ async function saveTags(callId, tagsString, cell) {
         alert('Failed to save tags');
         // Revert to original display
         const call = allCalls.find(c => c.id === callId);
-        cell.innerHTML = renderTags(call?.tags);
+        cell.innerHTML = renderTags(call?.tag);
     }
 }
 
