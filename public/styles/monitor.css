@@ -3430,3 +3430,28 @@ body:has(.login-container) {
 .batch-cancel:hover {
     background: rgba(255, 255, 255, 0.3);
 }
+
+/* Kill Call Button */
+.kill-call-btn {
+    background-color: #dc2626;
+    border: none;
+    padding: 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.kill-call-btn:hover {
+    background-color: #b91c1c;
+    transform: scale(1.05);
+}
+
+.kill-call-btn .kill-icon {
+    width: 20px;
+    height: 20px;
+    fill: white;
+    stroke: white;
+}

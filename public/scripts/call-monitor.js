@@ -2103,6 +2103,78 @@ function playTableRecording(recordingUrl, sessionId) {
     }
 }
 
+// Kill live calls functionality
+async function killLiveCallsMonitor() {
+    if (!currentPendingCall) {
+        showError('No call loaded');
+        return;
+    }
+
+    if (!confirm('Are you sure you want to terminate any live calls for this pending call?')) {
+        return;
+    }
+
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        // Find all active call sessions for this pending call
+        const { data: sessions, error: sessionError } = await supabase
+            .from('call_sessions')
+            .select('call_sid, call_status')
+            .eq('pending_call_id', currentPendingCall.id)
+            .is('call_ended_at', null); // Only get calls that haven't ended
+
+        if (sessionError) {
+            throw new Error('Failed to fetch call sessions: ' + sessionError.message);
+        }
+
+        if (!sessions || sessions.length === 0) {
+            showError('No active calls found');
+            return;
+        }
+
+        console.log(`Found ${sessions.length} active call(s) to terminate`);
+
+        let successCount = 0;
+        // Kill each active call
+        for (const sess of sessions) {
+            if (sess.call_sid) {
+                try {
+                    const response = await fetch(`${config.supabaseUrl}/functions/v1/kill-call`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${session.access_token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ callSid: sess.call_sid })
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        console.log(`Killed call ${sess.call_sid}:`, result);
+                        successCount++;
+                    } else {
+                        const error = await response.json();
+                        console.warn(`Failed to kill call ${sess.call_sid}:`, error);
+                    }
+                } catch (error) {
+                    console.error(`Error killing call ${sess.call_sid}:`, error);
+                }
+            }
+        }
+
+        if (successCount > 0) {
+            showSuccess(`Successfully terminated ${successCount} call(s)`);
+        } else {
+            showError('Failed to terminate calls');
+        }
+
+    } catch (error) {
+        console.error('Error killing live calls:', error);
+        showError('Error: ' + error.message);
+    }
+}
+
 // Reset call functionality
 function showResetCallModal() {
     if (!currentPendingCall) {
@@ -2802,6 +2874,7 @@ window.playTableRecording = playTableRecording;
 window.showResetCallModal = showResetCallModal;
 window.closeResetCallModal = closeResetCallModal;
 window.confirmResetCall = confirmResetCall;
+window.killLiveCallsMonitor = killLiveCallsMonitor;
 window.toggleArchiveCallMonitor = toggleArchiveCallMonitor;
 window.updateArchiveToggleButton = updateArchiveToggleButton;
 window.toggleSection = toggleSection;

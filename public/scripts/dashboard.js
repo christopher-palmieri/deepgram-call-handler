@@ -482,6 +482,12 @@ function createCallRowHtml(call) {
                     <path d="M8 5v14l11-7L8 5z" fill="currentColor"/>
                 </svg>
             </button>
+            <button class="kill-call-btn" onclick="event.stopPropagation(); killCall('${call.id}')" title="Kill Live Call">
+                <svg class="kill-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M6.62 10.79c1.44 2.83 3.76 5.15 6.59 6.59l2.2-2.2c.28-.28.67-.36 1.02-.25 1.12.37 2.32.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" fill="currentColor"/>
+                    <path d="M21 6l-6 6M21 12l-6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </button>
             <button class="edit-classification-btn" onclick="event.stopPropagation(); showClassificationModal('${call.id}')" title="Edit Classification">
                 <svg class="edit-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>
@@ -1954,6 +1960,71 @@ function closeDeleteConfirmation() {
     deleteCallId = null;
 }
 
+// Kill live call(s)
+async function killCall(pendingCallId) {
+    if (!confirm('Are you sure you want to terminate any live calls for this pending call?')) {
+        return;
+    }
+
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        await killLiveCallsForPendingCall(pendingCallId, session.access_token);
+        showToast('Live call(s) terminated successfully');
+    } catch (error) {
+        console.error('Error killing live calls:', error);
+        showToast('Error: ' + error.message);
+    }
+}
+
+// Helper function to kill all live calls associated with a pending call
+async function killLiveCallsForPendingCall(pendingCallId, accessToken) {
+    // Find all active call sessions for this pending call
+    const { data: sessions, error: sessionError } = await supabase
+        .from('call_sessions')
+        .select('call_sid, call_status')
+        .eq('pending_call_id', pendingCallId)
+        .is('call_ended_at', null); // Only get calls that haven't ended
+
+    if (sessionError) {
+        throw new Error('Failed to fetch call sessions: ' + sessionError.message);
+    }
+
+    if (!sessions || sessions.length === 0) {
+        console.log('No active calls found for pending call:', pendingCallId);
+        return;
+    }
+
+    console.log(`Found ${sessions.length} active call(s) to terminate`);
+
+    // Kill each active call
+    for (const session of sessions) {
+        if (session.call_sid) {
+            try {
+                const response = await fetch(`${config.supabaseUrl}/functions/v1/kill-call`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ callSid: session.call_sid })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    console.warn(`Failed to kill call ${session.call_sid}:`, error);
+                    // Continue with other calls even if one fails
+                } else {
+                    const result = await response.json();
+                    console.log(`Killed call ${session.call_sid}:`, result);
+                }
+            } catch (error) {
+                console.error(`Error killing call ${session.call_sid}:`, error);
+                // Continue with other calls even if one fails
+            }
+        }
+    }
+}
+
 async function confirmDeleteCall() {
     if (!deleteCallId) {
         showToast('Error: No call ID selected');
@@ -1962,12 +2033,23 @@ async function confirmDeleteCall() {
     }
 
     const confirmBtn = document.getElementById('confirmDeleteBtn');
+    const killLiveCallCheckbox = document.getElementById('killLiveCallCheckbox');
+    const shouldKillLiveCall = killLiveCallCheckbox?.checked || false;
+
     confirmBtn.disabled = true;
     confirmBtn.textContent = 'Deleting...';
 
     try {
         const { data: { session } } = await supabase.auth.getSession();
 
+        // If checkbox is checked, kill any live calls first
+        if (shouldKillLiveCall) {
+            confirmBtn.textContent = 'Terminating calls...';
+            await killLiveCallsForPendingCall(deleteCallId, session.access_token);
+        }
+
+        // Then delete the pending call record
+        confirmBtn.textContent = 'Deleting...';
         const response = await fetch(`${config.supabaseUrl}/functions/v1/delete-call`, {
             method: 'POST',
             headers: {
@@ -3941,6 +4023,7 @@ window.confirmBatchDelete = confirmBatchDelete;
 window.batchMakeCalls = batchMakeCalls;
 window.closeBatchMakeCallsModal = closeBatchMakeCallsModal;
 window.confirmBatchMakeCalls = confirmBatchMakeCalls;
+window.killCall = killCall;
 
 // Apply saved column visibility on page load
 document.addEventListener('DOMContentLoaded', () => {
