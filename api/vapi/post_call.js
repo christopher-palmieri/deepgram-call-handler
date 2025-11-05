@@ -169,35 +169,142 @@ export default async function handler(req, res) {
     }
     // ===== END NEW LOGIC =====
 
-    // Determine workflow state based on success evaluation
+    // Normalize success evaluation (handles various VAPI response formats)
+    let normalizedSuccessEval = successEvaluation;
+
+    // Define canonical status names for exact matching
+    const canonicalStatuses = [
+      'Unable to connect',
+      'No Show',
+      'Sending Records',
+      'Requested to call back',
+      'Already Sent',
+      'Policy Restriction',
+      'Insufficient Information'
+    ];
+
+    if (successEvaluation) {
+      // Try to extract status from verbose responses like:
+      // "...the appropriate status is: **Sending Records**: Description"
+      // "...Based on the transcript: **Sending Records**"
+
+      // First, try to find "status is:" or similar and extract everything after
+      const statusIsMatch = successEvaluation.match(/status is:\s*(\*\*)?([^:*\n]+)(\*\*)?/i);
+      if (statusIsMatch) {
+        normalizedSuccessEval = statusIsMatch[2].trim();
+        console.log(`📋 Extracted status after "status is:": "${normalizedSuccessEval}"`);
+      } else {
+        // Otherwise, look for **Status Name**: pattern anywhere in the string
+        const boldStatusMatch = successEvaluation.match(/\*\*([^*:]+)\*\*:/);
+        if (boldStatusMatch) {
+          normalizedSuccessEval = boldStatusMatch[1].trim();
+          console.log(`📋 Extracted bold status: "${normalizedSuccessEval}"`);
+        } else if (successEvaluation.includes(':')) {
+          // Last resort: try colon format at start of string
+          const colonMatch = successEvaluation.match(/^([^:]+):/);
+          if (colonMatch) {
+            normalizedSuccessEval = colonMatch[1].trim();
+            console.log(`📋 Extracted status before colon: "${normalizedSuccessEval}"`);
+          }
+        }
+      }
+
+      // Check for exact match (case-insensitive) with canonical statuses
+      const exactMatch = canonicalStatuses.find(
+        status => status.toLowerCase() === normalizedSuccessEval.toLowerCase()
+      );
+
+      if (exactMatch) {
+        normalizedSuccessEval = exactMatch;
+        console.log(`✅ Exact match found: "${exactMatch}"`);
+      } else {
+        // No exact match, try fuzzy matching
+        console.log(`⚠️ No exact match, trying fuzzy matching for: "${normalizedSuccessEval}"`);
+
+        const successPatterns = {
+          'Sending Records': [
+            'sending records', 'records being sent', 'will send records', 'sending the records',
+            'will send', 'agreed to send', 'clinic will send', 'they will send', 'gonna send',
+            'going to send', 'i\'ll send', 'we\'ll send', 'resending', 'sending it'
+          ],
+          'No Show': [
+            'no show', 'no-show', 'did not show', 'didn\'t show', 'patient no show',
+            'employee no show', 'never showed', 'didn\'t attend', 'no showed',
+            'patient didn\'t show', 'employee didn\'t show'
+          ],
+          'Already Sent': [
+            'already sent', 'previously sent', 'sent already', 'already faxed',
+            'sent before', 'sent previously', 'refuse to send', 'won\'t send again',
+            'not sending again', 'won\'t resend'
+          ],
+          'Policy Restriction': [
+            'policy restriction', 'policy', 'requires formal request', 'portal access',
+            'requires portal', 'policy requires', 'must use portal', 'formal request required',
+            'can\'t release over phone', 'need written request', 'requires authorization',
+            'hipaa policy', 'patient portal', 'hub system'
+          ],
+          'Insufficient Information': [
+            'insufficient information', 'insufficient info', 'not enough information',
+            'missing information', 'need more info', 'can\'t locate patient', 'cannot find patient',
+            'can\'t find', 'unable to locate', 'need ssn', 'need social', 'need address',
+            'missing data', 'incomplete information'
+          ],
+          'Requested to call back': [
+            'requested to call back', 'call back', 'callback requested', 'call back later',
+            'too busy', 'try again', 'call again', 'call later', 'busy right now',
+            'not available', 'come back later', 'try calling back'
+          ],
+          'Unable to connect': [
+            'unable to connect', 'could not connect', 'connection failed', 'no answer',
+            'voicemail', 'busy signal', 'didn\'t answer', 'couldn\'t reach', 'on hold too long',
+            'call ended', 'hung up', 'disconnected', 'no response', 'never reached'
+          ]
+        };
+
+        // Try to match against known patterns
+        const lowerEval = normalizedSuccessEval.toLowerCase();
+        for (const [canonicalStatus, patterns] of Object.entries(successPatterns)) {
+          for (const pattern of patterns) {
+            if (lowerEval.includes(pattern)) {
+              normalizedSuccessEval = canonicalStatus;
+              console.log(`🔍 Fuzzy match: "${successEvaluation}" → "${canonicalStatus}"`);
+              break;
+            }
+          }
+          if (normalizedSuccessEval !== successEvaluation) break;
+        }
+      }
+    }
+
+    // Determine workflow state based on normalized success evaluation
     let workflowState;
     let nextActionAt = null;
     let retryCount = currentCall.retry_count || 0;
 
-    if (successEvaluation === 'Sending Records') {
+    if (normalizedSuccessEval === 'Sending Records') {
       workflowState = 'completed';
       // Reset retry count on success
       retryCount = 0;
-    } else if (successEvaluation === 'No Show') {
+    } else if (normalizedSuccessEval === 'No Show') {
       workflowState = 'completed';
       // Keep retry count for record
-    } else if (successEvaluation === 'Already Sent') {
+    } else if (normalizedSuccessEval === 'Already Sent') {
       // Terminal state - clinic already sent records
       workflowState = 'completed';
       // Keep retry count for record
-    } else if (successEvaluation === 'Policy Restriction') {
+    } else if (normalizedSuccessEval === 'Policy Restriction') {
       // Terminal state - clinic requires formal request or portal access
       workflowState = 'completed';
       // Keep retry count for record
-    } else if (successEvaluation === 'Insufficient Information') {
+    } else if (normalizedSuccessEval === 'Insufficient Information') {
       // Terminal state - not enough patient info to locate
       workflowState = 'completed';
       // Keep retry count for record
-    } else if (successEvaluation === 'Requested to call back') {
+    } else if (normalizedSuccessEval === 'Requested to call back') {
       // Terminal state - clinic asked to call back
       workflowState = 'completed';
       // Keep retry count for record
-    } else if (successEvaluation === 'Unable to connect') {
+    } else if (normalizedSuccessEval === 'Unable to connect') {
       // Increment retry count (only for ACTUAL task call failures)
       retryCount = retryCount + 1;
 
@@ -228,7 +335,9 @@ export default async function handler(req, res) {
         console.log(`⏰ Retry #${retryCount} scheduled in ${retryDelayMinutes} minutes`);
       }
     } else {
-      console.warn('Unknown success evaluation:', successEvaluation);
+      console.warn('⚠️ Unknown success evaluation:', successEvaluation);
+      console.warn('   Normalized to:', normalizedSuccessEval);
+      console.warn('   Treating as retry with increment');
       // Treat unknown as retry, but increment count
       retryCount = retryCount + 1;
 
@@ -245,16 +354,17 @@ export default async function handler(req, res) {
     // Create comprehensive workflow metadata
     const workflowMetadata = {
       vapi_completed_at: new Date().toISOString(),
-      vapi_success_evaluation: successEvaluation,
+      vapi_success_evaluation: successEvaluation, // Store original from VAPI
+      vapi_success_evaluation_normalized: normalizedSuccessEval, // Store normalized version
       vapi_summary: summary,
       vapi_structured_data: structuredData,
-      records_being_sent: successEvaluation === 'Sending Records',
-      employee_no_show: successEvaluation === 'No Show',
-      connection_failed: successEvaluation === 'Unable to connect',
-      already_sent: successEvaluation === 'Already Sent',
-      policy_restriction: successEvaluation === 'Policy Restriction',
-      insufficient_information: successEvaluation === 'Insufficient Information',
-      requested_callback: successEvaluation === 'Requested to call back',
+      records_being_sent: normalizedSuccessEval === 'Sending Records',
+      employee_no_show: normalizedSuccessEval === 'No Show',
+      connection_failed: normalizedSuccessEval === 'Unable to connect',
+      already_sent: normalizedSuccessEval === 'Already Sent',
+      policy_restriction: normalizedSuccessEval === 'Policy Restriction',
+      insufficient_information: normalizedSuccessEval === 'Insufficient Information',
+      requested_callback: normalizedSuccessEval === 'Requested to call back',
       call_sid: callSid,
       session_id: sessionId,
       attempt_number: retryCount,
@@ -265,7 +375,7 @@ export default async function handler(req, res) {
     // === UPDATE PENDING_CALLS ===
     const pendingCallUpdates = {
       summary: summary,
-      success_evaluation: successEvaluation,
+      success_evaluation: normalizedSuccessEval, // Store normalized version in main field
       structured_data: structuredData,
       workflow_state: workflowState,
       next_action_at: nextActionAt,
@@ -274,11 +384,11 @@ export default async function handler(req, res) {
       last_attempt_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
-    
-    // Update last_error based on the outcome
-    if (successEvaluation === 'Unable to connect') {
+
+    // Update last_error based on the outcome (use normalized)
+    if (normalizedSuccessEval === 'Unable to connect') {
       pendingCallUpdates.last_error = `Unable to connect - Attempt ${retryCount}`;
-    } else if (successEvaluation === 'Sending Records' || successEvaluation === 'No Show') {
+    } else if (normalizedSuccessEval === 'Sending Records' || normalizedSuccessEval === 'No Show') {
       // Clear error on success or no-show
       pendingCallUpdates.last_error = null;
     }
@@ -354,19 +464,20 @@ export default async function handler(req, res) {
       const sessionMetadata = {
         ...existingMetadata,
         vapi_completed_at: new Date().toISOString(),
-        vapi_success_evaluation: successEvaluation,
+        vapi_success_evaluation: successEvaluation, // Store original
+        vapi_success_evaluation_normalized: normalizedSuccessEval, // Store normalized
         vapi_summary: summary,
         vapi_structured_data: structuredData,
-        records_being_sent: successEvaluation === 'Sending Records',
-        employee_no_show: successEvaluation === 'No Show',
-        connection_failed: successEvaluation === 'Unable to connect',
-        already_sent: successEvaluation === 'Already Sent',
-        policy_restriction: successEvaluation === 'Policy Restriction',
-        insufficient_information: successEvaluation === 'Insufficient Information',
-        requested_callback: successEvaluation === 'Requested to call back',
+        records_being_sent: normalizedSuccessEval === 'Sending Records',
+        employee_no_show: normalizedSuccessEval === 'No Show',
+        connection_failed: normalizedSuccessEval === 'Unable to connect',
+        already_sent: normalizedSuccessEval === 'Already Sent',
+        policy_restriction: normalizedSuccessEval === 'Policy Restriction',
+        insufficient_information: normalizedSuccessEval === 'Insufficient Information',
+        requested_callback: normalizedSuccessEval === 'Requested to call back',
         pending_call_id: pendingCallId,
-        call_outcome: successEvaluation,
-        is_successful: successEvaluation === 'Sending Records',
+        call_outcome: normalizedSuccessEval, // Use normalized
+        is_successful: normalizedSuccessEval === 'Sending Records',
         is_terminal: workflowState === 'completed' || workflowState === 'failed',
         needs_retry: workflowState === 'retry_pending',
         retry_count: retryCount,
@@ -400,17 +511,18 @@ export default async function handler(req, res) {
           workflow_metadata: {
             vapi_completed_at: new Date().toISOString(),
             vapi_success_evaluation: successEvaluation,
+            vapi_success_evaluation_normalized: normalizedSuccessEval,
             vapi_summary: summary,
             vapi_structured_data: structuredData,
-            records_being_sent: successEvaluation === 'Sending Records',
-            employee_no_show: successEvaluation === 'No Show',
-            connection_failed: successEvaluation === 'Unable to connect',
-            already_sent: successEvaluation === 'Already Sent',
-            policy_restriction: successEvaluation === 'Policy Restriction',
-            insufficient_information: successEvaluation === 'Insufficient Information',
-            requested_callback: successEvaluation === 'Requested to call back',
-            call_outcome: successEvaluation,
-            is_successful: successEvaluation === 'Sending Records',
+            records_being_sent: normalizedSuccessEval === 'Sending Records',
+            employee_no_show: normalizedSuccessEval === 'No Show',
+            connection_failed: normalizedSuccessEval === 'Unable to connect',
+            already_sent: normalizedSuccessEval === 'Already Sent',
+            policy_restriction: normalizedSuccessEval === 'Policy Restriction',
+            insufficient_information: normalizedSuccessEval === 'Insufficient Information',
+            requested_callback: normalizedSuccessEval === 'Requested to call back',
+            call_outcome: normalizedSuccessEval,
+            is_successful: normalizedSuccessEval === 'Sending Records',
             created_from_post_call: true,
             retry_count: retryCount,
             is_final_failure: workflowState === 'failed'
@@ -424,27 +536,31 @@ export default async function handler(req, res) {
     }
 
     // Log workflow state change
-    const isSuccess = successEvaluation === 'Sending Records';
+    const isSuccess = normalizedSuccessEval === 'Sending Records';
     const isTerminal = workflowState === 'completed' || workflowState === 'failed';
-    
+
     if (workflowState === 'failed') {
       console.log(`❌ CALL FAILED - Max retries (${retryCount}) exceeded for pending_call ${pendingCallId}`);
     } else if (isTerminal) {
-      console.log(`✅ Call COMPLETED - Status: ${successEvaluation} for pending_call ${pendingCallId}`);
+      console.log(`✅ Call COMPLETED - Status: ${normalizedSuccessEval} for pending_call ${pendingCallId}`);
+      if (successEvaluation !== normalizedSuccessEval) {
+        console.log(`   (Original VAPI: "${successEvaluation}")`);
+      }
     } else {
       console.log(`⏰ Call NEEDS RETRY - Attempt ${retryCount}/${currentCall.max_retries || 3} for pending_call ${pendingCallId}`);
     }
-    
+
     // If this was a retry that succeeded, log it
     if (isSuccess && retryCount > 0) {
       console.log(`🎉 Retry successful after ${retryCount} attempts - Records being sent!`);
     }
 
-    return res.status(200).json({ 
-      status: 'ok', 
-      updated: true, 
+    return res.status(200).json({
+      status: 'ok',
+      updated: true,
       workflow_state: workflowState,
-      success: successEvaluation,
+      success: normalizedSuccessEval, // Return normalized version
+      success_original: successEvaluation, // Also return original
       retry_count: retryCount,
       is_final: isTerminal,
       session_updated: !!sessionToUpdate,

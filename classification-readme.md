@@ -445,6 +445,7 @@ VAPI uses a custom tool to retrieve complete pending call information during the
 | `employee_phone_number` | String | ❌ No | Employee phone number (optional) |
 | `clinic_scheduling_rep` | String | ✅ Yes | Clinic scheduling representative |
 | `clinic_provider_address` | String | ✅ Yes | Clinic provider address |
+| `retry_count` | Integer | ✅ Yes | Number of previous attempts (0 = first call, 1 = second attempt, etc.) |
 
 **Usage in VAPI Workflow:**
 1. VAPI receives the call with `pendingcallid` in SIP headers

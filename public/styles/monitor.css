@@ -914,6 +914,10 @@ body:has(.login-container) {
 }
 
 .workflow-new { background: #dbeafe; color: #1e40af; }
+.workflow-needs_classification { background: #e9d5ff; color: #6b21a8; }
+.workflow-classification_pending { background: #fef3c7; color: #92400e; }
+.workflow-classifying { background: #e9d5ff; color: #6b21a8; }
+.workflow-ready_to_call { background: #bfdbfe; color: #1e3a8a; }
 .workflow-calling { background: #fef3c7; color: #92400e; }
 .workflow-completed { background: #d1fae5; color: #065f46; }
 
@@ -932,8 +936,6 @@ body:has(.login-container) {
 }
 .workflow-failed { background: #fee2e2; color: #991b1b; }
 .workflow-retry_pending { background: #fed7aa; color: #9a3412; }
-.workflow-classifying { background: #e9d5ff; color: #6b21a8; }
-.workflow-ready_to_call { background: #bfdbfe; color: #1e3a8a; }
 
 /* Success Evaluation Badge Styles */
 .success-badge {
