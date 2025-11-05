@@ -3338,3 +3338,95 @@ body:has(.login-container) {
     font-size: 13px;
     cursor: help;
 }
+
+/* Batch Actions */
+.checkbox-col {
+    width: 40px;
+    text-align: center;
+    padding: 8px;
+}
+
+.checkbox-col input[type="checkbox"] {
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+    margin: 0;
+}
+
+.batch-actions-bar {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    padding: 16px 24px;
+    margin: 0 -24px 16px -24px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.batch-info {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.batch-buttons {
+    display: flex;
+    gap: 12px;
+}
+
+.batch-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: white;
+    color: #1f2937;
+}
+
+.batch-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.batch-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.batch-delete {
+    background: #dc2626;
+    color: white;
+}
+
+.batch-delete:hover {
+    background: #b91c1c;
+}
+
+.batch-cancel {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.batch-cancel:hover {
+    background: rgba(255, 255, 255, 0.3);
+}

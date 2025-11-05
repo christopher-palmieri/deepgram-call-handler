@@ -156,7 +156,7 @@ async function loadPendingCalls(append = false) {
     } catch (error) {
         console.error('Error loading calls:', error);
         document.getElementById('callsTableBody').innerHTML =
-            '<tr><td colspan="17" class="empty-table">Error loading calls</td></tr>';
+            '<tr><td colspan="18" class="empty-table">Error loading calls</td></tr>';
     }
 }
 
@@ -192,7 +192,7 @@ function renderCallsTable() {
     filteredCalls = applySearch(filteredCalls);
     
     if (filteredCalls.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="17" class="empty-table">No calls found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="18" class="empty-table">No calls found</td></tr>';
         return;
     }
     
@@ -473,6 +473,9 @@ function createCallRowHtml(call) {
     const formattedPhone = formatPhoneNumber(call.phone);
 
     return `<tr class="clickable" data-call-id="${call.id}" onclick="viewCallDetails('${call.id}')">
+        <td class="checkbox-col" onclick="event.stopPropagation();">
+            <input type="checkbox" class="row-checkbox" data-call-id="${call.id}" onchange="handleRowSelection(this)">
+        </td>
         <td class="actions-cell">
             <button class="make-call-btn" onclick="event.stopPropagation(); makeCall('${call.id}')" title="Make Call">
                 <svg class="play-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -3733,6 +3736,157 @@ function applySavedColumnVisibility() {
     });
 }
 
+// Batch selection and actions
+let selectedCallIds = new Set();
+
+function handleRowSelection(checkbox) {
+    const callId = checkbox.dataset.callId;
+    if (checkbox.checked) {
+        selectedCallIds.add(callId);
+    } else {
+        selectedCallIds.delete(callId);
+    }
+    updateBatchActionsBar();
+    updateSelectAllCheckbox();
+}
+
+function toggleSelectAll(checked) {
+    const checkboxes = document.querySelectorAll('.row-checkbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = checked;
+        const callId = checkbox.dataset.callId;
+        if (checked) {
+            selectedCallIds.add(callId);
+        } else {
+            selectedCallIds.delete(callId);
+        }
+    });
+    updateBatchActionsBar();
+}
+
+function updateSelectAllCheckbox() {
+    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    const checkboxes = document.querySelectorAll('.row-checkbox');
+    const checkedCount = document.querySelectorAll('.row-checkbox:checked').length;
+
+    if (checkedCount === 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+    } else if (checkedCount === checkboxes.length) {
+        selectAllCheckbox.checked = true;
+        selectAllCheckbox.indeterminate = false;
+    } else {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = true;
+    }
+}
+
+function updateBatchActionsBar() {
+    const batchBar = document.getElementById('batchActionsBar');
+    const selectedCount = document.getElementById('selectedCount');
+
+    selectedCount.textContent = selectedCallIds.size;
+
+    if (selectedCallIds.size > 0) {
+        batchBar.style.display = 'flex';
+    } else {
+        batchBar.style.display = 'none';
+    }
+}
+
+function clearSelection() {
+    selectedCallIds.clear();
+    document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = false);
+    document.getElementById('selectAllCheckbox').checked = false;
+    updateBatchActionsBar();
+}
+
+// Batch Archive
+function batchArchive() {
+    document.getElementById('archiveCount').textContent = selectedCallIds.size;
+    document.getElementById('batchArchiveModal').style.display = 'flex';
+}
+
+function closeBatchArchiveModal() {
+    document.getElementById('batchArchiveModal').style.display = 'none';
+}
+
+async function confirmBatchArchive() {
+    const count = selectedCallIds.size;
+    try {
+        const updates = Array.from(selectedCallIds).map(id =>
+            supabase.from('pending_calls').update({ is_active: false }).eq('id', id)
+        );
+        await Promise.all(updates);
+
+        console.log(`✅ Archived ${count} calls`);
+        closeBatchArchiveModal();
+        clearSelection();
+        await loadPendingCalls();
+    } catch (error) {
+        console.error('Error archiving calls:', error);
+        alert('Failed to archive some calls. Please try again.');
+    }
+}
+
+// Batch Delete
+function batchDelete() {
+    document.getElementById('deleteCount').textContent = selectedCallIds.size;
+    document.getElementById('batchDeleteModal').style.display = 'flex';
+}
+
+function closeBatchDeleteModal() {
+    document.getElementById('batchDeleteModal').style.display = 'none';
+}
+
+async function confirmBatchDelete() {
+    const count = selectedCallIds.size;
+    try {
+        const deletes = Array.from(selectedCallIds).map(id =>
+            supabase.from('pending_calls').delete().eq('id', id)
+        );
+        await Promise.all(deletes);
+
+        console.log(`✅ Deleted ${count} calls`);
+        closeBatchDeleteModal();
+        clearSelection();
+        await loadPendingCalls();
+    } catch (error) {
+        console.error('Error deleting calls:', error);
+        alert('Failed to delete some calls. Please try again.');
+    }
+}
+
+// Batch Make Calls
+function batchMakeCalls() {
+    document.getElementById('makeCallsCount').textContent = selectedCallIds.size;
+    document.getElementById('batchMakeCallsModal').style.display = 'flex';
+}
+
+function closeBatchMakeCallsModal() {
+    document.getElementById('batchMakeCallsModal').style.display = 'none';
+}
+
+async function confirmBatchMakeCalls() {
+    closeBatchMakeCallsModal();
+    const callIds = Array.from(selectedCallIds);
+
+    console.log(`📞 Initiating ${callIds.length} calls...`);
+
+    for (const callId of callIds) {
+        try {
+            await makeCall(callId);
+            // Small delay between calls to avoid overwhelming the system
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        } catch (error) {
+            console.error(`Failed to make call ${callId}:`, error);
+        }
+    }
+
+    clearSelection();
+    console.log(`✅ Batch call initiation complete`);
+}
+
 window.unarchiveCall = unarchiveCall;
 window.toggleArchiveCall = toggleArchiveCall;
 window.showDeleteConfirmation = showDeleteConfirmation;
@@ -3775,6 +3929,18 @@ window.showColumnToggleModal = showColumnToggleModal;
 window.closeColumnToggleModal = closeColumnToggleModal;
 window.applyColumnVisibility = applyColumnVisibility;
 window.resetColumnVisibility = resetColumnVisibility;
+window.handleRowSelection = handleRowSelection;
+window.toggleSelectAll = toggleSelectAll;
+window.clearSelection = clearSelection;
+window.batchArchive = batchArchive;
+window.closeBatchArchiveModal = closeBatchArchiveModal;
+window.confirmBatchArchive = confirmBatchArchive;
+window.batchDelete = batchDelete;
+window.closeBatchDeleteModal = closeBatchDeleteModal;
+window.confirmBatchDelete = confirmBatchDelete;
+window.batchMakeCalls = batchMakeCalls;
+window.closeBatchMakeCallsModal = closeBatchMakeCallsModal;
+window.confirmBatchMakeCalls = confirmBatchMakeCalls;
 
 // Apply saved column visibility on page load
 document.addEventListener('DOMContentLoaded', () => {

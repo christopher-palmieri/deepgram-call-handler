@@ -247,11 +247,44 @@
                 <button class="refresh-btn" onclick="testRealtimeConnection()" style="margin-left: 10px;">Test Realtime</button>
                 -->
             </div>
-            
+
+            <!-- Batch Actions Bar -->
+            <div id="batchActionsBar" class="batch-actions-bar" style="display: none;">
+                <div class="batch-info">
+                    <span id="selectedCount">0</span> selected
+                </div>
+                <div class="batch-buttons">
+                    <button class="batch-btn batch-play" onclick="batchMakeCalls()" title="Make calls for selected rows">
+                        <svg class="batch-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M8 5v14l11-7L8 5z" fill="currentColor"/>
+                        </svg>
+                        Play
+                    </button>
+                    <button class="batch-btn batch-archive" onclick="batchArchive()" title="Archive selected rows">
+                        <svg class="batch-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z" fill="currentColor"/>
+                        </svg>
+                        Archive
+                    </button>
+                    <button class="batch-btn batch-delete" onclick="batchDelete()" title="Delete selected rows">
+                        <svg class="batch-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/>
+                        </svg>
+                        Delete
+                    </button>
+                    <button class="batch-btn batch-cancel" onclick="clearSelection()">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+
             <div class="calls-table">
                 <table>
                     <thead>
                         <tr>
+                            <th class="checkbox-col">
+                                <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this.checked)" title="Select all visible rows">
+                            </th>
                             <th>Actions</th>
                             <th data-sort="employee_name" class="sortable" data-column="employee">Employee <span class="sort-arrow"></span></th>
                             <th data-sort="appointment_time" class="sortable" data-column="appointment">Appointment <span class="sort-arrow"></span></th>
@@ -273,7 +306,7 @@
                     </thead>
                     <tbody id="callsTableBody">
                         <tr>
-                            <td colspan="17" class="empty-table">Loading calls...</td>
+                            <td colspan="18" class="empty-table">Loading calls...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -744,6 +777,69 @@
             <div class="modal-footer">
                 <button class="modal-btn secondary" onclick="resetColumnVisibility()">Reset to Default</button>
                 <button class="modal-btn primary" onclick="applyColumnVisibility()">Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Batch Archive Confirmation Modal -->
+    <div id="batchArchiveModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>Archive Calls</h3>
+                <button class="modal-close" onclick="closeBatchArchiveModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="text-align: center; padding: 24px 16px;">
+                    <div style="font-size: 48px; margin-bottom: 16px;">📦</div>
+                    <h4 style="margin: 0 0 8px 0; color: #1f2937;">Archive <span id="archiveCount"></span> call(s)?</h4>
+                    <p style="margin: 8px 0 0 0; color: #666; font-size: 14px;">Archived calls can be restored later from the Archive filter.</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" onclick="closeBatchArchiveModal()">Cancel</button>
+                <button class="modal-btn primary" onclick="confirmBatchArchive()">Archive</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Batch Delete Confirmation Modal -->
+    <div id="batchDeleteModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>Delete Calls</h3>
+                <button class="modal-close" onclick="closeBatchDeleteModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="text-align: center; padding: 24px 16px;">
+                    <div style="font-size: 48px; color: #dc2626; margin-bottom: 16px;">⚠️</div>
+                    <h4 style="margin: 0 0 8px 0; color: #1f2937;">Delete <span id="deleteCount"></span> call(s)?</h4>
+                    <p style="margin: 16px 0 0 0; color: #dc2626; font-weight: 600; font-size: 14px;">This action cannot be undone.</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" onclick="closeBatchDeleteModal()">Cancel</button>
+                <button class="modal-btn primary" onclick="confirmBatchDelete()" style="background-color: #dc2626;">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Batch Make Calls Confirmation Modal -->
+    <div id="batchMakeCallsModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>Make Calls</h3>
+                <button class="modal-close" onclick="closeBatchMakeCallsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="text-align: center; padding: 24px 16px;">
+                    <div style="font-size: 48px; margin-bottom: 16px;">📞</div>
+                    <h4 style="margin: 0 0 8px 0; color: #1f2937;">Initiate <span id="makeCallsCount"></span> call(s)?</h4>
+                    <p style="margin: 8px 0 0 0; color: #666; font-size: 14px;">Calls will be initiated one after another.</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" onclick="closeBatchMakeCallsModal()">Cancel</button>
+                <button class="modal-btn primary" onclick="confirmBatchMakeCalls()">Make Calls</button>
             </div>
         </div>
     </div>
