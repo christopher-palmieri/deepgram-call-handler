@@ -482,12 +482,6 @@ function createCallRowHtml(call) {
                     <path d="M8 5v14l11-7L8 5z" fill="currentColor"/>
                 </svg>
             </button>
-            <button class="kill-call-btn" onclick="event.stopPropagation(); killCall('${call.id}')" title="Kill Live Call">
-                <svg class="kill-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M6.62 10.79c1.44 2.83 3.76 5.15 6.59 6.59l2.2-2.2c.28-.28.67-.36 1.02-.25 1.12.37 2.32.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" fill="currentColor"/>
-                    <path d="M21 6l-6 6M21 12l-6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-            </button>
             <button class="edit-classification-btn" onclick="event.stopPropagation(); showClassificationModal('${call.id}')" title="Edit Classification">
                 <svg class="edit-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>
@@ -499,6 +493,12 @@ function createCallRowHtml(call) {
                         ? '<path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z" fill="currentColor"/>'
                         : '<path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 9l5.5 5.5H14v2h-4v-2H6.5L12 9zM5.12 5l.81-1h12l.94 1H5.12z" fill="currentColor"/>'
                     }
+                </svg>
+            </button>
+            <button class="kill-call-btn" onclick="event.stopPropagation(); killCall('${call.id}')" title="Kill Live Call">
+                <svg class="kill-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M6.62 10.79c1.44 2.83 3.76 5.15 6.59 6.59l2.2-2.2c.28-.28.67-.36 1.02-.25 1.12.37 2.32.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" fill="white"/>
+                    <path d="M21 6l-6 6M21 12l-6-6" stroke="white" stroke-width="2" stroke-linecap="round"/>
                 </svg>
             </button>
             <button class="delete-call-btn" onclick="event.stopPropagation(); showDeleteConfirmation('${call.id}', '${call.employee_name}', '${call.clinic_name}')" title="Delete Call">
