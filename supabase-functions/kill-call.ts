@@ -111,7 +111,7 @@ serve(async (req) => {
         call_status: 'terminated',
         updated_at: new Date().toISOString()
       })
-      .eq('call_sid', callSid)
+      .eq('call_id', callSid)
       .select('id, pending_call_id')
 
     if (sessionError) {
