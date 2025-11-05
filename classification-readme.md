@@ -417,6 +417,50 @@ calling → retry_pending (retry_count = 1) → calling → retry_pending (retry
 └─> Stores complete history in call_sessions
 ```
 
+#### VAPI Tool: fetchPendingCallData
+
+VAPI uses a custom tool to retrieve complete pending call information during the conversation. This tool performs a lookup into the Supabase `pending_calls` table.
+
+**Tool Configuration:**
+- **Tool Name**: `fetchPendingCallData`
+- **Description**: "This tool helps to retrieve important information about the task you are calling about. It performs a look up into a supabase table."
+- **Endpoint**: `GET /api/twilio/get-pending-call?id={{pendingcallid}}`
+- **Authentication**: Custom header `x-vapi-shared-secret` (value from `VAPI_SHARED_SECRET` env var)
+- **Request Parameter**: `pendingcallid` (string) - The pending call UUID
+
+**Response Fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | String | ✅ Yes | Pending call UUID |
+| `exam_id` | String | ✅ Yes | Exam identifier |
+| `procedures` | String | ✅ Yes | Medical procedures requested |
+| `client_name` | String | ✅ Yes | Client/employer name |
+| `clinic_name` | String | ✅ Yes | Clinic name being called |
+| `employee_dob` | String | ✅ Yes | Employee date of birth |
+| `employee_name` | String | ✅ Yes | Employee full name |
+| `type_of_visit` | String | ✅ Yes | Type of medical visit |
+| `appointment_time` | String | ✅ Yes | Appointment date/time |
+| `employee_address` | String | ❌ No | Employee address (optional) |
+| `employee_phone_number` | String | ❌ No | Employee phone number (optional) |
+| `clinic_scheduling_rep` | String | ✅ Yes | Clinic scheduling representative |
+| `clinic_provider_address` | String | ✅ Yes | Clinic provider address |
+
+**Usage in VAPI Workflow:**
+1. VAPI receives the call with `pendingcallid` in SIP headers
+2. During conversation, VAPI calls `fetchPendingCallData` tool to retrieve full context
+3. VAPI uses retrieved data to:
+   - Provide employee information to clinic
+   - Confirm appointment details
+   - Request medical records for specific procedures
+   - Verify clinic scheduling representative
+4. Optional fields (`employee_address`, `employee_phone_number`) may be null - VAPI handles gracefully
+
+**Security:**
+- Endpoint requires `x-vapi-shared-secret` header matching `VAPI_SHARED_SECRET` environment variable
+- Returns 401 Unauthorized if secret is missing or incorrect
+- Returns 404 Not Found if pending call ID doesn't exist
+
 ### 6. DISCONNECT DETECTION (CSC Webhook)
 ```
 ├─> Twilio sends call status on completion
@@ -461,6 +505,7 @@ CREATE TABLE pending_calls (
   last_attempt_at TIMESTAMPTZ,            -- When last attempted
   workflow_metadata JSONB DEFAULT '{}',   -- Latest state + classification_successful flag
   is_active BOOLEAN DEFAULT true,         -- Archive status (false = archived)
+  tags JSONB DEFAULT '[]'::jsonb,         -- Custom tags for tracking/testing (e.g., ["test", "priority"])
 
   -- Call results (overwritten with each attempt)
   call_status TEXT,
@@ -476,6 +521,46 @@ CREATE TABLE pending_calls (
 
 -- Index for efficient active call queries
 CREATE INDEX idx_pending_calls_is_active ON pending_calls(is_active) WHERE is_active = true;
+
+-- Index for efficient tag queries
+CREATE INDEX idx_pending_calls_tags ON pending_calls USING GIN (tags);
+```
+
+**Tags Usage:**
+
+The `tags` column provides flexible labeling for tracking, testing, and organizing pending calls. Tags are stored as a JSONB array of strings.
+
+**Common Use Cases:**
+- Testing: `["test", "test-1234", "staging"]`
+- Priority tracking: `["high-priority", "urgent"]`
+- Agent testing: `["brandon-agent", "new-prompt"]`
+- Environment: `["production", "dev", "qa"]`
+
+**Query Examples:**
+```sql
+-- Find calls with specific tag
+SELECT * FROM pending_calls WHERE tags @> '["test-1234"]';
+
+-- Find calls with any of multiple tags
+SELECT * FROM pending_calls WHERE tags ?| array['high-priority', 'urgent'];
+
+-- Find calls with both tags
+SELECT * FROM pending_calls WHERE tags @> '["test", "brandon-agent"]';
+
+-- Add a tag to existing call
+UPDATE pending_calls
+SET tags = tags || '["new-tag"]'::jsonb
+WHERE id = 'your-call-id';
+
+-- Remove a tag
+UPDATE pending_calls
+SET tags = tags - 'old-tag'
+WHERE id = 'your-call-id';
+
+-- Replace all tags
+UPDATE pending_calls
+SET tags = '["tag1", "tag2"]'::jsonb
+WHERE id = 'your-call-id';
 ```
 
 ### 2. call_sessions Table (with Complete History)

@@ -156,7 +156,7 @@ async function loadPendingCalls(append = false) {
     } catch (error) {
         console.error('Error loading calls:', error);
         document.getElementById('callsTableBody').innerHTML =
-            '<tr><td colspan="12" class="empty-table">Error loading calls</td></tr>';
+            '<tr><td colspan="13" class="empty-table">Error loading calls</td></tr>';
     }
 }
 
@@ -192,7 +192,7 @@ function renderCallsTable() {
     filteredCalls = applySearch(filteredCalls);
     
     if (filteredCalls.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="12" class="empty-table">No calls found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="13" class="empty-table">No calls found</td></tr>';
         return;
     }
     
@@ -500,7 +500,84 @@ function createCallRowHtml(call) {
         <td>${formattedPhone}</td>
         <td>${lastAttempt}</td>
         <td>${nextAction}</td>
+        <td class="tags-cell" onclick="event.stopPropagation(); editTags('${call.id}', this)">${renderTags(call.tags)}</td>
     </tr>`;
+}
+
+// Render tags as badges
+function renderTags(tags) {
+    if (!tags || !Array.isArray(tags) || tags.length === 0) {
+        return '<span class="tags-placeholder">Click to add tags</span>';
+    }
+    return tags.map(tag => `<span class="tag-badge">${tag}</span>`).join(' ');
+}
+
+// Edit tags inline
+function editTags(callId, cell) {
+    const call = allCalls.find(c => c.id === callId);
+    if (!call) return;
+
+    const currentTags = call.tags || [];
+    const tagsString = Array.isArray(currentTags) ? currentTags.join(', ') : '';
+
+    // Replace cell content with input
+    cell.innerHTML = `
+        <input type="text"
+               class="tags-input"
+               value="${tagsString}"
+               placeholder="tag1, tag2, tag3"
+               onblur="saveTags('${callId}', this.value, this.parentElement)"
+               onkeypress="if(event.key === 'Enter') { this.blur(); }"
+               style="width: 100%; padding: 4px; border: 1px solid #3b82f6; border-radius: 4px; outline: none;">
+    `;
+
+    // Focus the input
+    const input = cell.querySelector('.tags-input');
+    input.focus();
+    input.select();
+}
+
+// Save tags to database
+async function saveTags(callId, tagsString, cell) {
+    // Parse the tags string
+    const tagsArray = tagsString
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(tag => tag.length > 0);
+
+    try {
+        // Update in database
+        const { error } = await supabase
+            .from('pending_calls')
+            .update({ tags: tagsArray })
+            .eq('id', callId);
+
+        if (error) {
+            console.error('Error updating tags:', error);
+            alert('Failed to update tags: ' + error.message);
+            // Revert to original display
+            const call = allCalls.find(c => c.id === callId);
+            cell.innerHTML = renderTags(call?.tags);
+            return;
+        }
+
+        // Update local cache
+        const call = allCalls.find(c => c.id === callId);
+        if (call) {
+            call.tags = tagsArray;
+        }
+
+        // Update display
+        cell.innerHTML = renderTags(tagsArray);
+        console.log('✅ Tags updated successfully:', tagsArray);
+
+    } catch (error) {
+        console.error('Error saving tags:', error);
+        alert('Failed to save tags');
+        // Revert to original display
+        const call = allCalls.find(c => c.id === callId);
+        cell.innerHTML = renderTags(call?.tags);
+    }
 }
 
 // Update connection status indicator

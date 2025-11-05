@@ -70,7 +70,7 @@ export default async function handler(req, res) {
   if (pendingCallId) {
     const { data, error } = await supabase
       .from('pending_calls')
-      .select('employee_name, employee_dob, appointment_time')
+      .select('employee_name, employee_dob, appointment_time, employee_phone_number, employee_address')
       .eq('id', pendingCallId)
       .single();
     if (data) {
@@ -140,6 +140,12 @@ export default async function handler(req, res) {
         hour12: true
       }).format(new Date(pendingCallData.appointment_time));
       customHeaders['appointment_time'] = readableAppt;
+    }
+    if (pendingCallData.employee_phone_number) {
+      customHeaders['employee_phone_number'] = pendingCallData.employee_phone_number;
+    }
+    if (pendingCallData.employee_address) {
+      customHeaders['employee_address'] = pendingCallData.employee_address;
     }
   }
 

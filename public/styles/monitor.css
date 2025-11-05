@@ -3261,3 +3261,36 @@ body:has(.login-container) {
     opacity: 0.9;
     margin-top: 2px;
 }
+
+/* Tags Styling */
+.tags-cell {
+    cursor: pointer;
+    padding: 8px;
+    min-width: 150px;
+}
+
+.tags-cell:hover {
+    background-color: #f3f4f6;
+}
+
+.tag-badge {
+    display: inline-block;
+    background-color: #3b82f6;
+    color: white;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    margin: 2px;
+    white-space: nowrap;
+}
+
+.tags-placeholder {
+    color: #9ca3af;
+    font-style: italic;
+    font-size: 13px;
+}
+
+.tags-input {
+    font-family: inherit;
+    font-size: 14px;
+}
