@@ -1666,7 +1666,8 @@ function applySearch(calls) {
             formatPhoneNumber(call.phone),
             formatDate(call.appointment_time),
             formatDate(call.last_attempt_at),
-            formatDate(call.next_action_at)
+            formatDate(call.next_action_at),
+            Array.isArray(call.tag) ? call.tag.join(' ') : ''
         ];
 
         return searchableFields.some(field => {

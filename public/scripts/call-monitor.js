@@ -68,6 +68,14 @@ function formatPhoneNumber(phone) {
     return phone; // Return original if can't format
 }
 
+// Render tags as badges
+function renderTags(tags) {
+    if (!tags || !Array.isArray(tags) || tags.length === 0) {
+        return '<span style="color: #9ca3af; font-style: italic;">No tags</span>';
+    }
+    return tags.map(tag => `<span class="tag-badge">${tag}</span>`).join(' ');
+}
+
 // Helper function to format structured data for display
 function formatStructuredData(data) {
     if (!data || typeof data !== 'object') return '';
@@ -216,7 +224,10 @@ async function loadCallDetails(pendingCallId) {
         workflowElement.innerHTML = `<span class="workflow-badge workflow-${pendingCall.workflow_state || 'pending'}">${pendingCall.workflow_state || '-'}</span>`;
 
         document.getElementById('infoSuccessEval').innerHTML = getSuccessBadge(pendingCall.success_evaluation);
-        
+
+        // Display tags
+        document.getElementById('infoTags').innerHTML = renderTags(pendingCall.tag);
+
         // Display combined summary and structured data
         if (pendingCall.summary || pendingCall.structured_data) {
             document.getElementById('callDetailsSection').style.display = 'block';
@@ -533,7 +544,10 @@ async function handlePendingCallUpdate(updatedPendingCall) {
 
     // Update success evaluation
     document.getElementById('infoSuccessEval').innerHTML = getSuccessBadge(updatedPendingCall.success_evaluation);
-    
+
+    // Update tags
+    document.getElementById('infoTags').innerHTML = renderTags(updatedPendingCall.tag);
+
     // Update combined summary and structured data
     if (updatedPendingCall.summary || updatedPendingCall.structured_data) {
         document.getElementById('callDetailsSection').style.display = 'block';
