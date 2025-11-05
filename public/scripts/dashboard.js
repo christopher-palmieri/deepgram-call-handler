@@ -2738,7 +2738,7 @@ const COLUMN_MAPPINGS = {
     'exam_id': ['ExamIDExternal', 'Exam ID', 'ExamID', 'ID'],
     'employee_name': ['FullName', 'Employee Name', 'Name', 'Employee'],
     'employee_dob': ['Birthdate', 'DOB', 'Date of Birth', 'Birth Date'],
-    'employee_phone_number': ['EmployeePhone', 'Employee Phone', 'Employee Phone Number', 'Patient Phone', 'Phone Number'],
+    'employee_phone_number': ['EmployeePhone', 'Employee Phone', 'Employee Phone Number', 'Patient Phone', 'Patient Phone Number', 'Phone Number'],
     'employee_address': ['EmployeeAddress', 'Employee Address', 'Patient Address', 'Home Address'],
     'client_name': ['Client', 'Client Name', 'Company'],
     'appointment_time': ['ExamDateTime', 'Appointment Time', 'Appointment', 'DateTime', 'Date Time'],
