@@ -197,9 +197,12 @@ function renderCallsTable() {
     }
     
     tbody.innerHTML = filteredCalls.map(call => createCallRowHtml(call)).join('');
-    
+
     // Re-initialize column resizing after table update
     reinitializeColumnResizing();
+
+    // Reapply column visibility settings after table re-render
+    applySavedColumnVisibility();
 }
 
 // View call details
